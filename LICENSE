@@ -1,21 +1,50 @@
-MIT License
+【利用許諾契約書（EULA）】
+本ソフトウェア（以下「本ソフトウェア」）は、以下の条件に基づき利用を許諾します。本ソフトウェアを使用することで、利用者は本契約書に同意したものとみなします。
 
-Copyright (c) 2026 yukihimechan
+■ 第1条（著作権）
+本ソフトウェアの著作権は、著作者に帰属します。本ソフトウェアは著作権法その他の法律により保護されており、利用者は著作権者の権利を尊重しなければなりません。
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+■ 第2条（利用条件）
+1. 本ソフトウェアは、個人・法人、また商用・非商用を問わず無償で利用できます。
+2. 本ソフトウェアを使用して作成されたMarkdown文書やSVG画像については、利用者がすべての権利を有し、商用・非商用問わず自由に使用できるものとします。
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+【補足】法人の方が業務で利用される場合は、連絡用メールアドレスを添えて掲示板へご連絡いただけると助かります。（メールアドレスは表示されません）
+連絡先：https://www.cp9.jp/markdown_editor/bbs/threads/1
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+■ 第3条（禁止事項）
+次の行為を禁止します。
+1. 本ソフトウェアの再配布（ただし、組織内での複製・配布は可能とします）
+2. 本ソフトウェアのソースコードを利用して、別のソフトウェアを作成すること
+3. 著作権表示および本利用許諾契約書を削除すること
+
+■ 第4条（免責事項）
+1. 本ソフトウェアは 「現状有姿（AS IS）」 で提供されます。
+2. 本ソフトウェアの使用または使用不能により生じたいかなる損害についても、著作権者は一切の責任を負わないものとします。
+
+【End User License Agreement (EULA)】
+End User License Agreement (EULA)
+This End User License Agreement (hereinafter referred to as this “Agreement”) governs the use of this software (hereinafter referred to as the “Software”).
+By using the Software, you are deemed to have agreed to the terms of this Agreement.
+
+Article 1 (Copyright)
+The copyright of the Software belongs to the author.
+The Software is protected by copyright laws and other applicable laws, and users must respect the rights of the copyright holder.
+
+Article 2 (Terms of Use)
+1. The Software may be used free of charge for both personal and commercial purposes.
+2. Users retain all rights to the Markdown documents and SVG images created using the Software, and may use them freely for any purpose, whether commercial or non-commercial.
+
+[Note] If you are a corporate user using the Software for business purposes, it would be highly appreciated if you could notify us on the bulletin board along with a contact email address. (Your email address will not be displayed to the public.)
+Contact: https://www.cp9.jp/markdown_editor/bbs/threads/1
+
+Article 3 (Prohibited Acts)
+The following acts are prohibited:
+1. Redistribution of the Software (However, copying and distributing within the same organization is permitted).
+2. Creating other software using the source code of the Software.
+3. Removing or altering copyright notices or this Agreement.
+
+Article 4 (Disclaimer)
+1. The Software is provided “AS IS”, without any warranty of any kind.
+2. The author shall not be liable for any damages arising from the use or inability to use the Software.
+
+© 2026 Kusano Yuki. All rights reserved.
