@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Paint Editor</title>
+  <link rel="stylesheet" href="lib/paint/paint.css">
+  <link rel="stylesheet" href="lib/ColorPicker/color-picker.css">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #1e1e1e;
+      overflow: hidden;
+    }
+    #main-container {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="main-container"></div>
+
+  <!-- Scripts -->
+  <script src="lib/paint/paint.js"></script>
+  <script src="lib/ColorPicker/color-picker.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', async () => {
+      const qs = new URLSearchParams(window.location.search);
+      const filepath = qs.get('filepath');
+      const transferKey = qs.get('transfer');
+
+      const mainContainer = document.getElementById('main-container');
+
+      const fsPaint = new PaintLibrary({
+        container: mainContainer,
+        width: window.innerWidth - 40,
+        height: window.innerHeight - 80,
+        toolbar: true,
+        toolbarItems: {
+          savePng: false, 
+          save: false
+        },
+        actionButtons: {
+          cancelText: '閉じる',
+          saveText: '保存 (上書き)',
+          onCancel: () => {
+            window.close();
+          },
+          onSave: async (editedBase64) => {
+            const tauri = window.__TAURI__;
+            
+            // Base64 -> Uint8Array 変換ヘルパー
+            const base64ToBytes = (b64) => {
+              const base64Data = b64.replace(/^data:image\/\w+;base64,/, '');
+              const binary_string = window.atob(base64Data);
+              const len = binary_string.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) {
+                  bytes[i] = binary_string.charCodeAt(i);
+              }
+              return bytes;
+            };
+
+            if (tauri && filepath && !filepath.startsWith('http') && !filepath.startsWith('data:')) {
+              try {
+                const { fs } = tauri;
+                let decodedPath = decodeURIComponent(filepath);
+                const bytes = base64ToBytes(editedBase64);
+                await fs.writeBinaryFile(decodedPath, bytes);
+                alert("上書き保存しました");
+              } catch(e) {
+                console.error(e);
+                alert("上書き保存に失敗しました: " + e.message);
+              }
+            } else if (transferKey) {
+               sessionStorage.setItem(transferKey + '_result', editedBase64);
+               alert("保存しました。元の画面に戻って「再読み込み」を押してください。");
+            } else {
+               const dlName = filepath ? filepath.split(/[/\\]/).pop() : 'edited.png';
+               fsPaint.downloadImage(dlName);
+            }
+          }
+        },
+        onColorPickerRequest: (currentColor, anchorEl) => {
+           fsColorPicker.show(anchorEl);
+        }
+      });
+
+      const fsColorPicker = new ColorPickerUI({
+        color: '#000000',
+        isPopup: true,
+        layout: 'horizontal',
+        onChange: (color) => {
+          fsPaint.setColor(color.toHexString(true));
+        }
+      });
+
+      // 画面リサイズ対応
+      let resizeTimer;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            // PaintLibrary側でリサイズ処理があれば呼ぶが、描画canvasは固定であるため全体のセンタリングのみが働く
+        }, 200);
+      });
+
+      // 画像のロード処理
+      if (filepath || transferKey) {
+        try {
+          if (transferKey) {
+            const dataUrl = sessionStorage.getItem(transferKey);
+            if (dataUrl) {
+              await fsPaint.loadImage(dataUrl);
+            } else if (filepath) {
+              await fsPaint.loadImage(decodeURIComponent(filepath));
+            }
+          } else if (filepath) {
+            await fsPaint.loadImage(decodeURIComponent(filepath));
+          }
+        } catch(e) {
+           console.error("画像のロードに失敗:", e);
+           alert("画像の読み込みに失敗しました");
+        }
+      }
+    });
+  </script>
+</body>
+</html>
