@@ -1,0 +1,64 @@
+/* Settings Dialog Tabs */
+.cfg-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 15px;
+    gap: 2px;
+}
+
+.cfg-tab-btn {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 14px;
+    color: #666;
+    transition: all 0.2s;
+}
+
+body.dark-theme .cfg-tab-btn {
+    color: #aaa;
+}
+
+.cfg-tab-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--primary);
+}
+
+body.dark-theme .cfg-tab-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.cfg-tab-btn.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+    font-weight: 600;
+}
+
+body.dark-theme .cfg-tab-btn.active {
+    color: #569cd6;
+    /* Light Blue for dark theme */
+    border-bottom-color: #569cd6;
+}
+
+.cfg-tab-content {
+    display: none;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.cfg-tab-content.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

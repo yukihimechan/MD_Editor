@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Editor (Offline)</title>
+
+    <!-- CodeMirror 6 (Bundled) -->
+    <script charset="utf-8" src="lib/codemirror6/codemirror.bundle.js"></script>
+
+    <!-- Paper.js (Boolean Operations) -->
+    <script charset="utf-8" src="lib/paper-full.min.js"></script>
+
+    <!-- opentype.js (Text to Path) -->
+    <script charset="utf-8" src="lib/opentype.min.js"></script>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/outline.css">
+    <link rel="stylesheet" href="css/settings_tabs.css">
+    <link rel="stylesheet" href="css/svg_expanded_view.css">
+    <link rel="stylesheet" id="prism-theme" href="lib/prism/prism.min.css">
+    <link rel="stylesheet" href="lib/ColorPicker/color-picker.css">
+    <link rel="stylesheet" href="lib/paint/paint.css">
+    <link rel="stylesheet" href="lib/katex/katex.min.css">
+    <link rel="stylesheet" href="lib/texmath.css">
+    <link rel="stylesheet" href="css/slide.css">
+    <link rel="stylesheet" href="css/svg_toolbar_theme.css">
+    <style>
+        /* ペイントツールオーバーレイより前面にカラーピッカーを表示させる */
+        .cp-wrapper.cp-is-popup { z-index: 100010 !important; }
+    </style>
+</head>
+
+<body>
+    <!-- SVG Icons (Hidden) -->
+    <!-- [NEW] Paint Editor Overlay (参考実装と同じ二層構造: 半透明背景 + 中央コンテナ) -->
+    <div id="paint-overlay-bg" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:99990; align-items:center; justify-content:center; flex-direction:column;">
+        <div id="paint-overlay-container" style="background:#232323; border-radius:10px; border:1px solid #444; overflow:hidden; position:relative; resize:both;"></div>
+    </div>
+
+    <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+        <!-- Open File Icon -->
+        <symbol id="icon-open" viewBox="0 0 24 24">
+            <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z" />
+        </symbol>
+        <!-- Save Icon -->
+        <symbol id="icon-save" viewBox="0 0 24 24">
+            <path
+                d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm2 16H5V5h11.17L19 7.83V19zm-7-7c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+        </symbol>
+        <!-- Print Icon -->
+        <symbol id="icon-print" viewBox="0 0 24 24">
+            <path
+                d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z" />
+        </symbol>
+        <!-- PDF Icon -->
+        <symbol id="icon-pdf" viewBox="0 0 24 24">
+            <path
+                d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm12 6V9c0-.55-.45-1-1-1h-2v5h2c.55 0 1-.45 1-1zm-2-3h1v3h-1V9zM9 9H7v5h2c.55 0 1-.45 1-1v-3c0-.55-.45-1-1-1zm0 4H8v-3h1v3z" />
+        </symbol>
+        <!-- File Text Icon -->
+        <symbol id="icon-file-text" viewBox="0 0 24 24">
+            <path
+                d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z" />
+        </symbol>
+        <!-- Export Icon -->
+        <symbol id="icon-export" viewBox="0 0 24 24">
+            <path
+                d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z" />
+        </symbol>
+        <!-- Help Icon -->
+        <symbol id="icon-help" viewBox="0 0 24 24">
+            <path
+                d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" />
+        </symbol>
+        <!-- Undo Icon -->
+        <symbol id="icon-undo" viewBox="0 0 24 24">
+            <path
+                d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z" />
+        </symbol>
+        <!-- Redo Icon -->
+        <symbol id="icon-redo" viewBox="0 0 24 24">
+            <path
+                d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z" />
+        </symbol>
+        <!-- Settings Icon -->
+        <symbol id="icon-settings" viewBox="0 0 24 24">
+            <path
+                d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+        </symbol>
+        <!-- View Split Icon -->
+        <symbol id="icon-view-split" viewBox="0 0 24 24">
+            <path d="M3 3h8v18H3V3zm10 0h8v18h-8V3z" />
+        </symbol>
+        <!-- View Preview Icon -->
+        <symbol id="icon-view-preview" viewBox="0 0 24 24">
+            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z" />
+        </symbol>
+        <!-- Outline Icon -->
+        <symbol id="icon-outline" viewBox="0 0 24 24">
+            <path d="M3 9h14V7H3v2zm0 4h14v-2H3v2zm0 4h14v-2H3v2zm16 0h2v-2h-2v2zm0-10v2h2V7h-2zm0 6h2v-2h-2v2z" />
+        </symbol>
+        <!-- Search Icon -->
+        <symbol id="icon-search" viewBox="0 0 24 24">
+            <path
+                d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+        </symbol>
+        <!-- Menu Icon (File Menu) -->
+        <symbol id="icon-menu" viewBox="0 0 24 24">
+            <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" />
+        </symbol>
+        <!-- Slide Icon -->
+        <symbol id="icon-slide" viewBox="0 0 24 24">
+            <path
+                d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM10 8l6 4-6 4V8z" />
+        </symbol>
+        <!-- SVG List Icon -->
+        <symbol id="icon-svg-list" viewBox="0 0 24 24">
+            <path
+                d="M12 2L4 5v14l8 3 8-3V5l-8-3zm0 2.8L18 7.1v1.6l-6-2.2-6 2.2V7.1l6-2.3zM6 17.5v-6.3l6 2.2 6-2.2v6.3l-6 2.2-6-2.2z" />
+        </symbol>
+        <!-- SVGLIST Requirements Assets -->
+        <symbol id="sym-layer" viewBox="0 0 24 24">
+            <rect x="4" y="6" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"></rect>
+            <rect x="6" y="8" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.1"
+                opacity="0.7"></rect>
+            <rect x="8" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1"
+                opacity="0.5"></rect>
+        </symbol>
+        <symbol id="sym-image" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
+            <polyline points="21 15 16 10 5 21" fill="none" stroke="currentColor" stroke-width="1.5"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="sym-group" viewBox="0 0 24 24">
+            <rect x="4" y="4" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <rect x="14" y="4" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <rect x="4" y="14" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <rect x="14" y="14" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" />
+        </symbol>
+        <symbol id="sym-shape" viewBox="0 0 24 24">
+            <rect x="5" y="5" width="10" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <circle cx="14" cy="14" r="5" fill="none" stroke="currentColor" stroke-width="1.5" />
+        </symbol>
+        <symbol id="sym-chevron-right" viewBox="0 0 24 24">
+            <polyline points="8,4 16,12 8,20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round"></polyline>
+        </symbol>
+        <symbol id="sym-chevron-down" viewBox="0 0 24 24">
+            <polyline points="4,8 12,16 20,8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round"></polyline>
+        </symbol>
+        <symbol id="sym-eye" viewBox="0 0 24 24">
+            <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.6">
+            </path>
+            <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"></circle>
+        </symbol>
+        <symbol id="sym-eye-off" viewBox="0 0 24 24">
+            <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"
+                opacity="0.55"></path>
+            <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.55"></circle>
+            <line x1="4" y1="20" x2="20" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+        </symbol>
+        <symbol id="sym-lock" viewBox="0 0 24 24">
+            <rect x="4.5" y="10.5" width="15" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6">
+            </rect>
+            <path d="M8,10V7.5a4,4 0 1 1 8,0V10" fill="none" stroke="currentColor" stroke-width="1.6"></path>
+        </symbol>
+        <symbol id="sym-lock-open" viewBox="0 0 24 24">
+            <rect x="4.5" y="10.5" width="15" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6">
+            </rect>
+            <path d="M10,10V7.5a4,4 0 1 1 8,0" fill="none" stroke="currentColor" stroke-width="1.6"></path>
+        </symbol>
+        <symbol id="sym-copy" viewBox="0 0 24 24">
+            <rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor"
+                stroke-width="1.5" />
+        </symbol>
+        <symbol id="sym-paste" viewBox="0 0 24 24">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" fill="none"
+                stroke="currentColor" stroke-width="1.5" />
+            <rect x="8" y="2" width="8" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" />
+        </symbol>
+        <symbol id="sym-delete" viewBox="0 0 24 24">
+            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none"
+                stroke="currentColor" stroke-width="1.5" />
+        </symbol>
+        <symbol id="sym-group-cmd" viewBox="0 0 24 24">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor"
+                stroke-width="1.5" />
+        </symbol>
+        <symbol id="sym-ungroup-cmd" viewBox="0 0 24 24">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <path d="M2 12l10 5 10-5M2 17l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.5"
+                stroke-dasharray="2,2" />
+        </symbol>
+    </svg>
+
+    <!-- Header / Toolbar -->
+    <header data-tauri-drag-region>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <h1 id="app-title" style="margin: 0; font-size: 16px; font-weight: 600; color: #333;">Markdown Editor</h1>
+            <!-- SVGモードバッジ (非表示がデフォルト、updateTitle()から制御) -->
+            <span id="svg-mode-badge" title="SVGファイル編集モードで起動しています" style="display: none;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+                SVG
+            </span>
+        </div>
+
+        <!-- 左寄せのボタン群 -->
+        <nav aria-label="Editor toolbar">
+            <button id="btn-file-menu" title="ファイルメニュー">
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-menu" />
+                </svg>
+                <span class="btn-label" data-i18n="toolbar.file">ファイル</span>
+            </button>
+
+            <button id="btn-search" title="検索・置換 (Ctrl+F)">
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-search" />
+                </svg>
+                <span class="btn-label" data-i18n="toolbar.search">検索</span>
+            </button>
+
+            <div style="width: 1px; height: 24px; background: #ddd; margin: 0 4px;"></div>
+
+            <button id="btn-undo" title="元に戻す (Ctrl+Z)" disabled>
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-undo" />
+                </svg>
+            </button>
+
+            <button id="btn-redo" title="やり直し (Ctrl+Y)" disabled>
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-redo" />
+                </svg>
+            </button>
+
+            <div style="width: 1px; height: 24px; background: #ddd; margin: 0 4px;"></div>
+
+            <button id="btn-outline" title="アウトライン・レイヤー切替">
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-outline" />
+                </svg>
+                <span class="btn-label" data-i18n="toolbar.outline">アウトライン</span>
+            </button>
+
+            <button id="btn-toggle-view" title="表示モード切替">
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-view-split" />
+                </svg>
+                <span class="btn-label" id="view-label" data-i18n="toolbar.viewToggle">表示切替</span>
+            </button>
+
+            <button id="btn-slide-menu" title="スライド (F10)">
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-slide" />
+                </svg>
+                <span class="btn-label" data-i18n="toolbar.slide">スライド</span>
+            </button>
+        </nav>
+
+        <!-- 右寄せのボタン群 -->
+        <nav aria-label="Settings toolbar" style="display: flex; gap: 8px; margin-left: auto;">
+            <button id="btn-export-menu" title="エクスポート">
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-export" />
+                </svg>
+                <span class="btn-label" data-i18n="toolbar.export">エクスポート</span>
+            </button>
+
+            <button id="btn-config" title="設定">
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-settings" />
+                </svg>
+                <span class="btn-label" data-i18n="toolbar.settings">設定</span>
+            </button>
+
+            <button id="btn-help" title="ヘルプ">
+                <svg class="icon" width="18" height="18">
+                    <use href="#icon-help" />
+                </svg>
+                <span class="btn-label" data-i18n="toolbar.help">ヘルプ</span>
+            </button>
+        </nav>
+    </header>
+    <!-- Outline Panel (Initially Hidden) -->
+    <aside id="outline-panel" class="outline-panel">
+        <div class="outline-header">
+            <h3 data-i18n="outline.title">アウトライン</h3>
+        </div>
+        <div id="outline-content" class="outline-content">
+            <!-- Outline items will be inserted here -->
+        </div>
+        <div class="outline-resize-handle"></div>
+    </aside>
+    <!-- SVG List Panel (Initially Hidden) -->
+    <aside id="svg-list-panel" class="outline-panel svg-list-panel">
+        <div class="outline-header">
+            <h3 data-i18n="svgList.title">SVG要素</h3>
+            <div class="svg-list-toolbar">
+                <button id="svg-list-copy" title="コピー" class="svg-list-tool-btn">
+                    <svg width="14" height="14">
+                        <use href="#sym-copy" />
+                    </svg>
+                </button>
+                <button id="svg-list-paste" title="貼り付け" class="svg-list-tool-btn">
+                    <svg width="14" height="14">
+                        <use href="#sym-paste" />
+                    </svg>
+                </button>
+                <button id="svg-list-delete" title="削除" class="svg-list-tool-btn">
+                    <svg width="14" height="14">
+                        <use href="#sym-delete" />
+                    </svg>
+                </button>
+                <button id="svg-list-group" title="グループ化" class="svg-list-tool-btn">
+                    <svg width="14" height="14">
+                        <use href="#sym-group-cmd" />
+                    </svg>
+                </button>
+                <button id="svg-list-ungroup" title="グループ解除" class="svg-list-tool-btn">
+                    <svg width="14" height="14">
+                        <use href="#sym-ungroup-cmd" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <div id="svg-list-content" class="outline-content svg-list-content">
+            <!-- SVG items will be inserted here -->
+        </div>
+        <div class="outline-resize-handle"></div>
+    </aside>
+
+    <!-- Main Editor and Preview -->
+    <main class="split">
+        <section id="editor-pane">
+            <div id="editor-container" style="width:100%; height:100%; position:relative;"></div>
+            <!-- Editor Highlights Overlay (Optional, might be removed if using CM only) -->
+            <!-- <div id="editor-highlights" class="editor-highlights"></div> -->
+        </section>
+        <div id="resize-bar" class="resize-bar" title="ドラッグして幅を調整"></div>
+        <div id="right-column-container"
+            style="display: flex; flex-direction: column; flex: 1; min-width: 0; position: relative;">
+            <section id="preview-pane" style="flex: 1; min-height: 0;">
+                <div id="preview" class="md-preview"></div>
+            </section>
+            <div id="preview-status-bar"></div>
+        </div>
+    </main>
+
+    <div id="toast"></div>
+
+    <dialog id="dialog-help" style="width: 500px;">
+        <h3 style="margin-top: 0;" data-i18n="help.title">ヘルプ</h3>
+
+        <div class="help-tabs">
+            <button class="help-tab-btn active" data-tab="cheat-sheet"
+                data-i18n="help.tabCheatSheet">Markdown記法</button>
+            <button class="help-tab-btn" data-tab="license" data-i18n="help.tabLicense">ライセンス</button>
+        </div>
+
+        <div id="help-tab-cheat-sheet" class="help-tab-content active">
+            <ul>
+                <li><code># <span data-i18n="help.h1">見出し 1</span></code></li>
+                <li><code>## <span data-i18n="help.h2">見出し 2</span></code></li>
+                <li><code>**<span data-i18n="help.bold">太字</span>**</code>,
+                    <code>*<span data-i18n="help.italic">斜体</span>*</code>
+                </li>
+                <li><code>- <span data-i18n="help.listItem">リスト項目</span></code></li>
+                <li><code>1. <span data-i18n="help.numList">番号付きリスト</span></code>,
+                    <code>- [ ] <span data-i18n="help.task">タスク</span></code>
+                </li>
+                <li><code>[<span data-i18n="help.link">リンク</span>](url)</code></li>
+                <li><code>![<span data-i18n="help.image">画像</span>](url)</code></li>
+                <li><code>`<span data-i18n="help.code">コード</span>`</code></li>
+                <li><code>```js\n<span data-i18n="help.codeBlock">コードブロック</span>\n```</code></li>
+                <li><code>| <span data-i18n="help.table">表</span> | <span data-i18n="help.tableHeader">ヘッダー</span> |\n|---|---|\n| <span data-i18n="help.tableCell">セル</span> | <span data-i18n="help.tableCell">セル</span> |</code>
+                </li>
+                <li><code>```mermaid\ngraph TD; A-->B;\n```</code></li>
+                <li><code>```svg\n&lt;svg...&gt;&lt;/svg&gt;\n```</code></li>
+                <li><code>$E=mc^2$</code> (<span data-i18n="help.inlineMath">インライン数式</span>)</li>
+                <li><code>$$ ... $$</code> (<span data-i18n="help.blockMath">ブロック数式</span>)</li>
+            </ul>
+        </div>
+
+        <div id="help-tab-license" class="help-tab-content">
+            <div style="font-size: 0.9em; line-height: 1.6; max-height: 400px; overflow-y: auto; padding-right: 8px;">
+                <div class="app-license"
+                    style="font-size: 0.9em; margin-bottom: 2em; padding-bottom: 1em; border-bottom: 2px solid #ddd;">
+                    <h3 style="margin-top: 0;">Markdown Editor</h3>
+                    <p style="margin-bottom: 1em;">URL: <a href="https://www.cp9.jp/markdown_editor/index.html"
+                            target="_blank">https://www.cp9.jp/markdown_editor/index.html</a></p>
+                    <p style="margin-bottom: 1em;">© 2026 Kusano Yuki All rights reserved.</p>
+
+                    <div
+                        style="background: #f9f9f9; padding: 15px; border: 1px solid #ddd; border-radius: 4px; max-height: 300px; overflow-y: auto; font-size: 0.85em;">
+                        <h4 style="margin-top: 0;">【利用許諾契約書（EULA）】</h4>
+                        <p>本ソフトウェア（以下「本ソフトウェア」）は、以下の条件に基づき利用を許諾します。本ソフトウェアを使用することで、利用者は本契約書に同意したものとみなします。</p>
+
+                        <h5>■ 第1条（著作権）</h5>
+                        <p>本ソフトウェアの著作権は、著作者に帰属します。本ソフトウェアは著作権法その他の法律により保護されており、利用者は著作権者の権利を尊重しなければなりません。</p>
+
+                        <h5>■ 第2条（利用条件）</h5>
+                        <p>1. 本ソフトウェアは、個人・法人、また商用・非商用を問わず無償で利用できます。<br>
+                            2. 本ソフトウェアを使用して作成されたMarkdown文書やSVG画像については、利用者がすべての権利を有し、商用・非商用問わず自由に使用できるものとします。</p>
+                        <p>【補足】法人の方が業務で利用される場合は、連絡用メールアドレスを添えて掲示板へご連絡いただけると助かります。（メールアドレスは表示されません）<br>
+                            連絡先：<a href="https://www.cp9.jp/markdown_editor/bbs/threads/1">https://www.cp9.jp/markdown_editor/bbs/threads/1</a></p>
+
+                        <h5>■ 第3条（禁止事項）</h5>
+                        <p>次の行為を禁止します。<br>
+                            1. 本ソフトウェアの再配布（ただし、組織内での複製・配布は可能とします）<br>
+                            2. 本ソフトウェアのソースコードを利用して、別のソフトウェアを作成すること<br>
+                            3. 著作権表示および本利用許諾契約書を削除すること</p>
+
+                        <h5>■ 第4条（免責事項）</h5>
+                        <p>1. 本ソフトウェアは 「現状有姿（AS IS）」 で提供されます。<br>
+                            2. 本ソフトウェアの使用または使用不能により生じたいかなる損害についても、著作権者は一切の責任を負わないものとします。</p>
+
+                        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #ddd;">
+
+                        <h4 style="margin-top: 0;">【End User License Agreement (EULA)】</h4>
+                        <p>End User License Agreement (EULA)<br>
+                            This End User License Agreement (hereinafter referred to as this “Agreement”) governs the
+                            use of this software (hereinafter referred to as the “Software”).<br>
+                            By using the Software, you are deemed to have agreed to the terms of this Agreement.</p>
+
+                        <h5>Article 1 (Copyright)</h5>
+                        <p>The copyright of the Software belongs to the author.<br>
+                            The Software is protected by copyright laws and other applicable laws, and users must
+                            respect the rights of the copyright holder.</p>
+
+                        <h5>Article 2 (Terms of Use)</h5>
+                        <p>1. The Software may be used free of charge for both personal and commercial purposes.<br>
+                            2. Users retain all rights to the Markdown documents and SVG images created using the Software, and may use them freely for any purpose, whether commercial or non-commercial.</p>
+                        <p>[Note] If you are a corporate user using the Software for business purposes, it would be highly appreciated if you could notify us on the bulletin board along with a contact email address. (Your email address will not be displayed to the public.)<br>
+                            Contact: <a href="https://www.cp9.jp/markdown_editor/bbs/threads/1">https://www.cp9.jp/markdown_editor/bbs/threads/1</a></p>
+
+                        <h5>Article 3 (Prohibited Acts)</h5>
+                        <p>The following acts are prohibited:<br>
+                            1. Redistribution of the Software (However, copying and distributing within the same organization is permitted).<br>
+                            2. Creating other software using the source code of the Software.<br>
+                            3. Removing or altering copyright notices or this Agreement.</p>
+
+                        <h5>Article 4 (Disclaimer)</h5>
+                        <p>1. The Software is provided “AS IS”, without any warranty of any kind.<br>
+                            2. The author shall not be liable for any damages arising from the use or inability to use the Software.</p>
+
+                        <p style="margin-top: 20px;">© 2026 Kusano Yuki. All rights reserved.</p>
+                    </div>
+                </div>
+
+                <h4 style="margin: 1em 0 0.5em; border-bottom: 1px solid #ddd; padding-bottom: 4px;">使用ライブラリ / Third
+                    Party Licenses</h4>
+
+                <div class="license-list">
+                    <details>
+                        <summary>CodeMirror 6</summary>
+                        <div class="license-text">
+                            <p>Copyright (C) 2018-2021 by Marijn Haverbeke &lt;marijnh@gmail.com&gt; and others</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>markdown-it</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>PrismJS</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2012 Lea Verou</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>Mermaid</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2014-2024 Knut Sveidqvist</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>DOMPurify</summary>
+                        <div class="license-text">
+                            <p>Copyright 2015 Mario Heiderich</p>
+                            <p>Apache License 2.0</p>
+                            <pre>Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>SVG.js & Plugins</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2012-2021 Ulrich-Matthias Schäfer</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+
+
+
+                    <details>
+                        <summary>html2canvas</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2012 Niklas von Hertzen</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>jsPDF</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2010-2021 James Hall, yWorks, and other contributors</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>docx</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2017 Volkan Ozcelik and others</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>Paper.js</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2011, Juerg Lehni & Jonathan Puckey</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>KaTeX</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2013-2023 Khan Academy and other contributors</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>markdown-it-texmath</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2018 Stefan Goessner</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>opentype.js</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2014 Frederik De Bleser</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>markdown-it-task-lists</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2016 Revin Guillen</p>
+                            <p>ISC License</p>
+                            <pre>Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>markdown-it-emoji</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2014-2015 Vitaly Puzrin, Alex Kocharin.</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</pre>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align: right; margin-top: 20px;">
+            <button id="btn-close-help" data-i18n="dialog.close">閉じる</button>
+        </div>
+    </dialog>
+
+    <dialog id="dialog-dir-access">
+        <h3>対象ファイルのフォルダを選択してください</h3>
+        <div style="line-height: 1.8; margin: 16px 0;">
+            <p style="margin: 8px 0;"><strong>対象ファイル:</strong> <span id="dir-access-filename"
+                    style="color: #0366d6;"></span></p>
+            <p style="margin: 8px 0; color: #666; font-size: 0.95em;">※ <span id="dir-access-filename2"></span>
+                があるフォルダを選択してください</p>
+        </div>
+        <div style="text-align: right; margin-top: 20px; display: flex; gap: 8px; justify-content: flex-end;">
+            <button id="btn-cancel-dir-access" data-i18n="dialog.cancel">キャンセル</button>
+            <button id="btn-grant-dir-access" style="background: #0366d6; color: white;"
+                data-i18n="dialog.selectFolder">フォルダを選択</button>
+        </div>
+    </dialog>
+
+    <dialog id="dialog-progress">
+        <h3>PDFを作成中...</h3>
+        <div style="margin: 20px 0;">
+            <div class="progress-container">
+                <div id="pdf-progress-bar" class="progress-bar"></div>
+            </div>
+            <p id="pdf-progress-text" style="text-align: center; margin-top: 8px;">0%</p>
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <button id="btn-cancel-pdf" data-i18n="pdf.cancelButton">キャンセル</button>
+        </div>
+    </dialog>
+
+    <dialog id="dialog-docx-progress">
+        <h3>DOCX文書を作成中...</h3>
+        <div style="margin: 20px 0;">
+            <div class="progress-container">
+                <div id="docx-progress-bar" class="progress-bar"></div>
+            </div>
+            <p id="docx-progress-text" style="text-align: center; margin-top: 8px;">処理中...</p>
+        </div>
+    </dialog>
+
+    <dialog id="dialog-config">
+        <h3 data-i18n="settings.title">設定</h3>
+        <!-- Tabs Navigation -->
+        <div class="cfg-tabs">
+            <button class="cfg-tab-btn active" data-tab="editor" data-i18n="settings.tabEditor">エディタ</button>
+            <button class="cfg-tab-btn" data-tab="preview" data-i18n="settings.tabPreview">プレビュー</button>
+            <button class="cfg-tab-btn" data-tab="svg" data-i18n="settings.tabSvg">SVG</button>
+            <button class="cfg-tab-btn" data-tab="export" data-i18n="settings.tabExport">エクスポート</button>
+            <button class="cfg-tab-btn" data-tab="other" data-i18n="settings.tabOther">その他</button>
+        </div>
+
+        <!-- 1. Editor Tab -->
+        <div id="cfg-tab-editor" class="cfg-tab-content active">
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="cfg-editor-line-numbers">
+                    <span data-i18n="settings.showLineNumbers">行番号を表示</span>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; flex-direction: column; gap: 8px;">
+                    <span><span data-i18n="settings.editorFontSize">エディタのフォントサイズ: </span><strong
+                            id="cfg-editor-font-size-value">14</strong><span data-i18n="settings.px">px</span></span>
+                    <input type="range" id="cfg-editor-font-size" min="10" max="30" step="1" value="14"
+                        style="width: 100%;">
+                    <small style="color: #666;" data-i18n="settings.editorFontSizeDesc">エディタ内の文字サイズ（10px～30px）</small>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="cfg-line-wrapping">
+                    <span data-i18n="settings.wordWrap">文字を折り返す</span>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; flex-direction: column; gap: 8px;">
+                    <span><span data-i18n="settings.editorLineHeight">エディタの行間: </span><strong
+                            id="cfg-editor-line-height-value">1.6</strong></span>
+                    <input type="range" id="cfg-editor-line-height" min="1.0" max="2.5" step="0.05" value="1.6"
+                        style="width: 100%;">
+                    <small style="color: #666;" data-i18n="settings.editorLineHeightDesc">テキスト編集エリアの行間隔</small>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; flex-direction: column; gap: 8px;">
+                    <span><span data-i18n="settings.undoHistoryLimit">Undo/Redo履歴数: </span><strong
+                            id="cfg-undo-history-limit-value">200</strong><span
+                            data-i18n="settings.times">回</span></span>
+                    <input type="range" id="cfg-undo-history-limit" min="10" max="1000" step="10" value="200"
+                        style="width: 100%;">
+                    <small style="color: #666;" data-i18n="settings.undoHistoryLimitDesc">元に戻す操作の最大記憶（10～1000回）</small>
+                </label>
+            </div>
+        </div>
+
+        <!-- 2. Preview Tab -->
+        <div id="cfg-tab-preview" class="cfg-tab-content">
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; flex-direction: column; gap: 8px;">
+                    <span><span data-i18n="settings.previewFontSize">本文フォントサイズ: </span><strong
+                            id="cfg-base-font-size-value">16</strong><span data-i18n="settings.px">px</span></span>
+                    <input type="range" id="cfg-base-font-size" min="12" max="24" step="1" value="16"
+                        style="width: 100%;">
+                    <small style="color: #666;"
+                        data-i18n="settings.previewFontSizeDesc">プレビューの基準文字サイズ（12px～24px）</small>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; flex-direction: column; gap: 8px;">
+                    <span><span data-i18n="settings.previewWidth">プレビュー横幅: </span><strong
+                            id="cfg-preview-width-value">820</strong><span data-i18n="settings.px">px</span></span>
+                    <input type="range" id="cfg-preview-width" min="600" max="1200" step="10" value="820"
+                        style="width: 100%;">
+                    <small style="color: #666;" data-i18n="settings.previewWidthDesc">表示幅を固定（PDF出力サイズにも影響）</small>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="cfg-line-numbers">
+                    <span data-i18n="settings.codeLineNumbers">行番号を表示（コードブロック）</span>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; flex-direction: column; gap: 8px;">
+                    <span><span data-i18n="settings.codeLineHeight">コードの行間: </span><strong
+                            id="cfg-code-line-height-value">1.45</strong></span>
+                    <input type="range" id="cfg-code-line-height" min="1.0" max="2.5" step="0.05" value="1.45"
+                        style="width: 100%;">
+                    <small style="color: #666;" data-i18n="settings.codeLineHeightDesc">コードブロック内の行間隔</small>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="cfg-show-page-breaks">
+                    <span data-i18n="settings.showPageBreaks">改ページ位置を表示（スライド基準）</span>
+                </label>
+                <small style="color: #666; display: block; margin-left: 24px; margin-top: 2px;"
+                    data-i18n="settings.showPageBreaksDesc">スライド表示と同じ改ページ位置をプレビューに表示します</small>
+            </div>
+            <fieldset style="margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                <legend style="font-weight: 600;" data-i18n="settings.colorSettingsLegend">配色設定 (明るいテーマのみ)</legend>
+                <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span data-i18n="settings.tableHeadBgColor">表ヘッダーの背景色:</span>
+                        <button type="button" id="cfg-color-table-head"
+                            style="width: 40px; height: 24px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; padding: 0; background-color: #eaf5ff;"
+                            data-value="#eaf5ff" title="クリックして色を選択"></button>
+                    </label>
+                    <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span data-i18n="settings.codeBgColor">コードブロックの背景色:</span>
+                        <button type="button" id="cfg-color-code-bg"
+                            style="width: 40px; height: 24px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; padding: 0; background-color: #fff7e6;"
+                            data-value="#fff7e6" title="クリックして色を選択"></button>
+                    </label>
+                </div>
+            </fieldset>
+        </div>
+
+        <!-- 3. SVG Tab -->
+        <div id="cfg-tab-svg" class="cfg-tab-content">
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; flex-direction: column; gap: 8px;">
+                    <span><span data-i18n="settings.freehandEpsilon">フリーハンド平滑化強度: </span><strong
+                            id="cfg-freehand-epsilon-value">30</strong></span>
+                    <input type="range" id="cfg-freehand-epsilon" min="0" max="100" step="1" value="30"
+                        style="width: 100%;">
+                    <small style="color: #666;"
+                        data-i18n="settings.freehandEpsilonDesc">値が高いほど線が滑らか（単純）になります(0-100)。初期値: 30</small>
+                </label>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; flex-direction: column; gap: 8px;">
+                    <span><span data-i18n="settings.svgToolbarOpacity">ツールバー透過率 (通常時): </span><strong
+                            id="cfg-svg-toolbar-opacity-value">40</strong>%</span>
+                    <input type="range" id="cfg-svg-toolbar-opacity" min="10" max="90" step="1" value="40"
+                        style="width: 100%;">
+                    <small style="color: #666;" data-i18n="settings.svgToolbarOpacityDesc">非アクティブ時のツールバーの不透明度
+                        (10%～90%)</small>
+                </label>
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="cfg-show-ruler">
+                    <span data-i18n="settings.showRuler">ルーラーを表示</span>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span data-i18n="settings.svgGridSnap">グリッドへのスナップ:</span>
+                    <select id="cfg-svg-grid-snap" style="padding: 4px 8px;">
+                        <option value="always" data-i18n="settings.snapAlways">オン(Altキーで一時無効)</option>
+                        <option value="alt" data-i18n="settings.snapAlt">オフ(Altキーでスナップ)</option>
+                    </select>
+                </label>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span data-i18n="settings.svgMaintainStrokeText">線と文字の太さ (拡大縮小時):</span>
+                    <select id="cfg-svg-maintain-stroke" style="padding: 4px 8px;">
+                        <option value="true" data-i18n="settings.maintain">維持する</option>
+                        <option value="false" data-i18n="settings.doNotMaintain">維持しない</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+
+        <!-- 4. Other Tab -->
+        <div id="cfg-tab-other" class="cfg-tab-content">
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; flex-direction: column; gap: 8px;">
+                    <span><span data-i18n="settings.splitRatio">エディタ/プレビュー比率: </span><strong
+                            id="cfg-split-ratio-value">50</strong>% / <strong
+                            id="cfg-split-ratio-preview">50</strong>%</span>
+                    <input type="range" id="cfg-split-ratio" min="20" max="80" step="5" value="50" style="width: 100%;">
+                    <small style="color: #666;" data-i18n="settings.splitRatioDesc">画面分割の比率を調整</small>
+                </label>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span data-i18n="settings.language">言語 / Language:</span>
+                    <select id="cfg-language" style="padding: 4px 8px;">
+                        <option value="ja">日本語</option>
+                        <option value="en">English</option>
+                    </select>
+                </label>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span data-i18n="settings.syntaxTheme">シンタックスハイライトテーマ:</span>
+                    <select id="cfg-syntax-theme" style="padding: 4px 8px;">
+                        <option value="prism" data-i18n="settings.themeLight">明るいテーマ</option>
+                        <option value="prism-okaidia" data-i18n="settings.themeDark">ダークテーマ (Okaidia)</option>
+                    </select>
+                </label>
+            </div>
+
+            <fieldset style="margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                <legend style="font-weight: 600;" data-i18n="settings.imageSaveSettingsLegend">画像の取り込み</legend>
+                <div style="margin-bottom: 0;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span data-i18n="settings.imageSaveLocation">取込み画像保存先:</span>
+                        <select id="cfg-image-save-location" style="padding: 4px 8px;">
+                            <option value="document" data-i18n="settings.imageSaveDocument">文書内 (Base64埋込)</option>
+                            <option value="local" data-i18n="settings.imageSaveLocal">別ファイル (imageフォルダ保存)</option>
+                        </select>
+                    </label>
+                </div>
+            </fieldset>
+
+            <fieldset style="margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                <legend style="font-weight: 600;" data-i18n="settings.focusSettingsLegend">集中モード (Focus Settings)</legend>
+                <div style="margin-bottom: 10px;">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="cfg-typewriter-mode">
+                        <span data-i18n="settings.typewriterMode">タイプライターモード (中央スクロール固定)</span>
+                    </label>
+                </div>
+                <div style="margin-bottom: 0;">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="cfg-focus-mode">
+                        <span data-i18n="settings.focusMode">フォーカスモード (他行を透過)</span>
+                    </label>
+                </div>
+            </fieldset>
+
+        </div>
+
+        <!-- 5. Export Tab -->
+        <div id="cfg-tab-export" class="cfg-tab-content">
+            <fieldset style="margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                <legend style="font-weight: 600;" data-i18n="settings.slideSettingsLegend">スライド設定</legend>
+                <div style="margin-bottom: 0;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span data-i18n="settings.slideOrientation">スライド表示の向き:</span>
+                        <select id="cfg-slide-orientation" style="padding: 4px 8px;">
+                            <option value="portrait" data-i18n="settings.slidePortrait">縦向き (A4縦)</option>
+                            <option value="landscape" data-i18n="settings.slideLandscape">横向き (A4横)</option>
+                        </select>
+                    </label>
+                </div>
+            </fieldset>
+
+            <fieldset style="margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                <legend style="font-weight: 600;" data-i18n="settings.pdfExportLegend">PDFエクスポート設定</legend>
+
+                <div style="margin-bottom: 10px;">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="cfg-pdf-footer">
+                        <span data-i18n="settings.pdfPrintPageNumbers">ページ番号を印字</span>
+                    </label>
+                </div>
+
+                <div style="margin-bottom: 10px;">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="cfg-pdf-hr-break">
+                        <span data-i18n="settings.pdfHrBreak">水平線(---)で改ページ</span>
+                    </label>
+                </div>
+
+                <div style="margin-top: 10px;">
+                    <p style="margin: 0 0 5px 0; font-weight: 600; font-size: 13px;"
+                        data-i18n="settings.pdfMarginLegend">余白設定 (mm)</p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span><span data-i18n="settings.pdfMarginTop">上: </span><strong
+                                    id="cfg-pdf-margin-top-value">10</strong></span>
+                            <input type="number" id="cfg-pdf-margin-top" min="0" max="50" step="1" value="10"
+                                style="width: 100%;">
+                        </label>
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span><span data-i18n="settings.pdfMarginBottom">下: </span><strong
+                                    id="cfg-pdf-margin-bottom-value">10</strong></span>
+                            <input type="number" id="cfg-pdf-margin-bottom" min="0" max="50" step="1" value="10"
+                                style="width: 100%;">
+                        </label>
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span><span data-i18n="settings.pdfMarginLeft">左: </span><strong
+                                    id="cfg-pdf-margin-left-value">10</strong></span>
+                            <input type="number" id="cfg-pdf-margin-left" min="0" max="50" step="1" value="10"
+                                style="width: 100%;">
+                        </label>
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span><span data-i18n="settings.pdfMarginRight">右: </span><strong
+                                    id="cfg-pdf-margin-right-value">10</strong></span>
+                            <input type="number" id="cfg-pdf-margin-right" min="0" max="50" step="1" value="10"
+                                style="width: 100%;">
+                        </label>
+                    </div>
+                </div>
+            </fieldset>
+        </div>
+        <div style="text-align: right; margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+            <button id="btn-cancel-config" data-i18n="settings.cancel">キャンセル</button>
+            <button id="btn-save-config" class="primary-btn" data-i18n="settings.save">保存</button>
+        </div>
+    </dialog>
+
+    <!-- Search & Replace Dialog -->
+    <dialog id="search-dialog" class="search-dialog search-dialog-vertical">
+        <!-- ヘッダー: タイトル + レイアウト切替 -->
+        <div class="search-dialog-header">
+            <h3 style="margin: 0; font-size: 14px;" data-i18n="search.title">検索と置換</h3>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <select id="search-layout-select" style="padding: 2px 4px; font-size: 12px;">
+                    <option value="vertical" data-i18n="search.layoutVertical">縦長</option>
+                    <option value="horizontal" data-i18n="search.layoutHorizontal">横長</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <div class="search-dialog-content">
+            <!-- 左側: 入力エリア -->
+            <div class="search-dialog-left">
+                <!-- 検索入力 -->
+                <div class="search-input-row">
+                    <label data-i18n="search.queryLabel">検索文字列:</label>
+                    <div class="search-input-wrapper">
+                        <input type="text" id="search-query" list="search-history-list" data-i18n-attr="placeholder"
+                            data-i18n="search.queryPlaceholder" placeholder="検索文字列を入力">
+                        <datalist id="search-history-list"></datalist>
+                    </div>
+                </div>
+
+                <!-- 置換入力 -->
+                <div class="search-input-row">
+                    <label data-i18n="search.replaceLabel">置換文字列:</label>
+                    <div class="search-input-wrapper">
+                        <input type="text" id="replace-query" list="replace-history-list" data-i18n-attr="placeholder"
+                            data-i18n="search.replacePlaceholder" placeholder="置換後の文字列を入力">
+                        <datalist id="replace-history-list"></datalist>
+                    </div>
+                </div>
+
+                <!-- オプション（横並び） -->
+                <div class="search-options-row">
+                    <label class="search-checkbox">
+                        <input type="checkbox" id="search-regex">
+                        <span data-i18n="search.regex">正規表現</span>
+                    </label>
+                    <label class="search-checkbox">
+                        <input type="checkbox" id="search-case-sensitive">
+                        <span data-i18n="search.matchCase">大文字小文字区別</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 区切り線（横長レイアウト時のみ表示） -->
+            <div class="search-dialog-separator"></div>
+
+            <!-- 右側: 検索対象（縦長時は下に、横長時は右に） -->
+            <div class="search-dialog-right">
+                <fieldset class="search-targets-fieldset">
+                    <legend data-i18n="search.targetLegend">検索対象:</legend>
+                    <div class="search-targets-grid">
+                        <label class="search-checkbox">
+                            <input type="checkbox" id="search-target-all" checked>
+                            <span data-i18n="search.targetAll">全選択</span>
+                        </label>
+                        <label class="search-checkbox">
+                            <input type="checkbox" id="search-target-headings" checked>
+                            <span data-i18n="search.targetHeadings">見出し</span>
+                        </label>
+                        <label class="search-checkbox">
+                            <input type="checkbox" id="search-target-links" checked>
+                            <span data-i18n="search.targetLinks">リンク</span>
+                        </label>
+                        <label class="search-checkbox">
+                            <input type="checkbox" id="search-target-code" checked>
+                            <span data-i18n="search.targetCode">コード</span>
+                        </label>
+                        <label class="search-checkbox">
+                            <input type="checkbox" id="search-target-tables" checked>
+                            <span data-i18n="search.targetTables">表</span>
+                        </label>
+                        <label class="search-checkbox">
+                            <input type="checkbox" id="search-target-other" checked>
+                            <span data-i18n="search.targetOther">その他</span>
+                        </label>
+                    </div>
+                </fieldset>
+            </div>
+        </div>
+
+        <!-- ボタンエリア -->
+        <div class="search-dialog-buttons">
+            <button id="btn-find-previous" title="前を検索 (Shift+F3)" data-i18n="search.prevBtn">前を検索</button>
+            <button id="btn-find-next" title="次を検索 (F3)" data-i18n="search.nextBtn">次を検索</button>
+            <button id="btn-find-all" title="すべて検索" data-i18n="search.findAllBtn">すべて検索</button>
+            <div class="search-button-spacer"></div>
+            <button id="btn-replace-one" title="置換 (Ctrl+Enter)" data-i18n="search.replaceBtn">置換</button>
+            <button id="btn-replace-all" title="すべて置換 (Ctrl+Shift+Enter)"
+                data-i18n="search.replaceAllBtn">すべて置換</button>
+        </div>
+
+        <!-- フッター: ステータス + 閉じるボタン -->
+        <div class="search-dialog-footer">
+            <div id="search-status" class="search-status-text">
+                <span data-i18n="search.matchesStr">一致: </span><strong id="search-count">0</strong><span
+                    data-i18n="search.matchesUnit">個</span><span data-i18n="search.currentStr">　現在: </span><strong
+                    id="search-current">-</strong><span id="search-position"></span>
+            </div>
+            <button id="btn-search-close" class="btn-close" data-i18n="search.closeBtn">閉じる</button>
+        </div>
+    </dialog>
+
+    <!-- Search Results Dialog -->
+    <dialog id="search-results-dialog" class="search-results-dialog">
+        <!-- Header -->
+        <div class="search-results-header">
+            <h3 data-i18n="search.resultsTitle">検索結果一覧</h3>
+        </div>
+
+        <!-- Results List -->
+        <div id="search-results-list" class="search-results-list">
+            <!-- Results will be inserted here -->
+        </div>
+
+        <!-- Footer -->
+        <div class="search-results-footer">
+            <span id="search-results-query" class="search-results-query"></span>
+            <span id="search-results-count" class="search-results-count"></span>
+            <button id="btn-close-search-results" class="btn-close-search-results"
+                data-i18n="search.closeBtn">閉じる</button>
+        </div>
+        <!-- Resize Handle -->
+        <div class="search-results-resize-handle" title="ドラッグしてサイズ変更">◢</div>
+    </dialog>
+
+    <!-- Language Select Dialog -->
+    <dialog id="dialog-language-select" class="dialog-language-select">
+        <h3 style="margin-top: 0;" data-i18n="languageSelect.title">言語選択</h3>
+        <div class="lang-categories" id="lang-categories-container">
+            <!-- Languages will be injected here by inline_editor.js -->
+        </div>
+        <div style="margin-top: 15px; border-top: 1px solid #ddd; padding-top: 10px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;"
+                data-i18n="languageSelect.custom">自由入力:</label>
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="custom-language-input" placeholder="例: plaintext"
+                    style="flex: 1; padding: 4px 8px;">
+                <button id="btn-set-custom-language" class="primary-btn" data-i18n="languageSelect.set">設定</button>
+            </div>
+        </div>
+        <div style="text-align: right; margin-top: 15px;">
+            <button id="btn-close-language-select" data-i18n="dialog.cancel">キャンセル</button>
+        </div>
+    </dialog>
+
+    <!-- YAML Parser -->
+    <script charset="utf-8" src="lib/js-yaml.min.js"></script>
+
+    <!-- Markdown Parser (markdown-it) -->
+    <script charset="utf-8" src="lib/markdown-it.min.js"></script>
+    <script charset="utf-8" src="lib/markdown-it-task-lists.min.js"></script>
+    <script charset="utf-8" src="lib/markdown-it-emoji.min.js"></script>
+    <script charset="utf-8" src="lib/katex/katex.min.js"></script>
+    <script charset="utf-8" src="lib/texmath.js"></script>
+    <script charset="utf-8" src="lib/purify.min.js"></script>
+    <script charset="utf-8" src="lib/html2canvas.min.js"></script>
+    <script charset="utf-8" src="lib/jspdf.umd.min.js"></script>
+    <!-- DOCX Library (IIFE Version) -->
+    <script charset="utf-8" src="lib/docx/docx.js"></script>
+
+    <!-- Prism.js Syntax Highlighting -->
+    <script charset="utf-8" src="lib/prism/prism.min.js" data-manual></script>
+    <!-- Base languages and dependencies (must be loaded first) -->
+    <script charset="utf-8" src="lib/prism/prism-markup.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-css.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-clike.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-javascript.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-markup-templating.min.js"></script>
+    <!-- Programming languages -->
+    <script charset="utf-8" src="lib/prism/prism-c.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-cpp.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-csharp.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-java.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-python.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-typescript.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-php.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-ruby.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-swift.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-go.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-rust.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-bash.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-sql.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-json.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-yaml.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-markdown.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-matlab.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-perl.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-fortran.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-pascal.min.js"></script>
+    <script charset="utf-8" src="lib/prism/prism-visual-basic.min.js"></script>
+    <!-- Plugins -->
+    <script charset="utf-8" src="lib/prism/prism-line-numbers.min.js"></script>
+
+    <!-- Mermaid Diagram Support -->
+    <script charset="utf-8" src="lib/mermaid/mermaid.min.js"></script>
+
+    <!-- SVG.js for SVG Manipulation -->
+    <script charset="utf-8" src="lib/svg.min.js"></script>
+    <script charset="utf-8" src="lib/svg.draggable.min.js"></script>
+    <script charset="utf-8" src="lib/svg.select.min.js"></script>
+    <script charset="utf-8" src="lib/svg.resize.min.js"></script>
+    <script charset="utf-8" src="lib/svg.shapes.min.js"></script>
+
+    <!-- Custom Color Picker & Paint -->
+    <script charset="utf-8" src="lib/ColorPicker/color-picker.js"></script>
+    <script charset="utf-8" src="lib/paint/paint.js"></script>
+
+    <!-- Locale Data (injected by build.ps1 for i18n in bundled version) -->
+    <script id="locale-data" type="application/json"></script>
+
+    <script charset="utf-8" src="js/globals.js"></script>
+    <script charset="utf-8" src="js/utils.js"></script>
+    <script charset="utf-8" src="js/utils/PointerDragManager.js"></script>
+    <script charset="utf-8" src="js/i18n.js"></script>
+
+    <!-- Dev Mode Locale Files (JS bases) -->
+    <script charset="utf-8" src="js/locales/ja.js"></script>
+    <script charset="utf-8" src="js/locales/en.js"></script>
+
+    <!-- UI Settings (Config) -->
+    <script charset="utf-8" src="js/ui/ui_settings.js"></script>
+
+    <!-- Editor Modules -->
+    <script charset="utf-8" src="js/editor/editor_core.js"></script>
+    <script charset="utf-8" src="js/editor/editor_sync.js"></script>
+    <script charset="utf-8" src="js/editor/editor_io.js"></script>
+    <script charset="utf-8" src="js/editor/editor_commands.js"></script>
+    <script charset="utf-8" src="js/editor/default_content.js"></script>
+    <script charset="utf-8" src="js/editor/templates.js"></script>
+    <script charset="utf-8" src="js/editor/templates_svg.js"></script>
+    <script charset="utf-8" src="js/editor/templates_mermaid.js"></script>
+    <script charset="utf-8" src="js/editor/inline_editor.js"></script>
+    <script charset="utf-8" src="js/editor/slash_command.js"></script>
+
+    <!-- UI Components & Events -->
+    <script charset="utf-8" src="js/ui/slash_command_data.js"></script>
+    <script charset="utf-8" src="js/ui/slash_command_preview.js"></script>
+    <script charset="utf-8" src="js/ui/ui_components.js"></script>
+    <script charset="utf-8" src="js/ui/svg_list.js"></script>
+    <script charset="utf-8" src="js/ui/ui_outline_extensions.js"></script>
+    <script charset="utf-8" src="js/ui/ui_events.js"></script>
+
+    <!-- Front Matter Parser -->
+    <script charset="utf-8" src="js/front_matter_parser.js"></script>
+    <script charset="utf-8" src="js/renderer.js"></script>
+    <script charset="utf-8" src="js/page_splitter.js"></script>
+
+    <!-- SVG Logic -->
+    <script charset="utf-8" src="js/svg/svg_utils.js"></script>
+    <script charset="utf-8" src="js/svg/svg_connector_manager.js"></script>
+    <script charset="utf-8" src="js/svg/SvgControlMarker.js"></script>
+    <script charset="utf-8" src="js/svg/SvgShape.js"></script>
+    <script charset="utf-8" src="js/svg/SvgRotationHandler.js"></script>
+    <script charset="utf-8" src="js/svg/SvgRadiusHandler.js"></script>
+    <script charset="utf-8" src="js/svg/SvgPolylineHandler.js"></script>
+    <script charset="utf-8" src="js/svg/SvgBubbleHandler.js"></script>
+
+    <!-- SVG Modules (Split from editor) -->
+    <script charset="utf-8" src="js/svg/svg_properties.js"></script>
+    <script charset="utf-8" src="js/svg/svg_expanded_view.js"></script>
+    <script charset="utf-8" src="js/svg/svg_sync.js"></script>
+    <script charset="utf-8" src="js/svg/svg_interaction.js"></script>
+    <script charset="utf-8" src="js/svg/svg_text_editor.js"></script>
+    <script charset="utf-8" src="js/svg/svg_operations.js"></script>
+
+    <script charset="utf-8" src="js/svg/svg_toolbar_base.js"></script>
+    <script charset="utf-8" src="js/svg/svg_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_custom_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_color_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_arrow_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_style_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_grid_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_path_ops.js"></script>
+    <script charset="utf-8" src="js/svg/svg_transform_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_align_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_text_align_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_font_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_line_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_css_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_context_menu.js"></script>
+    <script charset="utf-8" src="js/svg/svg_editor.js"></script>
+    <script charset="utf-8" src="js/search.js"></script>
+    <script charset="utf-8" src="js/export/pdf.js"></script>
+    <script charset="utf-8" src="js/export/docx_export.js"></script>
+    <script charset="utf-8" src="js/table_editor.js"></script>
+    <script charset="utf-8" src="js/preview_inline_edit.js"></script>
+    <script charset="utf-8" src="js/image_resize_handler.js"></script>
+    <script charset="utf-8" src="js/export/export_text.js"></script>
+    <script charset="utf-8" src="js/export/export_html.js"></script>
+    <script charset="utf-8" src="js/slide.js"></script>
+    <script charset="utf-8" src="js/app.js"></script>
+</body>
+
+</html>
