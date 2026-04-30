@@ -99,6 +99,9 @@ async function init() {
     if (typeof PreviewInlineEdit !== 'undefined' && typeof PreviewInlineEdit.init === 'function') {
         PreviewInlineEdit.init();
     }
+    if (typeof MathInlineEditor !== 'undefined' && typeof MathInlineEditor.init === 'function') {
+        MathInlineEditor.init();
+    }
     if (typeof initContextMenu === 'function') initContextMenu();
 
 
