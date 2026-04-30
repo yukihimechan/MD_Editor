@@ -1,0 +1,537 @@
+/**
+ * Color Picker Library CSS
+ */
+
+:root {
+  --cp-bg: #ffffff;
+  --cp-border: #e2e8f0;
+  --cp-text: #2d3748;
+  --cp-text-muted: #a0aec0;
+  --cp-radius: 16px;
+  --cp-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  --cp-input-bg: #f7fafc;
+  --cp-input-border: #cbd5e0;
+  --cp-focus-ring: #4299e1;
+}
+
+.cp-wrapper {
+  background-color: var(--cp-bg);
+  border-radius: var(--cp-radius);
+  box-shadow: var(--cp-shadow);
+  width: 335px;
+  /* 全体を少し広げてスペースを確保 */
+  padding: 24px;
+  font-family: inherit;
+  color: var(--cp-text);
+  box-sizing: border-box;
+}
+
+.cp-wrapper * {
+  box-sizing: border-box;
+}
+
+/* プレビュー領域 */
+.cp-preview-container {
+  display: flex;
+  height: 40px;
+  /* SVGにあわせて少し小さく */
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+
+  /* チェッカーボード背景 */
+  background-image: linear-gradient(45deg, #ccc 25%, transparent 25%),
+    linear-gradient(135deg, #ccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ccc 75%),
+    linear-gradient(135deg, transparent 75%, #ccc 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 0, 8px -8px, 0px 8px;
+}
+
+.cp-preview-current {
+  flex: 1;
+  height: 100%;
+  position: relative;
+}
+
+.cp-preview-current::after {
+  content: 'New';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--cp-preview-text, white);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-shadow: var(--cp-preview-shadow, 0 1px 2px rgba(0, 0, 0, 0.5));
+  pointer-events: none;
+}
+
+.cp-preview-original {
+  flex: 1;
+  height: 100%;
+  position: relative;
+}
+
+.cp-preview-original::after {
+  content: 'Original';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--cp-preview-text-orig, white);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-shadow: var(--cp-preview-shadow-orig, 0 1px 2px rgba(0, 0, 0, 0.5));
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.cp-preview-container:hover .cp-preview-original::after {
+  opacity: 1;
+}
+
+/* カラーサークル領域 */
+.cp-wheel-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.cp-wheel-svg {
+  cursor: crosshair;
+}
+
+.cp-wheel-segment {
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+.cp-wheel-segment:hover {
+  opacity: 0.8;
+}
+
+/* トップコントロール領域 */
+.cp-opacity-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  /* 隙間を 12px から 16px に拡大 */
+  margin-bottom: 20px;
+}
+
+.cp-label-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cp-text-muted);
+  width: 50px;
+}
+
+.cp-alpha-input-box {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  width: 60px;
+  /* ％記号含めて余裕を持たせる */
+  justify-content: flex-end;
+  flex-shrink: 0;
+  white-space: nowrap;
+  /* 強制的に一行 */
+}
+
+.cp-alpha-input {
+  width: 42px;
+  text-align: right;
+  padding: 1px 2px;
+  flex-shrink: 0;
+}
+
+.cp-unit {
+  font-size: 0.75rem;
+  color: var(--cp-text-muted);
+  font-weight: 600;
+  margin-left: 1px;
+  flex-shrink: 0;
+}
+
+.cp-opacity-track {
+  flex: 1;
+}
+
+.cp-tools-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.cp-hex-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cp-hex-group .cp-label-text {
+  width: 24px;
+  /* HEXと入力欄を近づけるため固定幅を削減 */
+}
+
+.cp-hex-input {
+  width: 85px;
+  /* RGBA 8桁が見えやすいように少し広げる */
+  padding: 1px 2px;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.cp-eye-dropper-btn {
+  background: var(--cp-input-bg);
+  border: 1px solid var(--cp-input-border);
+  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--cp-text-muted);
+  transition: all 0.2s;
+  flex-shrink: 0;
+  padding: 0;
+  margin-left: 4px;
+}
+
+.cp-eye-dropper-btn:hover {
+  background: white;
+  color: var(--cp-text);
+  border-color: var(--cp-focus-ring);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.cp-eye-dropper-btn:active {
+  background: var(--cp-input-bg);
+  transform: translateY(1px);
+}
+
+.cp-mode-switch {
+  display: flex;
+  background: var(--cp-input-bg);
+  border-radius: 6px;
+  padding: 2px 2px 2px 6px;
+  /* RGBボタンの左内側のスペースを少し開ける */
+}
+
+.cp-mode-btn {
+  background: transparent;
+  border: none;
+  color: var(--cp-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.cp-mode-btn.active {
+  color: var(--cp-text);
+  background-color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* スライダー汎用 */
+.cp-slider-track {
+  width: 100%;
+  height: 20px;
+  /* 12px -> 20px */
+  border-radius: 10px;
+  position: relative;
+  background-image: linear-gradient(45deg, #ccc 25%, transparent 25%),
+    linear-gradient(135deg, #ccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ccc 75%),
+    linear-gradient(135deg, transparent 75%, #ccc 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 5px 0, 5px -5px, 0px 5px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.cp-slider-gradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+}
+
+.cp-slider-input {
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  /* 12px -> 20px */
+  background: transparent;
+  outline: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 0;
+}
+
+.cp-slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  /* 16px -> 18px */
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  border: 1.5px solid var(--cp-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  cursor: ew-resize;
+  margin-top: 1px;
+  /* 20pxのトラック内で中央寄せ */
+}
+
+.cp-slider-input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  border: 1.5px solid var(--cp-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  cursor: ew-resize;
+}
+
+/* 入力領域 */
+.cp-mode-inputs {
+  display: flex;
+  flex-direction: column;
+}
+
+.cp-value-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.cp-row-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--cp-text);
+  width: 16px;
+  text-align: center;
+}
+
+.cp-value-input-box {
+  flex: 0 0 65px;
+}
+
+.cp-input-field {
+  width: 100%;
+  padding: 1px 3px;
+  border: 1px solid var(--cp-input-border);
+  border-radius: 6px;
+  background-color: var(--cp-input-bg);
+  color: var(--cp-text);
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 0.85rem;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+/* Chrome, Safari, Edge, Opera */
+.cp-input-field::-webkit-outer-spin-button,
+.cp-input-field::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+.cp-input-field[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.cp-input-field:focus {
+  outline: none;
+  border-color: var(--cp-focus-ring);
+  box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
+  background-color: white;
+}
+
+.cp-value-slider-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+/* ポップアップ用のクラス */
+.cp-wrapper.cp-is-popup {
+  position: absolute;
+  z-index: 20000; /* SVGツールバー(10006)・ペイントオーバーレイ(99990)より必ず前面に出す */
+  display: none;
+  /* 初期は非表示 */
+  border: 1px solid transparent;
+  /* 枠線オプション用のベース */
+  transition: opacity 0.2s, border-color 0.2s;
+  transform-origin: top left; /* リサイズ用起点 */
+  touch-action: none; /* ドラッグ中のモバイルスクロール防止 */
+}
+
+.cp-wrapper.cp-is-popup.cp-visible {
+  display: block;
+}
+
+/* 横長ポップアップ時はflexで表示する */
+.cp-wrapper.cp-is-popup.cp-visible.cp-layout-horizontal {
+  display: flex;
+}
+
+/* ==================================
+ * 横長レイアウト (Horizontal Layout)
+ * ================================== */
+.cp-wrapper.cp-layout-horizontal {
+  width: max-content;
+  gap: 28px;
+  align-items: center;
+  /* 左右パネルをサークル高さの中央に揃える */
+}
+
+/* ポップアップでない画面直接埋め込み時のため */
+.cp-wrapper.cp-layout-horizontal:not(.cp-is-popup) {
+  display: flex;
+}
+
+.cp-layout-horizontal .cp-panel-left {
+  height: 240px;
+  /* カラーサークル高に合わせる */
+}
+
+.cp-layout-horizontal .cp-preview-container {
+  height: 100%;
+  width: 70px;
+  /* Original が横文字で入る幅 */
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.cp-layout-horizontal .cp-preview-current,
+.cp-layout-horizontal .cp-preview-original {
+  flex: 1;
+  width: 100%;
+}
+
+.cp-layout-horizontal .cp-wheel-container {
+  margin-bottom: 0;
+}
+
+.cp-layout-horizontal .cp-panel-right {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 290px;
+  /* コントロール部分の幅 */
+}
+
+/* カラーパレット */
+.cp-palette-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+  /* 16px -> 8px */
+  padding-top: 0;
+  /* 16px -> 0 */
+  border-top: none;
+  /* 境界線を削除 */
+}
+
+.cp-palette-add {
+  flex-shrink: 0;
+  width: 20px;
+  /* 28px -> 20px (スウォッチと統一) */
+  height: 20px;
+  border-radius: 4px;
+  border: 1.5px dashed var(--cp-input-border);
+  background: var(--cp-input-bg);
+  color: var(--cp-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.cp-palette-add:hover {
+  border-style: solid;
+  border-color: var(--cp-focus-ring);
+  color: var(--cp-focus-ring);
+  background: white;
+}
+
+.cp-palette-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 0 0 254px;
+  /* 10個 * 20px + 9個 * 6px = 254px */
+}
+
+.cp-palette-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  transition: transform 0.1s, box-shadow 0.1s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.cp-palette-swatch:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+  z-index: 1;
+}
+
+.cp-palette-swatch:active {
+  transform: scale(0.95);
+}
+
+/* リサイズハンドル */
+.cp-resize-handle {
+  position: absolute;
+  bottom: 0px;
+  right: 0px;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  color: var(--cp-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  /* ハンドルのクリック領域を広める */
+  padding: 4px;
+  box-sizing: content-box;
+  touch-action: none; /* スマホやタブレット動作時の画面スクロール防止用 */
+}
+
+.cp-resize-handle:hover {
+  opacity: 1;
+}
+
+/* ドラッグ移動中 */
+.cp-wrapper.cp-dragging {
+  cursor: grabbing !important;
+}
+
+.cp-wrapper.cp-dragging * {
+  cursor: grabbing !important;
+}
