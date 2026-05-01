@@ -56,19 +56,27 @@ const MathInlineEditor = {
         const doc = window.editorInstance.state.doc;
         const lineStr = doc.line(this.dataLine).text;
 
-        // Very basic extraction for now, assuming block math ($$ ... $$) or inline ($...$)
-        // In reality, we need to match the specific formula. This is a simplified version.
+        // Extract exact math content bounded by $ or $$ correctly.
+        // We look for the first occurrence. A full parser-based logic is better but we use regex matching line bounds
         let rawLatex = '';
-        const blockMatch = lineStr.match(/\$\$(.*?)\$\$/);
-        const inlineMatch = lineStr.match(/\$(.*?)\$/);
+        this.originalMatch = null;
 
-        if (blockMatch) {
-            rawLatex = blockMatch[1];
-        } else if (inlineMatch) {
-            rawLatex = inlineMatch[1];
+        const blockRegex = /\$\$([\s\S]*?)\$\$/g;
+        const inlineRegex = /\$([^$]+?)\$/g;
+
+        let match = blockRegex.exec(lineStr);
+        if (match) {
+            rawLatex = match[1];
+            this.originalMatch = { text: match[0], isBlock: true };
         } else {
-             // Fallback: just take the line
-             rawLatex = lineStr;
+            match = inlineRegex.exec(lineStr);
+            if (match) {
+                rawLatex = match[1];
+                this.originalMatch = { text: match[0], isBlock: false };
+            } else {
+                 rawLatex = lineStr;
+                 this.originalMatch = { text: lineStr, isBlock: false };
+            }
         }
 
         this.createOverlay(mathElement, rawLatex);
@@ -116,6 +124,57 @@ const MathInlineEditor = {
         // Setup CM6
         const { EditorState, EditorView, keymap, history, defaultKeymap, historyKeymap, drawSelection, dropCursor, syntaxHighlighting, defaultHighlightStyle, markdown, markdownLanguage } = window.CM6;
 
+        // Custom Keymap for Suggestion Box
+        const mathEditorKeymap = [
+            ...defaultKeymap,
+            ...historyKeymap,
+            {
+                key: "Escape",
+                run: () => {
+                    if (window.MathSlashCommand && window.MathSlashCommand.isActive) {
+                        window.MathSlashCommand.hide();
+                        return true;
+                    }
+                    this.saveAndExit();
+                    return true;
+                }
+            },
+            {
+                key: "Mod-Enter",
+                run: () => { this.saveAndExit(); return true; }
+            },
+            {
+                key: "Enter",
+                run: (view) => {
+                    if (window.MathSlashCommand && window.MathSlashCommand.isActive) {
+                        window.MathSlashCommand.applySelection();
+                        return true;
+                    }
+                    return false; // let default newline happen
+                }
+            },
+            {
+                key: "ArrowDown",
+                run: (view) => {
+                    if (window.MathSlashCommand && window.MathSlashCommand.isActive) {
+                        window.MathSlashCommand.moveSelection(1);
+                        return true;
+                    }
+                    return false;
+                }
+            },
+            {
+                key: "ArrowUp",
+                run: (view) => {
+                    if (window.MathSlashCommand && window.MathSlashCommand.isActive) {
+                        window.MathSlashCommand.moveSelection(-1);
+                        return true;
+                    }
+                    return false;
+                }
+            }
+        ];
+
         const state = EditorState.create({
             doc: initialText,
             extensions: [
@@ -124,18 +183,7 @@ const MathInlineEditor = {
                 dropCursor(),
                 syntaxHighlighting(defaultHighlightStyle),
                 markdown({ base: markdownLanguage }),
-                keymap.of([
-                    ...defaultKeymap,
-                    ...historyKeymap,
-                    {
-                        key: "Escape",
-                        run: () => { this.saveAndExit(); return true; }
-                    },
-                    {
-                        key: "Mod-Enter",
-                        run: () => { this.saveAndExit(); return true; }
-                    }
-                ]),
+                keymap.of(mathEditorKeymap),
                 EditorView.updateListener.of((v) => {
                     if (v.docChanged) {
                         const newText = v.state.doc.toString();
@@ -143,6 +191,31 @@ const MathInlineEditor = {
                             window.katex.render(newText, livePreview, { throwOnError: false, displayMode: true });
                         } catch (err) {
                             livePreview.innerHTML = `<span style="color:red">${err.message}</span>`;
+                        }
+                    }
+
+                    // Handle slash command suggestion
+                    if (v.selectionSet || v.docChanged) {
+                        const currentPos = v.state.selection.main.head;
+                        const line = v.state.doc.lineAt(currentPos);
+                        const textBeforeCursor = line.text.slice(0, currentPos - line.from);
+
+                        // Find last backslash
+                        const slashIndex = textBeforeCursor.lastIndexOf('\\');
+
+                        if (slashIndex !== -1) {
+                            const word = textBeforeCursor.slice(slashIndex + 1);
+                            // If word doesn't have spaces, it's a valid trigger
+                            if (!/\s/.test(word)) {
+                                if (window.MathSlashCommand) {
+                                    window.MathSlashCommand.show(v.view, line.from + slashIndex);
+                                    window.MathSlashCommand.updateKeyword(word);
+                                }
+                            } else if (window.MathSlashCommand && window.MathSlashCommand.isActive) {
+                                window.MathSlashCommand.hide();
+                            }
+                        } else if (window.MathSlashCommand && window.MathSlashCommand.isActive) {
+                            window.MathSlashCommand.hide();
                         }
                     }
                 })
@@ -175,15 +248,13 @@ const MathInlineEditor = {
             const doc = window.editorInstance.state.doc;
             const lineObj = doc.line(this.dataLine);
 
-            // Re-apply substitution (simplified)
-            // Note: A robust implementation requires precise replacement in AST.
+            // Re-apply substitution safely using originalMatch
             let newLineText = lineObj.text;
-            if (newLineText.includes('$$')) {
-                 newLineText = newLineText.replace(/\$\$(.*?)\$\$/, `$$$${newLatex}$$$`);
-            } else if (newLineText.includes('$')) {
-                 newLineText = newLineText.replace(/\$(.*?)\$/, `$${newLatex}$`);
+            if (this.originalMatch) {
+                const replacementText = this.originalMatch.isBlock ? `$$${newLatex}$$` : `$${newLatex}$`;
+                newLineText = newLineText.replace(this.originalMatch.text, replacementText);
             } else {
-                 newLineText = newLatex;
+                newLineText = newLatex;
             }
 
             window.editorInstance.dispatch({
