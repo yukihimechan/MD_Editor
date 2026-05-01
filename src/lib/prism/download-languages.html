@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Prism.js Language Files Downloader</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #333; }
+        .status { margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        .info { background: #e7f3ff; padding: 15px; border-radius: 4px; margin: 20px 0; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Prism.js 言語ファイル一括ダウンロード</h1>
+    
+    <div class="info">
+        <h3>📦 ダウンロード対象言語（25言語）</h3>
+        <p><strong>プログラミング言語:</strong><br>
+        JavaScript, TypeScript, Python, Java, C, C++, C#, PHP, Ruby, Swift, Visual Basic, Pascal, Go, Rust, MATLAB, Perl, Fortran</p>
+        <p><strong>マークアップ・データ:</strong><br>
+        HTML, CSS, Markdown, JSON, YAML, XML</p>
+        <p><strong>その他:</strong><br>
+        Bash/Shell, SQL</p>
+    </div>
+
+    <button onclick="downloadAll()">すべてダウンロード</button>
+    <button onclick="clearLog()">ログクリア</button>
+    
+    <div id="log"></div>
+
+    <script>
+        const languages = [
+            // Programming Languages
+            { name: 'javascript', file: 'prism-javascript.min.js' },
+            { name: 'typescript', file: 'prism-typescript.min.js' },
+            { name: 'python', file: 'prism-python.min.js' },
+            { name: 'java', file: 'prism-java.min.js' },
+            { name: 'c', file: 'prism-c.min.js' },
+            { name: 'cpp', file: 'prism-cpp.min.js' },
+            { name: 'csharp', file: 'prism-csharp.min.js' },
+            { name: 'php', file: 'prism-php.min.js' },
+            { name: 'ruby', file: 'prism-ruby.min.js' },
+            { name: 'swift', file: 'prism-swift.min.js' },
+            { name: 'visual-basic', file: 'prism-visual-basic.min.js' },
+            { name: 'pascal', file: 'prism-pascal.min.js' },
+            { name: 'go', file: 'prism-go.min.js' },
+            { name: 'rust', file: 'prism-rust.min.js' },
+            { name: 'matlab', file: 'prism-matlab.min.js' },
+            { name: 'perl', file: 'prism-perl.min.js' },
+            { name: 'fortran', file: 'prism-fortran.min.js' },
+            
+            // Markup & Data
+            { name: 'markup', file: 'prism-markup.min.js' }, // HTML, XML
+            { name: 'css', file: 'prism-css.min.js' },
+            { name: 'markdown', file: 'prism-markdown.min.js' },
+            { name: 'json', file: 'prism-json.min.js' },
+            { name: 'yaml', file: 'prism-yaml.min.js' },
+            
+            // Others
+            { name: 'bash', file: 'prism-bash.min.js' },
+            { name: 'sql', file: 'prism-sql.min.js' }
+        ];
+
+        const logDiv = document.getElementById('log');
+
+        function log(message, type = 'status') {
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.textContent = message;
+            logDiv.appendChild(div);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            logDiv.innerHTML = '';
+        }
+
+        async function downloadFile(lang) {
+            const url = `https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/${lang.file}`;
+            
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const blob = await response.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = lang.file;
+                a.click();
+                URL.revokeObjectURL(a.href);
+                
+                log(`✅ ${lang.name}: ${lang.file} (${(blob.size / 1024).toFixed(1)}KB)`, 'success');
+                return true;
+            } catch (error) {
+                log(`❌ ${lang.name}: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function downloadAll() {
+            log('📥 ダウンロード開始...');
+            
+            let success = 0;
+            let failed = 0;
+            
+            for (const lang of languages) {
+                const result = await downloadFile(lang);
+                if (result) success++;
+                else failed++;
+                
+                // Rate limiting
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            log(`\n✨ 完了: 成功 ${success}件, 失敗 ${failed}件`, 'success');
+            log('\n📁 ダウンロードしたファイルを lib/prism/ フォルダに移動してください。');
+        }
+    </script>
+</body>
+</html>
