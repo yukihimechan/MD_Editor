@@ -17,8 +17,8 @@ const MathInlineEditor = {
     bindEvents() {
         // Delegate click for KaTeX elements
         DOM.preview.addEventListener('click', (e) => {
-            // Find if click was on a math element
-            const mathElement = e.target.closest('.katex-html');
+            // Find if click was on a math element. texmath renders as <eq> or elements with .katex-html inside
+            const mathElement = e.target.closest('.katex-html') || e.target.closest('eq');
             if (mathElement) {
                 // Ignore clicks on SVG or inner interactive elements if any
                 if (e.target.closest('button') || e.target.tagName.toLowerCase() === 'svg') return;
@@ -50,32 +50,52 @@ const MathInlineEditor = {
         }
 
         this.dataLine = parseInt(blockContainer.getAttribute('data-line'), 10);
+        const dataLineEnd = blockContainer.getAttribute('data-line-end');
+        this.dataLineEnd = dataLineEnd ? parseInt(dataLineEnd, 10) : this.dataLine;
         this.activeWrapper = mathElement;
 
         // Extract raw LaTeX from the markdown source
         const doc = window.editorInstance.state.doc;
-        const lineStr = doc.line(this.dataLine).text;
 
-        // Extract exact math content bounded by $ or $$ correctly.
-        // We look for the first occurrence. A full parser-based logic is better but we use regex matching line bounds
+        // Block math spans multiple lines
         let rawLatex = '';
         this.originalMatch = null;
 
-        const blockRegex = /\$\$([\s\S]*?)\$\$/g;
-        const inlineRegex = /\$([^$]+?)\$/g;
+        if (this.dataLineEnd > this.dataLine) {
+            // It's a block math
+            const startLine = doc.line(this.dataLine);
+            const endLine = doc.line(this.dataLineEnd - 1); // data-line-end is exclusive in this engine
+            const blockText = doc.sliceString(startLine.from, endLine.to);
 
-        let match = blockRegex.exec(lineStr);
-        if (match) {
-            rawLatex = match[1];
-            this.originalMatch = { text: match[0], isBlock: true };
-        } else {
-            match = inlineRegex.exec(lineStr);
+            const blockRegex = /\$\$([\s\S]*?)\$\$/;
+            const match = blockRegex.exec(blockText);
             if (match) {
                 rawLatex = match[1];
-                this.originalMatch = { text: match[0], isBlock: false };
+                this.originalMatch = { text: match[0], isBlock: true, isMultiLine: true };
             } else {
-                 rawLatex = lineStr;
-                 this.originalMatch = { text: lineStr, isBlock: false };
+                rawLatex = blockText;
+                this.originalMatch = { text: blockText, isBlock: true, isMultiLine: true };
+            }
+        } else {
+            // Inline math
+            const lineStr = doc.line(this.dataLine).text;
+
+            const blockRegex = /\$\$([\s\S]*?)\$\$/g;
+            const inlineRegex = /\$([^$]+?)\$/g;
+
+            let match = blockRegex.exec(lineStr);
+            if (match) {
+                rawLatex = match[1];
+                this.originalMatch = { text: match[0], isBlock: true, isMultiLine: false };
+            } else {
+                match = inlineRegex.exec(lineStr);
+                if (match) {
+                    rawLatex = match[1];
+                    this.originalMatch = { text: match[0], isBlock: false, isMultiLine: false };
+                } else {
+                     rawLatex = lineStr;
+                     this.originalMatch = { text: lineStr, isBlock: false, isMultiLine: false };
+                }
             }
         }
 
@@ -246,24 +266,39 @@ const MathInlineEditor = {
         // Apply changes to main CodeMirror document
         if (this.dataLine > 0 && window.editorInstance) {
             const doc = window.editorInstance.state.doc;
-            const lineObj = doc.line(this.dataLine);
+            let startLineObj = doc.line(this.dataLine);
+            let endLineObj = this.dataLineEnd > this.dataLine ? doc.line(this.dataLineEnd - 1) : startLineObj;
 
-            // Re-apply substitution safely using originalMatch
-            let newLineText = lineObj.text;
-            if (this.originalMatch) {
-                const replacementText = this.originalMatch.isBlock ? `$$${newLatex}$$` : `$${newLatex}$`;
-                newLineText = newLineText.replace(this.originalMatch.text, replacementText);
+            if (this.originalMatch && this.originalMatch.isMultiLine) {
+                 const blockText = doc.sliceString(startLineObj.from, endLineObj.to);
+                 const replacementText = `$$\n${newLatex}\n$$`;
+                 const newBlockText = blockText.replace(this.originalMatch.text, replacementText);
+
+                 window.editorInstance.dispatch({
+                    changes: {
+                        from: startLineObj.from,
+                        to: endLineObj.to,
+                        insert: newBlockText
+                    }
+                });
             } else {
-                newLineText = newLatex;
-            }
-
-            window.editorInstance.dispatch({
-                changes: {
-                    from: lineObj.from,
-                    to: lineObj.to,
-                    insert: newLineText
+                // Re-apply substitution safely using originalMatch
+                let newLineText = startLineObj.text;
+                if (this.originalMatch) {
+                    const replacementText = this.originalMatch.isBlock ? `$$${newLatex}$$` : `$${newLatex}$`;
+                    newLineText = newLineText.replace(this.originalMatch.text, replacementText);
+                } else {
+                    newLineText = newLatex;
                 }
-            });
+
+                window.editorInstance.dispatch({
+                    changes: {
+                        from: startLineObj.from,
+                        to: startLineObj.to,
+                        insert: newLineText
+                    }
+                });
+            }
         }
     }
 };
