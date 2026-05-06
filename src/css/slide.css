@@ -1,0 +1,190 @@
+/**
+ * スライドショー機能のスタイル
+ */
+
+/* ========================================
+   オーバーレイ背景
+   ======================================== */
+.slideshow-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #1a1a1a;
+    z-index: 9000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    /* 通常はhidden; JSで表示切替 */
+}
+
+.slideshow-overlay.hidden {
+    display: none;
+}
+
+/* ========================================
+   スライドコンテナ（A4横比: 297mm x 210mm = 1.4142...）
+   ======================================== */
+.slideshow-container {
+    position: relative;
+    background: #ffffff;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+    /* サイズはJSで動的計算: ウィンドウサイズに合わせてアスペクト比を維持 */
+}
+
+/* ========================================
+   スライドコンテンツ（プレビューHTMLのクローン）
+   ======================================== */
+.slideshow-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+    /* CSSスケール用基点 */
+    transform-origin: top left;
+}
+
+/* プレビュー内のスタイルを引き継ぐため、md-previewクラスの上書き */
+.slideshow-content.md-preview {
+    /* スクロールバーを非表示 */
+    overflow: hidden !important;
+    /* 既存のmax-widthをリセット */
+    max-width: none !important;
+    /* JS計算の幅で固定 */
+    width: 100%;
+    height: 100%;
+    /* パディングはJSでスケールして適用するためゼロ */
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* 印刷用ページブレークやその他の画面外要素を非表示 */
+.slideshow-content hr.page-break-before {
+    display: none;
+}
+
+/* ========================================
+   閉じるボタン（右上）
+   ======================================== */
+#slideshow-close-btn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 9100;
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#slideshow-close-btn:hover {
+    background: rgba(255, 255, 255, 0.28);
+    border-color: rgba(255, 255, 255, 0.6);
+}
+
+#slideshow-print-btn {
+    position: fixed;
+    top: 60px;
+    /* 閉じるボタンの下 (top: 16px + ボタン高さ ≈ 44px) */
+    right: 16px;
+    z-index: 9100;
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#slideshow-print-btn:hover {
+    background: rgba(255, 255, 255, 0.28);
+    border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* ========================================
+   ページ番号表示（右下）
+   ======================================== */
+#slideshow-page-info {
+    position: fixed;
+    bottom: 16px;
+    right: 20px;
+    z-index: 9100;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 16px;
+    font-family: sans-serif;
+    pointer-events: none;
+    user-select: none;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* ========================================
+   ナビゲーション矢印（左右端）
+   ======================================== */
+.slideshow-nav {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 9100;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 32px;
+    width: 50px;
+    height: 100px;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 0.2s, color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(2px);
+}
+
+.slideshow-nav:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.slideshow-nav.prev {
+    left: 16px;
+}
+
+.slideshow-nav.next {
+    right: 16px;
+}
+
+/* スライド中はbodyのスクロールを止める */
+body.slideshow-active,
+html.slideshow-active {
+    overflow: hidden !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+/* スライドモードではプレブロックのスクロールを禁止し、すべて分割エンジンに任せる */
+.slideshow-content pre {
+    max-height: none !important;
+    overflow-y: hidden !important;
+}
+
