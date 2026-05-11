@@ -1,0 +1,212 @@
+/**
+ * アノテーションレイヤー スタイル
+ */
+
+/* ===== SVGレイヤー本体 ===== */
+.annotation-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    /* pointer-events:none で通常時はクリックを素通り */
+    pointer-events: none;
+    /* z-indexを指定すると独立したスタッキングコンテキストが生成され、
+       子要素の mix-blend-mode が下のHTMLテキストと合成されなくなるため、
+       z-index は auto (未指定) とし、DOMツリーの配置順によって前面に表示させます。 */
+    /* スクロールに追従するため previewPane 内に置く */
+    overflow: visible;
+    /* 視覚的な存在感をなくす */
+    background: transparent;
+    transition: outline 0.15s;
+}
+
+/* アノテーションモード有効時 */
+.annotation-layer--active {
+    /* クリックを受け取る */
+    pointer-events: all;
+    cursor: crosshair;
+    /* 薄い枠で「描画可能エリア」であることを示す */
+    outline: 2px dashed rgba(231, 76, 60, 0.35);
+    outline-offset: -2px;
+}
+
+/* ===== フローティングツールバー ===== */
+.annotation-toolbar {
+    position: fixed;
+    top: 60px;
+    right: 20px;
+    z-index: 10000;
+    background: rgba(30, 30, 40, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 8px 12px;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        0 2px 8px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    /* display:flex はJSで制御 */
+    align-items: center;
+    gap: 10px;
+    user-select: none;
+    /* ドラッグで移動できるよう将来対応可能なスタイル */
+    cursor: default;
+    animation: annotation-toolbar-in 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes annotation-toolbar-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.annotation-toolbar-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+}
+
+.annotation-toolbar-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+}
+
+/* ツールグループ（セパレータ付き） */
+.annotation-tool-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.annotation-tool-group + .annotation-tool-group {
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    padding-left: 10px;
+}
+
+/* ツールボタン */
+.annotation-tool-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background 0.15s,
+        border-color 0.15s,
+        color 0.15s,
+        transform 0.1s;
+    padding: 0;
+    line-height: 1;
+}
+
+.annotation-tool-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    transform: scale(1.05);
+}
+
+.annotation-tool-btn.active {
+    background: rgba(231, 76, 60, 0.75);
+    border-color: rgba(231, 76, 60, 0.9);
+    color: #fff;
+    box-shadow: 0 0 8px rgba(231, 76, 60, 0.5);
+}
+
+.annotation-tool-btn:active {
+    transform: scale(0.95);
+}
+
+/* 危険ボタン（クリア） */
+.annotation-btn-danger:hover {
+    background: rgba(192, 57, 43, 0.75);
+    border-color: rgba(192, 57, 43, 0.9);
+    color: #fff;
+}
+
+/* 閉じるボタン */
+.annotation-btn-close {
+    font-size: 12px;
+    font-weight: bold;
+    opacity: 0.7;
+}
+
+.annotation-btn-close:hover {
+    background: rgba(255, 255, 255, 0.15);
+    opacity: 1;
+}
+
+/* カラーピッカー */
+.annotation-color-picker {
+    width: 28px;
+    height: 28px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    padding: 0;
+    background: none;
+    overflow: hidden;
+    transition: border-color 0.15s, transform 0.1s;
+}
+
+.annotation-color-picker:hover {
+    border-color: rgba(255, 255, 255, 0.5);
+    transform: scale(1.1);
+}
+
+/* Chrome用 */
+.annotation-color-picker::-webkit-color-swatch-wrapper {
+    padding: 0;
+    border-radius: 50%;
+}
+.annotation-color-picker::-webkit-color-swatch {
+    border: none;
+    border-radius: 50%;
+}
+
+/* 線幅スライダー */
+.annotation-stroke-width {
+    width: 60px;
+    height: 4px;
+    accent-color: #e74c3c;
+    cursor: pointer;
+}
+
+.annotation-stroke-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    min-width: 14px;
+    text-align: center;
+}
+
+/* ===== メインツールバーのアノテーションボタン ===== */
+#btn-annotation {
+    position: relative;
+}
+
+/* アノテーションモード中のバッジ */
+#btn-annotation.annotation-mode-on::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    background: #e74c3c;
+    border-radius: 50%;
+    box-shadow: 0 0 4px rgba(231, 76, 60, 0.8);
+}

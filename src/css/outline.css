@@ -1,0 +1,283 @@
+/* ==================== Outline Panel Styles ==================== */
+
+/* アウトライン項目のベーススタイル */
+.outline-item {
+    display: flex;
+    /* [NEW] 内容を横並びに */
+    align-items: center;
+    padding: 6px 8px 6px 4px;
+    margin-left: calc((var(--level, 1) - 1) * 16px);
+    /* [NEW] インデントをマージンで調整 */
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+    user-select: none;
+    position: relative;
+}
+
+/* 非表示（親が折りたたまれている） */
+.outline-item.hidden {
+    display: none;
+}
+
+/* 折りたたみトグル */
+.fold-toggle {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border-radius: 4px;
+    margin-right: 4px;
+    color: #666;
+    opacity: 0.3;
+}
+
+.outline-item:hover .fold-toggle {
+    opacity: 0.8;
+}
+
+.fold-toggle:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+/* トグルアイコン（デフォルト：開いている） */
+.fold-toggle::before {
+    content: '▼';
+    font-size: 10px;
+}
+
+/* 折りたたまれている状態 */
+.outline-item.folded .fold-toggle::before {
+    content: '▶';
+}
+
+/* インデントレベルに応じた変数の設定（buildOutlineでクラスを付与） */
+.outline-item.level-1 {
+    --level: 1;
+}
+
+.outline-item.level-2 {
+    --level: 2;
+}
+
+.outline-item.level-3 {
+    --level: 3;
+}
+
+.outline-item.level-4 {
+    --level: 4;
+}
+
+.outline-item.level-5 {
+    --level: 5;
+}
+
+.outline-item.level-6 {
+    --level: 6;
+}
+
+.outline-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outline-item:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.outline-item.active {
+    background: rgba(3, 102, 214, 0.1);
+    font-weight: 600;
+    color: #0366d6;
+}
+
+/* ドラッグ中のスタイル */
+.outline-item.dragging {
+    opacity: 0.4;
+    background: #e0e0e0;
+}
+
+/* ドロップターゲットのスタイル */
+.outline-item.drop-target {
+    border-top: 2px solid #0078d4;
+    background: #e8f4ff;
+}
+
+/* ダークテーマ対応 */
+body.dark-theme .outline-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+body.dark-theme .outline-item.active {
+    background: rgba(86, 156, 214, 0.2);
+    color: #569cd6;
+}
+
+body.dark-theme .outline-item.dragging {
+    opacity: 0.4;
+    background: #3e3e3e;
+}
+
+body.dark-theme .outline-item.drop-target {
+    border-top: 2px solid #569cd6;
+    background: #2a3f5f;
+}
+
+/* ==================== SVG List Specific Styles ==================== */
+.svg-list-panel {
+    --bg: #ffffff;
+    --panel: #f8fafc;
+    --row: #ffffff;
+    --row-hover: #f1f5f9;
+    --border: #d8dee6;
+    --text: #1f2937;
+    --weak: #6b7280;
+    --muted: #9aa1aa;
+    --accent: #3b82f6;
+    --icon-color: #4b5563;
+}
+
+.svg-list-content {
+    background-color: var(--panel);
+}
+
+.svg-list-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    margin: 4px 6px;
+    background-color: var(--row);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    min-height: 40px;
+    gap: 8px;
+    box-sizing: border-box;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.svg-list-item:hover {
+    background-color: var(--row-hover);
+}
+
+.svg-list-item.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.svg-list-item .expand-toggle {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--icon-color);
+}
+
+.svg-list-item .type-icon {
+    width: 24px;
+    height: 24px;
+    color: var(--icon-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.svg-list-item .name-field,
+.svg-list-item .id-field {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 14px;
+    color: var(--text);
+    background: #fff;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.svg-list-item .name-field:focus,
+.svg-list-item .id-field:focus {
+    border-color: var(--accent);
+}
+
+.svg-list-item .name-field {
+    flex: 1;
+    min-width: 80px;
+}
+
+.svg-list-item .id-label {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: bold;
+    margin-left: 4px;
+}
+
+.svg-list-item .id-field {
+    width: 80px;
+    font-size: 13px;
+    color: var(--weak);
+}
+
+.svg-list-item .item-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.svg-list-item .action-icon {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border-radius: 6px;
+    color: var(--icon-color);
+}
+
+.svg-list-item .action-icon:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.svg-list-item[data-visible="false"] .name-field,
+.svg-list-item[data-visible="false"] .type-icon,
+.svg-list-item[data-visible="false"] .id-label {
+    opacity: 0.5;
+}
+
+/* Identation */
+.svg-list-item.level-1 {
+    margin-left: 24px;
+}
+
+.svg-list-item.level-2 {
+    margin-left: 44px;
+}
+
+.svg-list-item.level-3 {
+    margin-left: 64px;
+}
+
+.svg-list-item.level-4 {
+    margin-left: 84px;
+}
+
+/* Dragging */
+.svg-list-item.dragging {
+    opacity: 0.5;
+    background: #eee;
+}
+
+.svg-list-item.drag-over {
+    border-top: 2px solid var(--accent);
+}
+
+.svg-list-item.drag-over-inside {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px dashed var(--accent);
+}
