@@ -451,9 +451,8 @@
 
                         <h5>■ 第3条（禁止事項）</h5>
                         <p>次の行為を禁止します。<br>
-                            1. 本ソフトウェアの再配布（ただし、組織内での複製・配布は可能とします）<br>
-                            2. 本ソフトウェアのソースコードを利用して、別のソフトウェアを作成すること<br>
-                            3. 著作権表示および本利用許諾契約書を削除すること</p>
+                            1. 本ソフトウェアのソースコードを利用して、別のソフトウェアを作成すること<br>
+                            2. 著作権表示および本利用許諾契約書を削除すること</p>
 
                         <h5>■ 第4条（免責事項）</h5>
                         <p>1. 本ソフトウェアは 「現状有姿（AS IS）」 で提供されます。<br>
@@ -485,10 +484,8 @@
 
                         <h5>Article 3 (Prohibited Acts)</h5>
                         <p>The following acts are prohibited:<br>
-                            1. Redistribution of the Software (However, copying and distributing within the same
-                            organization is permitted).<br>
-                            2. Creating other software using the source code of the Software.<br>
-                            3. Removing or altering copyright notices or this Agreement.</p>
+                            1. Creating other software using the source code of the Software.<br>
+                            2. Removing or altering copyright notices or this Agreement.</p>
 
                         <h5>Article 4 (Disclaimer)</h5>
                         <p>1. The Software is provided “AS IS”, without any warranty of any kind.<br>
@@ -507,6 +504,19 @@
                         <summary>CodeMirror 6</summary>
                         <div class="license-text">
                             <p>Copyright (C) 2018-2021 by Marijn Haverbeke &lt;marijnh@gmail.com&gt; and others</p>
+                            <p>MIT License</p>
+                            <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</pre>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>Yjs & Ecosystem</summary>
+                        <div class="license-text">
+                            <p>Copyright (c) 2019 Kevin Jahns</p>
                             <p>MIT License</p>
                             <pre>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -712,9 +722,9 @@ The above copyright notice and this permission notice shall be included in all c
             <div class="collab-field">
                 <label>カーソルの色</label>
                 <div class="collab-color-row">
-                    <input type="color" id="collab-user-color" value="#3498db">
-                    <div id="collab-color-preview" style="background-color: #3498db;"></div>
-                    <span style="font-size:13px;color:#666;">他の参加者に表示されるカーソルの色です</span>
+                    <button type="button" id="collab-color-preview" style="background-color: #3498db; width: 30px; height: 30px; border-radius: 4px; border: 1px solid #ccc; cursor: pointer; padding: 0;"></button>
+                    <input type="hidden" id="collab-user-color" value="#3498db">
+                    <span style="font-size:13px;color:#666; margin-left:10px;">他の参加者に表示されるカーソルの色です</span>
                 </div>
             </div>
 
@@ -1393,11 +1403,13 @@ The above copyright notice and this permission notice shall be included in all c
     <script charset="utf-8" src="js/ui/ui_events.js"></script>
 
     <script charset="utf-8" src="js/front_matter_parser.js"></script>
-    <!-- Mermaid Interaction (ノードホバー・ドラッグ接続機能) -->
+    <!-- Mermaid Interaction (ベースロジックと各図形) -->
+    <script charset="utf-8" src="js/mermaid/mermaid_base.js"></script>
     <script charset="utf-8" src="js/mermaid/mermaid_interaction.js"></script>
     <script charset="utf-8" src="js/mermaid/mermaid_sequence_interaction.js"></script>
     <script charset="utf-8" src="js/mermaid/mermaid_class_interaction.js"></script>
     <script charset="utf-8" src="js/mermaid/mermaid_er_interaction.js"></script>
+    <script charset="utf-8" src="js/mermaid/mermaid_expanded_view.js"></script>
 
     <script charset="utf-8" src="js/renderer.js"></script>
     <script charset="utf-8" src="js/page_splitter.js"></script>
