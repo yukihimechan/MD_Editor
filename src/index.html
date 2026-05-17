@@ -372,6 +372,21 @@
         <div class="outline-resize-handle"></div>
     </aside>
 
+    <!-- Comment Panel (Initially Hidden, Right side) -->
+    <aside id="comment-panel" class="outline-panel comment-panel">
+        <div class="outline-header">
+            <h3>💬 コメント一覧</h3>
+            <div class="comment-summary">
+                <span id="comment-unread-count">未読 0件</span>
+                <span id="comment-pending-count">未対応 0件</span>
+            </div>
+        </div>
+        <div id="comment-panel-content" class="outline-content">
+            <!-- 吹き出し注釈の一覧がここに生成される -->
+        </div>
+        <div class="outline-resize-handle"></div>
+    </aside>
+
     <!-- Main Editor and Preview -->
     <main class="split">
         <section id="editor-pane">
@@ -1005,7 +1020,7 @@ The above copyright notice and this permission notice shall be included in all c
 
             <fieldset style="margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
                 <legend style="font-weight: 600;" data-i18n="settings.imageSaveSettingsLegend">画像の取り込み</legend>
-                <div style="margin-bottom: 0;">
+                <div style="margin-bottom: 10px;">
                     <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                         <span data-i18n="settings.imageSaveLocation">取込み画像保存先:</span>
                         <select id="cfg-image-save-location" style="padding: 4px 8px;">
@@ -1013,6 +1028,13 @@ The above copyright notice and this permission notice shall be included in all c
                             <option value="local" data-i18n="settings.imageSaveLocal">別ファイル (imageフォルダ保存)</option>
                         </select>
                     </label>
+                </div>
+                <div style="margin-bottom: 0;">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="cfg-compress-standalone-image" checked>
+                        <span data-i18n="settings.compressStandaloneImage">単独編集時の画像圧縮</span>
+                    </label>
+                    <small style="color: #666; display: block; margin-top: 4px; margin-left: 24px;" data-i18n="settings.compressStandaloneImageDesc">ONにすると、ペーストした大きな画像を自動的に圧縮・WebP化してMarkdownファイルの肥大化を防ぎます。</small>
                 </div>
             </fieldset>
 
@@ -1033,6 +1055,15 @@ The above copyright notice and this permission notice shall be included in all c
                 </div>
             </fieldset>
 
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: flex-start; gap: 8px;">
+                    <input type="checkbox" id="cfg-replace-unicode-checkboxes" style="margin-top: 4px;">
+                    <div style="display: flex; flex-direction: column;">
+                        <span data-i18n="settings.replaceUnicodeCheckboxes">チェックボックスの置換</span>
+                        <small style="color: #666;" data-i18n="settings.replaceUnicodeCheckboxesDesc">プレビューで☐☑☒をクリックした際に状態を切り替えます</small>
+                    </div>
+                </label>
+            </div>
         </div>
 
         <!-- 5. Export Tab -->
@@ -1103,6 +1134,11 @@ The above copyright notice and this permission notice shall be included in all c
         <div id="cfg-tab-collab" class="cfg-tab-content">
             <fieldset style="border: 1px solid #ddd; border-radius: 6px; padding: 12px 16px; margin-bottom: 15px;">
                 <legend style="font-size: 13px; font-weight: 600; color: #555; padding: 0 6px;">シグナリングサーバー</legend>
+                <!-- [FIX 3] デフォルトサーバーの不安定さについての警告 -->
+                <div style="background: #fff8e1; border: 1px solid #ffe082; border-radius: 5px; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; color: #795548;">
+                    ⚠️ <strong>注意:</strong> デフォルトのシグナリングサーバー（wss://signaling.yjs.dev）は開発・テスト用の公開サーバーです。
+                    高負荷時に切断・遅延が発生する場合があります。本番利用には自前のサーバーを設定してください。
+                </div>
                 <div style="margin-bottom: 12px;">
                     <label style="display: flex; flex-direction: column; gap: 6px;">
                         <span style="font-size: 13px;">カスタムシグナリングサーバー URL</span>
@@ -1386,6 +1422,7 @@ The above copyright notice and this permission notice shall be included in all c
     <script charset="utf-8" src="js/editor/editor_core.js"></script>
     <script charset="utf-8" src="js/editor/editor_sync.js"></script>
     <script charset="utf-8" src="js/editor/editor_io.js"></script>
+    <script charset="utf-8" src="js/editor/auto_save.js"></script>
     <script charset="utf-8" src="js/editor/editor_commands.js"></script>
     <script charset="utf-8" src="js/editor/default_content.js"></script>
     <script charset="utf-8" src="js/editor/templates.js"></script>
@@ -1467,6 +1504,7 @@ The above copyright notice and this permission notice shall be included in all c
     <!-- Annotation Layer -->
     <script charset="utf-8" src="js/annotation/annotation_toolbar.js"></script>
     <script charset="utf-8" src="js/annotation/annotation_layer.js"></script>
+    <script charset="utf-8" src="js/annotation/annotation_comment_panel.js"></script>
     <!-- [NEW] 共同編集モジュール -->
     <!-- Yjs バンドル: CM6 初期化後・collab モジュールより前に読み込む必要がある -->
     <script charset="utf-8" src="lib/yjs/yjs.bundle.js"></script>

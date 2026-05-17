@@ -210,3 +210,168 @@
     border-radius: 50%;
     box-shadow: 0 0 4px rgba(231, 76, 60, 0.8);
 }
+
+/* ===== コメントパネル専用スタイル ===== */
+
+/* サマリー行（未読〇件・未対応〇件） */
+.comment-summary {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--weak, #888);
+}
+
+#comment-unread-count,
+#comment-pending-count {
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.06);
+    font-weight: 600;
+}
+
+/* 吹き出しアイテム行 */
+.comment-item {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 12px;
+    cursor: default;
+    transition: background 0.15s;
+}
+
+.comment-item:hover {
+    background: var(--table-hover, #f2faff);
+}
+
+/* ヘッダー行 */
+.comment-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+/* クリック可能なラベル */
+.comment-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary, #0366d6);
+    cursor: pointer;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.comment-label:hover {
+    text-decoration: underline;
+}
+
+/* ステータスボタン群 */
+.comment-status-btns {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.btn-status {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px 4px;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-status:hover {
+    background: rgba(0,0,0,0.06);
+    border-color: var(--border);
+}
+
+/* アンカーテキストプレビュー */
+.comment-anchor-preview {
+    font-size: 11px;
+    color: var(--weak, #888);
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 折り畳みトグルボタン */
+.comment-toggle-btn {
+    background: none;
+    border: none;
+    font-size: 11px;
+    color: var(--weak, #888);
+    cursor: pointer;
+    padding: 3px 0;
+    margin-top: 4px;
+    width: 100%;
+    text-align: left;
+    transition: color 0.15s;
+}
+
+.comment-toggle-btn:hover {
+    color: var(--primary, #0366d6);
+}
+
+/* コメント入力エリア（折り畳み） */
+.comment-body {
+    overflow: hidden;
+    transition: max-height 0.25s ease, opacity 0.25s ease;
+    max-height: 120px;
+    opacity: 1;
+    margin-top: 4px;
+}
+
+.comment-body.collapsed {
+    max-height: 0;
+    opacity: 0;
+}
+
+.comment-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--fg);
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.comment-textarea:focus {
+    border-color: var(--primary, #0366d6);
+}
+
+/* 空メッセージ */
+.comment-empty {
+    padding: 24px 16px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--weak, #888);
+}
+
+/* リサイズハンドル（左端） */
+#comment-panel .outline-resize-handle {
+    left: -4px;
+    right: auto;
+    width: 8px;
+}
+
+/* ダークテーマ対応 */
+body.dark-theme .comment-textarea {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border-color: #3e3e42;
+}
+
+body.dark-theme .comment-item:hover {
+    background: rgba(255,255,255,0.05);
+}

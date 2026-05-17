@@ -19,6 +19,7 @@
     --font-mono: Consolas, "Courier New", Courier, Monaco, monospace;
     --sidebar-outline-width: 280px;
     --sidebar-svg-list-width: 280px;
+    --sidebar-comment-width: 300px;
 }
 
 /* ===== SVGモードバッジ ===== */
@@ -1446,6 +1447,18 @@ body.svg-expanded-active .outline-panel {
     right: 0;
 }
 
+/* Comment Panel (Right side, exclusive with SVG list) */
+#comment-panel {
+    width: var(--sidebar-comment-width);
+    left: auto;
+    right: calc(-1 * var(--sidebar-comment-width));
+    border-left: 1px solid var(--border);
+}
+
+#comment-panel.visible {
+    right: 0;
+}
+
 /* Body layout adjustments */
 body.outline-visible {
     padding-left: var(--sidebar-outline-width);
@@ -1453,6 +1466,10 @@ body.outline-visible {
 
 body.svg-list-visible {
     padding-right: var(--sidebar-svg-list-width);
+}
+
+body.comment-panel-visible {
+    padding-right: var(--sidebar-comment-width);
 }
 
 /* Shared components inside panels */
