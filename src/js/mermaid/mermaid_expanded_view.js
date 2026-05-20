@@ -91,6 +91,8 @@ window.MermaidExpandedManager = {
         document.addEventListener('mousedown', this.onMouseDown.bind(this), { capture: true });
         document.addEventListener('mousemove', this.onMouseMove.bind(this), { capture: true });
         document.addEventListener('mouseup', this.onMouseUp.bind(this), { capture: true });
+        // 拡大表示中の右クリックをコンテキストメニューにルーティングする
+        document.addEventListener('contextmenu', this.onContextMenu.bind(this), { capture: true });
         document.addEventListener('keydown', (e) => {
             // インプット要素やダイアログでのEscapeは無視
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.closest('dialog')) return;
@@ -370,13 +372,7 @@ window.MermaidExpandedManager = {
             rBtn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
             rBtn.onclick = (e) => {
                 e.preventDefault(); e.stopPropagation();
-                if (this.defaultViewBox && svg) {
-                    this.currentViewBox = this.defaultViewBox.split(/[ ,]+/).map(parseFloat);
-                    svg.setAttribute('viewBox', this.defaultViewBox);
-                    const overlays = wrapper.querySelectorAll('.mermaid-overlay-svg, .mermaid-class-overlay-svg, .mermaid-er-overlay-svg');
-                    overlays.forEach(o => o.removeAttribute('viewBox'));
-                    this.triggerUpdateUI(wrapper);
-                }
+                this.resetView();
             };
             controls.appendChild(rBtn);
         }
@@ -458,16 +454,78 @@ window.MermaidExpandedManager = {
     },
 
     updateToolbars() {
-        if (window.activeMermaidToolbar && typeof window.activeMermaidToolbar.updatePosition === 'function') window.activeMermaidToolbar.updatePosition();
-        if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar.updatePosition === 'function') window.activeMermaidSequenceToolbar.updatePosition();
-        if (window.activeMermaidClassToolbar && typeof window.activeMermaidClassToolbar.updatePosition === 'function') window.activeMermaidClassToolbar.updatePosition();
-        if (window.activeMermaidErToolbar && typeof window.activeMermaidErToolbar.updatePosition === 'function') window.activeMermaidErToolbar.updatePosition();
+        const wrapper = this.getActiveWrapper();
+        const isExpanded = !!wrapper;
+
+        const toolbars = [
+            window.activeMermaidSequenceToolbar,
+            window.activeMermaidClassToolbar,
+            window.activeMermaidErToolbar,
+        ];
+
+        // 各ツールバーの位置・z-indexを更新（updatePosition内で拡大表示を判定して処理）
+        toolbars.forEach(tb => {
+            if (!tb || !tb.toolbarElement) return;
+            if (typeof tb.updatePosition === 'function') tb.updatePosition();
+        });
+
+        // フローチャートツールバー（wrapperの中に配置のため z-index 調整は不要）
+        if (window.activeMermaidToolbar && typeof window.activeMermaidToolbar.updatePosition === 'function') {
+            window.activeMermaidToolbar.updatePosition();
+        }
+
+        // 拡大表示時：ツールバーが非表示（_diagramWrapper=null）でも、
+        // wrapperの編集モードクラスから図種別を判定して自動的にshow()する
+        if (isExpanded && wrapper) {
+            const isSeqEditing   = wrapper.classList.contains('mermaid-sequence-edit-mode');
+            const isClassEditing = wrapper.classList.contains('mermaid-class-edit-mode');
+            const isErEditing    = wrapper.classList.contains('mermaid-er-edit-mode');
+
+            if (isSeqEditing && window.activeMermaidSequenceToolbar && !window.activeMermaidSequenceToolbar._diagramWrapper) {
+                window.activeMermaidSequenceToolbar.show(wrapper);
+            }
+            if (isClassEditing && window.activeMermaidClassToolbar && !window.activeMermaidClassToolbar._diagramWrapper) {
+                window.activeMermaidClassToolbar.show(wrapper);
+            }
+            if (isErEditing && window.activeMermaidErToolbar && !window.activeMermaidErToolbar._diagramWrapper) {
+                window.activeMermaidErToolbar.show(wrapper);
+            }
+        }
     },
+
+    /**
+     * 拡大画面を全体表示（defaultViewBox）にリセットする。
+     * 縦横切り替えなど、表示が崩れる操作の後に呼び出す。
+     */
+    resetView() {
+        const wrapper = this.getActiveWrapper();
+        if (!wrapper) return;
+        const svg = wrapper.querySelector('svg:not(.mermaid-overlay-svg):not(.mermaid-class-overlay-svg):not(.mermaid-er-overlay-svg)');
+        if (!svg) return;
+
+        if (this.defaultViewBox) {
+            this.currentViewBox = this.defaultViewBox.split(/[ ,]+/).map(parseFloat);
+            if (this.currentViewBox.length === 4) {
+                const margin = Math.max(this.currentViewBox[2], this.currentViewBox[3]) * 0.05;
+                this.currentViewBox[0] -= margin;
+                this.currentViewBox[1] -= margin;
+                this.currentViewBox[2] += margin * 2;
+                this.currentViewBox[3] += margin * 2;
+            }
+            svg.setAttribute('viewBox', this.currentViewBox.join(' '));
+        }
+
+        const overlays = wrapper.querySelectorAll('.mermaid-overlay-svg, .mermaid-class-overlay-svg, .mermaid-er-overlay-svg');
+        overlays.forEach(o => o.removeAttribute('viewBox'));
+        this.triggerUpdateUI(wrapper);
+    },
+
 
     // --- パン・ズーム処理 ---
     isPanning: false,
     lastMouseX: 0,
     lastMouseY: 0,
+
 
     onWheel(e) {
         if (this.activeCodeIndex == null && this.activeWrapperLine == null) return;
@@ -514,6 +572,9 @@ window.MermaidExpandedManager = {
         const wrapper = this.getActiveWrapper();
         if (!wrapper || !wrapper.contains(e.target)) return;
 
+        // 右クリックはパン操作ではなく contextmenu イベントに任せる
+        if (e.button === 2) return;
+
         if (e.target.closest('.mermaid-expanded-close-btn, .mermaid-expanded-reset-btn, .mermaid-expanded-edit-btn')) return;
 
         const isInteractive = e.target.closest('g.node, g.classGroup, [id^="entity-"], .mermaid-connect-handle, .mermaid-class-connect-handle, .mermaid-er-connect-handle, .mermaid-seq-hover-icon, .mermaid-sequence-drag-handle, rect, circle, polygon, path:not(.edge-hitbox), text, button, select, input, textarea');
@@ -538,9 +599,24 @@ window.MermaidExpandedManager = {
         this.lastMouseX = e.clientX;
         this.lastMouseY = e.clientY;
 
-        const rect = svg.getBoundingClientRect();
-        const scaleX = this.currentViewBox[2] / (rect.width || window.innerWidth);
-        const scaleY = this.currentViewBox[3] / (rect.height || window.innerHeight);
+        // SVGの変換行列からスクリーン→SVG座標のスケールを取得する。
+        // getBoundingClientRect().width はスクロールバーやpadding等の影響で
+        // 実際の描画幅より小さい値を返す場合があり、X方向の移動量が半分になるバグが発生する。
+        // getScreenCTM() はSVGのアフィン変換行列を返すため、a（X方向スケール）と
+        // d（Y方向スケール）を直接参照することで正確な値が得られる。
+        const ctm = svg.getScreenCTM();
+        let scaleX, scaleY;
+        if (ctm && ctm.a !== 0 && ctm.d !== 0) {
+            // CTM は「SVG座標 → スクリーン座標」の変換行列。
+            // その逆数（1/a, 1/d）が「スクリーンpx → SVG単位」のスケール。
+            scaleX = 1 / ctm.a;
+            scaleY = 1 / ctm.d;
+        } else {
+            // フォールバック: getBoundingClientRect ベース
+            const rect = svg.getBoundingClientRect();
+            scaleX = this.currentViewBox[2] / (rect.width || window.innerWidth);
+            scaleY = this.currentViewBox[3] / (rect.height || window.innerHeight);
+        }
 
         this.currentViewBox[0] -= dx * scaleX;
         this.currentViewBox[1] -= dy * scaleY;
@@ -554,11 +630,40 @@ window.MermaidExpandedManager = {
         this.triggerUpdateUI(wrapper);
     },
 
+
     onMouseUp(e) {
         if (this.isPanning) {
             this.isPanning = false;
         }
     },
+
+    /**
+     * 拡大表示中の右クリックをインターセプトし、通常のコンテキストメニューを表示する。
+     * mermaid-edit-mode 以外でも拡大表示中はメニューを出せるようにする。
+     * 
+     * stopPropagation は呼ばない。
+     * svgEl に登録された contextmenu ハンドラー（ノード選択＋メニュー表示）が
+     * バブリングで発火するため、ここではブラウザのデフォルトメニュー抑制のみ行う。
+     */
+    onContextMenu(e) {
+        // 拡大表示中でなければ素通り
+        if (this.activeCodeIndex == null && this.activeWrapperLine == null) return;
+        const wrapper = this.getActiveWrapper();
+        if (!wrapper || !wrapper.contains(e.target)) return;
+
+        // コントロールボタン上の右クリックは対象外
+        if (e.target.closest('.mermaid-expanded-close-btn, .mermaid-expanded-reset-btn, .mermaid-expanded-edit-btn')) return;
+
+        // 編集モードでなければ何もしない（ブラウザのデフォルトメニューを許可）
+        if (!wrapper.classList.contains('mermaid-edit-mode')) return;
+
+        // ブラウザのデフォルトコンテキストメニューを抑制する。
+        // stopPropagation は呼ばない → svgEl の contextmenu ハンドラーがバブリングで発火する。
+        e.preventDefault();
+    },
+
+
+
 
     triggerUpdateUI(wrapper) {
         const svg = wrapper.querySelector('svg');

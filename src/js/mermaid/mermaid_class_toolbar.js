@@ -530,6 +530,11 @@ class MermaidClassToolbar extends window.SVGToolbarBase {
             document.body.appendChild(this.toolbarElement);
         }
         this.toolbarElement.style.setProperty('display', 'flex', 'important');
+
+        // 拡大表示中はz-indexをモーダルより前面に設定
+        const isExpanded = diagramWrapper.classList.contains('mermaid-fixed-expanded');
+        this.toolbarElement.style.zIndex = isExpanded ? '100001' : '';
+
         this.updatePosition();
 
         if (!this._resizeHandler) {
@@ -560,9 +565,36 @@ class MermaidClassToolbar extends window.SVGToolbarBase {
 
     updatePosition() {
         if (!this._diagramWrapper) return;
+        const displayVal = getComputedStyle(this.toolbarElement).display;
+        if (displayVal === 'none') return;
+
+        const isExpanded = this._diagramWrapper.classList.contains('mermaid-fixed-expanded');
+        const expandBtn = this.contentArea ? (this.contentArea.querySelector('button[title*="拡大表示"]') || this.contentArea.querySelector('button[title*="縮小表示"]')) : null;
+        if (expandBtn) {
+            const svgPath = expandBtn.querySelector('path');
+            if (svgPath) {
+                if (isExpanded) {
+                    svgPath.setAttribute('d', 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7');
+                    expandBtn.title = '縮小表示（元のサイズに戻す）';
+                } else {
+                    svgPath.setAttribute('d', 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7');
+                    expandBtn.title = '拡大表示（パン・ズーム対応）';
+                }
+            }
+        }
+
         const rect = this._diagramWrapper.getBoundingClientRect();
-        this.toolbarElement.style.top  = `${rect.top  + window.scrollY + 10}px`;
-        this.toolbarElement.style.left = `${rect.left + window.scrollX + 10}px`;
+        // position: fixed でviewport座標を直接使用
+        this.toolbarElement.style.position = 'fixed';
+        this.toolbarElement.style.top  = `${rect.top + 10}px`;
+        this.toolbarElement.style.left = `${rect.left + 10}px`;
+
+        // 拡大表示中はz-indexを最前面に設定（!importantでcssTextの設定を上書き）
+        if (isExpanded) {
+            this.toolbarElement.style.setProperty('z-index', '100001', 'important');
+        } else {
+            this.toolbarElement.style.removeProperty('z-index');
+        }
     }
 }
 

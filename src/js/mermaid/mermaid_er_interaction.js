@@ -287,6 +287,11 @@ window.MermaidErInteraction = {
                         if (window.activeMermaidErToolbar) {
                             window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
                         }
+                        if (window.MermaidExpandedManager &&
+                            (window.MermaidExpandedManager.activeCodeIndex != null ||
+                             window.MermaidExpandedManager.activeWrapperLine != null)) {
+                            window.MermaidExpandedManager.resetView();
+                        }
                     }, 100);
                 }, 50);
                 if (typeof showToast === 'function') showToast(`縦横(TB/LR/BT/RL)を切り替えました`, 'success');
@@ -612,6 +617,52 @@ window.MermaidErInteraction = {
                 // 循環参照ループを防ぐためイベントハンドラを一時無効化するか、値が違う場合のみセット
                 console.log('[_updateSelectionUI] ツールバーにセットします', rel.lineType, rel.leftMulti, rel.rightMulti);
                 window.activeMermaidErToolbar.setRelationState(rel.leftMulti, rel.lineType, rel.rightMulti);
+            }
+        }
+
+        // エディタ連携ハイライト
+        if (typeof window.highlightEditorLine === 'function') {
+            let targetLineIndex = -1;
+            if (selectedNodes.size > 0) {
+                const mId = Array.from(selectedNodes)[0];
+                if (typeof getEditorText === 'function') {
+                    let dataLine = parseInt(diagramContainer.getAttribute('data-line'), 10);
+                    if (!dataLine || isNaN(dataLine)) {
+                        const cbw = diagramContainer.closest('.code-block-wrapper');
+                        if (cbw) dataLine = parseInt(cbw.getAttribute('data-line'), 10);
+                    }
+                    if (dataLine && !isNaN(dataLine)) {
+                        const lines = getEditorText().split('\n');
+                        const startIdx = dataLine - 1;
+                        const fenceChar = (lines[startIdx] || '').trim().startsWith('~~~') ? '~~~' : '```';
+                        let endIdx = -1;
+                        for (let i = startIdx + 1; i < lines.length; i++) {
+                            if (lines[i].trimEnd() === fenceChar) { endIdx = i; break; }
+                        }
+                        if (endIdx !== -1) {
+                            for (let i = startIdx + 1; i < endIdx; i++) {
+                                const line = lines[i];
+                                if (new RegExp(`^\\s*${mId}\\s*\\{`).test(line) ||
+                                    (line.includes(mId) && !line.match(/--|<\||\*|o|\.\./))) {
+                                    targetLineIndex = i;
+                                    // { 開始があれば優先
+                                    if (new RegExp(`^\\s*${mId}\\s*\\{`).test(line)) {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (selectedRelations.size > 0) {
+                const mId = Array.from(selectedRelations)[0];
+                const rel = this._getRelationFromText(diagramContainer, mId);
+                if (rel) {
+                    targetLineIndex = rel.lineIndex;
+                }
+            }
+            if (targetLineIndex !== -1) {
+                window.highlightEditorLine(targetLineIndex);
             }
         }
     },
@@ -1599,6 +1650,7 @@ window.MermaidErInteraction = {
             clone.removeAttribute('id');
             clone.classList.add('mermaid-er-arrow-hitbox');
             clone.classList.remove('relation');
+            clone.classList.remove('mermaid-er-arrow-selected');
             clone.removeAttribute('marker-end');
             clone.removeAttribute('marker-start');
             

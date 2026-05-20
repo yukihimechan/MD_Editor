@@ -1424,7 +1424,8 @@ async function processMermaidDiagrams(root) {
     }
 
     // Initialize Mermaid with configuration (only once)
-    if (!mermaid.dataset?.initialized) {
+    // v11: mermaid.dataset は非公式APIのため window._mermaidInitialized で管理する
+    if (!window._mermaidInitialized) {
         try {
             mermaid.parseError = function (err, hash) {
                 console.error('Mermaid syntax error (suppressed from UI):', err);
@@ -1437,20 +1438,20 @@ async function processMermaidDiagrams(root) {
                 startOnLoad: false,
                 theme: 'default',
                 securityLevel: 'loose',
+                htmlLabels: false,           // v11: ルートレベルに移動（flowchart.htmlLabels は非推奨）
                 fontSize: 12,
                 themeVariables: {
                     fontSize: '12px'
                 },
                 flowchart: {
                     useMaxWidth: false,
-                    htmlLabels: false,
-                    padding: 8
+                    padding: 8,
+                    curve: 'basis',          // v10互換のエッジ曲線スタイルを維持（v11デフォルト rounded から変更）
                 },
                 logLevel: 'error',
             });
 
-            if (!mermaid.dataset) mermaid.dataset = {};
-            mermaid.dataset.initialized = true;
+            window._mermaidInitialized = true;
 
         } catch (e) {
             console.error('Mermaid initialization error:', e);

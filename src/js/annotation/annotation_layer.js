@@ -22,7 +22,7 @@ window.AnnotationLayer = (function () {
     let _svgEl    = null;   // アノテーション用 <svg> DOM要素
     let _draw     = null;   // SVG.js の Draw インスタンス
     let _isActive = false;  // アノテーションモードが有効か
-    let _currentTool = 'freehand';
+    let _currentTool = 'select';
 
     // アンカーマップ: shapeId -> { sourceLine, paragraphText, offsetY, initialBboxY }
     //   sourceLine   : Markdownソースの行番号（1始まり）。差分追跡で更新される。
@@ -880,15 +880,15 @@ window.AnnotationLayer = (function () {
 
         // 未読/既読アイコン
         group.text(readIcon)
-            .move(iconX - 20, iconY)
-            .font({ size: 10, family: 'sans-serif', weight: 'bold' })
+            .move(iconX - 32, iconY - 8)
+            .font({ size: 16, family: 'sans-serif', weight: 'bold' })
             .fill(readColor)
             .attr('pointer-events', 'none');
 
         // 未対応/対応済アイコン
         group.text(actionIcon)
-            .move(iconX - 6, iconY)
-            .font({ size: 10, family: 'sans-serif', weight: 'bold' })
+            .move(iconX - 14, iconY - 8)
+            .font({ size: 16, family: 'sans-serif', weight: 'bold' })
             .fill(actionColor)
             .attr('pointer-events', 'none');
 

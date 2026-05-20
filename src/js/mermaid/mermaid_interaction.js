@@ -11,7 +11,8 @@ const MermaidInteraction = (() => {
     const HANDLE_OFFSET     = 6;    // ノード枠からハンドルまでの余白（px）
 
     // ── 状態 ──────────────────────────────────────────────────
-    let _dragState = null;  // ドラッグ中の状態オブジェクト
+    let _dragState     = null;  // 接続ハンドルドラッグ中の状態オブジェクト
+    let _nodeDragState = null;  // ノード本体ドラッグ中の状態オブジェクト
     let _clipboard = null;  // コピー＆ペースト用の内部クリップボード
 
     // ── ユーティリティ ────────────────────────────────────────
@@ -29,8 +30,8 @@ const MermaidInteraction = (() => {
      * @param {Element} wrapper 
      * @param {string[]} newTextLines 
      */
-    function applyEditorTextAndRestore(wrapper, newTextLines) {
-        window.MermaidBase.applyEditorTextAndRestore(wrapper, newTextLines, 'mermaid-edit-mode', window.activeMermaidToolbar);
+    function applyEditorTextAndRestore(wrapper, newTextLines, modeClass, toolbar, options) {
+        window.MermaidBase.applyEditorTextAndRestore(wrapper, newTextLines, modeClass || 'mermaid-edit-mode', toolbar || window.activeMermaidToolbar, options);
     }
 
     /**
@@ -77,32 +78,74 @@ const MermaidInteraction = (() => {
 
     /**
      * SVGノードのIDからMermaid上のノードIDを抽出する。
-     * Mermaidが生成するIDは "flowchart-NodeId-数字" の形式（graph TD も同様）。
+     * v10: "flowchart-NodeId-数字" の形式
+     * v11: "{diagramId}-flowchart-NodeId-数字" の形式（プレフィックス付き）
      * @param {Element} el - SVGのg要素
      * @returns {string|null} MermaidノードID（例: "A"）、判定不可なら null
      */
     function getMermaidNodeId(el) {
         const id = el.id || '';
-        // パターン1: flowchart-NodeId-数字 （graph TD / flowchart TD 共通）
-        let m = id.match(/^flowchart-(.+?)-\d+$/);
+
+        // パターン1: v11形式 - {任意のプレフィックス}-flowchart-NodeId-数字
+        // 例: "mermaid-1234567890-0-flowchart-A-0"
+        let m = id.match(/^.+-flowchart-(.+?)-\d+$/);
         if (m) return m[1];
-        // パターン2: graph-NodeId-数字 （古いMermaidバージョン）
-        m = id.match(/^graph-(.+?)-\d+$/);
+
+        // パターン2: v10形式 - flowchart-NodeId-数字（プレフィックスなし）
+        m = id.match(/^flowchart-(.+?)-\d+$/);
         if (m) return m[1];
-        // パターン3: cluster-NodeId-数字 （subgraphの場合）
-        m = id.match(/^cluster-(.+?)(?:-\d+)?$/);
+
+        // パターン3: v10形式 - graph-NodeId-数字（古いバージョン互換）
+        m = id.match(/^(?:.+-)?graph-(.+?)-\d+$/);
         if (m) return m[1];
-        
-        // パターン4: ノードに data-id 属性がある場合
+
+        // パターン4: ノードに data-id 属性がある場合（v11のcluster等で使用）
         if (el.hasAttribute('data-id')) return el.getAttribute('data-id');
 
-        // フォールバック: el が subgraph でIDがある場合 (MermaidのバージョンによってはそのままのIDやflowchart-ID)
-        if (el.classList.contains('cluster') && id) {
+        // パターン5: cluster クラスを持つ場合のフォールバック
+        // v11: subgraphのID形式は "{diagramId}-{sgId}" （末尾がサブグラフID）
+        if (el.classList && el.classList.contains('cluster') && id) {
             const parts = id.split('-');
-            if (parts.length > 1 && parts[0] === 'flowchart') {
-                return parts.slice(1).join('-');
+            if (parts.length > 1) {
+                // v11パターン: "{diagramId}-{sgId}"
+                // diagramIdは "mermaid-{timestamp}-{index}" の形式なので末尾のセグメントがサブグラフID
+                // 例: "mermaid-1779234712982-0-SG1" → 末尾の "SG1" がサブグラフID
+                const lastPart = parts[parts.length - 1];
+
+                // 末尾が純粋な数字でなければサブグラフID（v11典型）
+                if (!/^\d+$/.test(lastPart)) {
+                    return lastPart;
+                }
+
+                // 末尾が数字の場合: flowchart-{sgId}-{N} パターン（v10）
+                const fcIdx = parts.lastIndexOf('flowchart');
+                if (fcIdx !== -1 && fcIdx < parts.length - 2) {
+                    // "...-flowchart-SGid-N" → "SGid"
+                    return parts.slice(fcIdx + 1, -1).join('-');
+                }
+
+                // 先頭の "flowchart" を除いた残り（v10定義）
+                if (parts[0] === 'flowchart') {
+                    return parts.slice(1).join('-');
+                }
             }
             return id;
+        }
+
+        // パターン6: v11の空のsubgraph（g.nodeクラスを持つが、ソース上でsubgraphとして定義されている）
+        const wrapper = el.closest('.mermaid-diagram-wrapper');
+        if (wrapper && id) {
+            const range = getMermaidBlockRange(wrapper);
+            if (range) {
+                const parts = id.split('-');
+                const lastPart = parts[parts.length - 1];
+                for (let i = range.startIdx + 1; i < range.endIdx; i++) {
+                    const m = range.lines[i].match(/^\s*subgraph\s+([^\s\[\]]+)/);
+                    if (m && m[1] === lastPart) {
+                        return lastPart;
+                    }
+                }
+            }
         }
 
         return null;
@@ -186,7 +229,38 @@ const MermaidInteraction = (() => {
     // ── 接続ハンドルの描画 ─────────────────────────────────────
 
     /**
+     * クラスター（subgraph/グループ）かどうかを判定する。
+     * @param {{el: Element}} nodeInfo
+     * @param {Element} wrapper
+     * @returns {boolean}
+     */
+    function isClusterNode(nodeInfo, wrapper) {
+        const el = nodeInfo.el;
+        if (!el) return false;
+        // classList.contains が最も確実（SVGAnimatedString も classList は使える）
+        if (el.classList && el.classList.contains('cluster')) return true;
+        // ID パターンでのフォールバック（cluster-XXX 形式）
+        if (el.id && /^cluster/.test(el.id)) return true;
+
+        // v11の空のsubgraph（g.nodeクラスを持つ）対応
+        const actualWrapper = wrapper || el.closest('.mermaid-diagram-wrapper');
+        if (actualWrapper && nodeInfo.id) {
+            const range = getMermaidBlockRange(actualWrapper);
+            if (range) {
+                for (let i = range.startIdx + 1; i < range.endIdx; i++) {
+                    const m = range.lines[i].match(/^\s*subgraph\s+([^\s\[\]]+)/);
+                    if (m && m[1] === nodeInfo.id) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * 指定ノードの上下左右に接続ハンドル（三角形）を描画する。
+     * クラスター（グループ）の場合はグループ全体をハイライト枠で囲み、接続ハンドルは表示しない。
      * @param {SVGSVGElement} overlay
      * @param {{el, id, rect}} nodeInfo
      * @param {Element} wrapper
@@ -198,6 +272,14 @@ const MermaidInteraction = (() => {
         }
 
         const wRect  = wrapper.getBoundingClientRect();
+
+        // クラスター（グループ）の場合はグループ全体を囲む矩形でハイライト表示する
+        const isCluster = isClusterNode(nodeInfo, wrapper);
+        if (isCluster) {
+            drawGroupHighlight(overlay, nodeInfo, wRect);
+            return;
+        }
+
         const nRect  = nodeInfo.rect;
 
         // ノード枠をwrapper相対座標に変換
@@ -256,6 +338,67 @@ const MermaidInteraction = (() => {
             tri.dataset.startCy  = h.hy;
             overlay.appendChild(tri);
         });
+    }
+
+    /**
+     * グループ（クラスター/subgraph）選択時にグループ全体を囲む矩形ハイライトを描画する。
+     * 接続ハンドルは描画しない。
+     * @param {SVGSVGElement} overlay
+     * @param {{el: Element, id: string, rect: DOMRect}} nodeInfo
+     * @param {DOMRect} wRect - wrapper の getBoundingClientRect()
+     */
+    function drawGroupHighlight(overlay, nodeInfo, wRect) {
+        // クラスター要素全体のバウンディングボックスを取得する。
+        // getBoundingClientRect() は子要素を含む全体の領域を返すため、
+        // クラスターラベルだけでなくグループ全体を囲む枠を描画できる。
+        const nRect = nodeInfo.el.getBoundingClientRect();
+
+        // wrapper 相対座標に変換
+        const top    = nRect.top    - wRect.top;
+        const left   = nRect.left   - wRect.left;
+
+        // グループ全体を囲む太い実線の矩形を描画
+        const PADDING = 4; // グループ枠からのはみ出し余白（px）
+        const selRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        selRect.setAttribute('x',      left   - PADDING);
+        selRect.setAttribute('y',      top    - PADDING);
+        selRect.setAttribute('width',  nRect.width  + PADDING * 2);
+        selRect.setAttribute('height', nRect.height + PADDING * 2);
+        selRect.setAttribute('fill',    'rgba(255, 140, 0, 0.06)');  // 薄いオレンジ背景
+        selRect.setAttribute('stroke',  '#FF8C00');                   // オレンジ枠線
+        selRect.setAttribute('stroke-width', '2.5');
+        selRect.setAttribute('stroke-dasharray', '6,3');              // 長い破線でグループらしさを演出
+        selRect.setAttribute('rx', '6');
+        selRect.setAttribute('pointer-events', 'none');
+        selRect.classList.add('mermaid-hover-rect', 'mermaid-group-highlight');
+        overlay.appendChild(selRect);
+
+        // グループであることを示すラベルアイコン（左上コーナーに小さなバッジ）
+        const BADGE_R = 8;
+        const badgeX = left - PADDING + BADGE_R + 2;
+        const badgeY = top  - PADDING + BADGE_R + 2;
+
+        const badgeCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        badgeCircle.setAttribute('cx', badgeX);
+        badgeCircle.setAttribute('cy', badgeY);
+        badgeCircle.setAttribute('r',  BADGE_R);
+        badgeCircle.setAttribute('fill', '#FF8C00');
+        badgeCircle.setAttribute('pointer-events', 'none');
+        badgeCircle.classList.add('mermaid-group-badge');
+        overlay.appendChild(badgeCircle);
+
+        // バッジ内のグループアイコン（「⊞」相当を簡易的にテキストで表現）
+        const badgeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        badgeText.setAttribute('x', badgeX);
+        badgeText.setAttribute('y', badgeY + 4);
+        badgeText.setAttribute('text-anchor', 'middle');
+        badgeText.setAttribute('font-size', '9');
+        badgeText.setAttribute('font-weight', 'bold');
+        badgeText.setAttribute('fill', '#fff');
+        badgeText.setAttribute('pointer-events', 'none');
+        badgeText.textContent = 'G';
+        badgeText.classList.add('mermaid-group-badge');
+        overlay.appendChild(badgeText);
     }
 
     // ── ドラッグ処理 ───────────────────────────────────────────
@@ -545,14 +688,16 @@ const MermaidInteraction = (() => {
         // 行頭マッチではなく行内のどこでもnodeId+ブラケットを検索する
         let replaced = false;
 
-        // 対応するブラケット形式: [label], {label}, (label), ([label]), [(label)]
+        // 対応するブラケット形式: 長い順に並べることで短いパターンが先にマッチするのを防ぐ
         const bracketPairs = [
-            { open: '([', close: '])' },  // ID([label]) サブグラフ形式
-            { open: '[(', close: ')]' },  // ID[(label)] DB形式
-            { open: '{{', close: '}}' },  // ID{{label}} 六角形
-            { open: '[', close: ']' },    // ID[label]  四角（最も一般的）
-            { open: '{', close: '}' },    // ID{label}  ひし形
-            { open: '(', close: ')' },    // ID(label)  丸角
+            { open: '(((', close: ')))' },  // ID(((label))) 二重円
+            { open: '((', close: '))' },    // ID((label))   円
+            { open: '([', close: '])' },    // ID([label])   スタジアム
+            { open: '[(', close: ')]' },    // ID[(label)]   DB形式
+            { open: '{{', close: '}}' },    // ID{{label}}   六角形
+            { open: '[', close: ']' },      // ID[label]     四角（最も一般的）
+            { open: '{', close: '}' },      // ID{label}     ひし形
+            { open: '(', close: ')' },      // ID(label)     丸角
         ];
 
         for (let i = startIdx + 1; i < endIdx; i++) {
@@ -582,6 +727,12 @@ const MermaidInteraction = (() => {
                 const labelStart = pos + searchStr.length;
                 const closePos = line.indexOf(close, labelStart);
                 if (closePos === -1) continue;
+
+                // closePos直後に余分な閉じ括弧がある場合、短いパターンが長いパターンに
+                // 誤マッチしている可能性があるため（例: ((text)) を (text) でマッチした場合）スキップ
+                const afterClose = line[closePos + close.length];
+                if (close === ')' && afterClose === ')') continue;    // ( が (( に誤マッチ
+                if (close === '))' && afterClose === ')') continue;   // (( が ((( に誤マッチ
 
                 // ラベル部分だけを新しいラベルに置き換える（行の前後はそのまま保持）
                 lines[i] = line.substring(0, labelStart) + newLabel + line.substring(closePos);
@@ -919,6 +1070,518 @@ const MermaidInteraction = (() => {
         return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
+    // ── ノードドラッグ機能 ────────────────────────────────────
+
+    /**
+     * ドラッグ中にノードに追従するゴースト要素を生成する。
+     * @param {DOMRect} nodeRect - ノードのBoundingClientRect
+     * @param {Element} wrapper  - .mermaid-diagram-wrapper
+     * @param {string}  label    - ゴーストに表示するラベルテキスト
+     * @returns {HTMLElement} ghost要素
+     */
+    function createNodeGhost(nodeRect, wrapper, label) {
+        const wRect = wrapper.getBoundingClientRect();
+        const ghost = document.createElement('div');
+        ghost.className = 'mermaid-node-ghost';
+        ghost.textContent = label || '';
+        ghost.style.width  = `${nodeRect.width}px`;
+        ghost.style.height = `${nodeRect.height}px`;
+        // 初期位置をノードの現在位置に合わせる
+        ghost.style.left = `${nodeRect.left - wRect.left}px`;
+        ghost.style.top  = `${nodeRect.top  - wRect.top}px`;
+        wrapper.style.position = 'relative';
+        wrapper.appendChild(ghost);
+        return ghost;
+    }
+
+    /**
+     * ゴースト要素の位置をマウス座標（wrapper相対）に合わせて更新する。
+     * @param {HTMLElement} ghost
+     * @param {number} mx - wrapperローカルX（px）
+     * @param {number} my - wrapperローカルY（px）
+     * @param {number} offsetX - マウスとゴースト左端の差（px）
+     * @param {number} offsetY - マウスとゴースト上端の差（px）
+     */
+    function moveNodeGhost(ghost, mx, my, offsetX, offsetY) {
+        ghost.style.left = `${mx - offsetX}px`;
+        ghost.style.top  = `${my - offsetY}px`;
+    }
+
+    /**
+     * ゴースト要素を削除する。
+     * @param {HTMLElement} ghost
+     */
+    function removeNodeGhost(ghost) {
+        if (ghost && ghost.parentNode) {
+            ghost.parentNode.removeChild(ghost);
+        }
+    }
+
+    /**
+     * wrapper相対座標 (mx, my) の位置にあるsubgraph要素を探す。
+     * @param {number}  mx      - wrapperローカルX
+     * @param {number}  my      - wrapperローカルY
+     * @param {Element} svgEl
+     * @param {Element} wrapper
+     * @param {string}  excludeId - 除外するノードID（ドラッグ中のノード自身）
+     * @returns {{el: Element, id: string}|null}
+     */
+    function findSubgraphAtPoint(mx, my, svgEl, wrapper, excludeId) {
+        const wRect = wrapper.getBoundingClientRect();
+
+        // ── Mermaidソースから subgraph ID を取得 ──
+        // Mermaid v11 では g.clusters が空なことがあるため、
+        // ソースを直接パースしてsubgraphのIDを列挙する。
+        const range = getMermaidBlockRange(wrapper);
+        const subgraphIds = new Set();
+        if (range) {
+            for (let i = range.startIdx + 1; i < range.endIdx; i++) {
+                const m = range.lines[i].match(/^\s*subgraph\s+([^\s\[\]]+)/);
+                if (m) subgraphIds.add(m[1]);
+            }
+        }
+
+        // ── ソース解析でsubgraph IDが得られた場合：SVGをID検索 ──
+        if (subgraphIds.size > 0) {
+            // 各subgraphIDに対応するSVG g 要素を収集
+            const candidates = [];
+            subgraphIds.forEach(sgId => {
+                if (sgId === excludeId) return;
+                // Mermaid v11: IDパターンは {diagramId}-{sgId} （末尾一致で探索）
+                // v11のsubgraphは必ずclass="cluster"を持つため絞り込み可能
+                // Mermaid v10: flowchart-{ID}-N, cluster-{ID}, cluster_{ID}
+                const selector = [
+                    `g.cluster[id$="-${sgId}"]`,   // v11: {diagId}-{sgId} かつ cluster クラス（誤マッチ防止）
+                    `g.node[id$="-${sgId}"]`,      // v11: 空のsubgraphが g.node になる場合への対応
+                    `g[id^="flowchart-${sgId}-"]`,  // v10: flowchart-プレフィックス
+                    `g[id^="cluster-${sgId}"]`,     // v10: cluster-プレフィックス
+                    `g[id="cluster_${sgId}"]`,      // v10: cluster_形式
+                    `g[id="${sgId}"]`,              // 完全一致
+                ].join(', ');
+                try {
+                    Array.from(svgEl.querySelectorAll(selector)).forEach(el => {
+                        // 重複登録防止
+                        if (!candidates.find(c => c.el === el)) candidates.push({ el, id: sgId });
+                    });
+                } catch (_) { /* 無効なセレクタの場合は無視 */ }
+
+                // data-id属性で照合（v11では未設定の場合もある）
+                Array.from(svgEl.querySelectorAll(`g[data-id="${sgId}"]`)).forEach(el => {
+                    if (!candidates.find(c => c.el === el)) candidates.push({ el, id: sgId });
+                });
+            });
+
+
+            // 面積昇順（小さい方＝ネストが深い方を優先）
+            candidates.sort((a, b) => {
+                const ra = a.el.getBoundingClientRect();
+                const rb = b.el.getBoundingClientRect();
+                return (ra.width * ra.height) - (rb.width * rb.height);
+            });
+
+            for (const { el, id } of candidates) {
+                let r = el.getBoundingClientRect();
+
+                // v11: getBoundingClientRectが(0,0,0,0)を返すSVG要素がある場合の代替計算
+                if (r.width === 0 && r.height === 0 && el.getBBox) {
+                    try {
+                        const bbox = el.getBBox();
+                        const ctm = el.getScreenCTM();
+                        if (ctm && bbox.width > 0) {
+                            const p1 = svgEl.createSVGPoint();
+                            p1.x = bbox.x; p1.y = bbox.y;
+                            const p2 = svgEl.createSVGPoint();
+                            p2.x = bbox.x + bbox.width; p2.y = bbox.y + bbox.height;
+                            const c1 = p1.matrixTransform(ctm);
+                            const c2 = p2.matrixTransform(ctm);
+                            r = { left: c1.x, top: c1.y, right: c2.x, bottom: c2.y,
+                                  width: c2.x - c1.x, height: c2.y - c1.y };
+                        }
+                    } catch (_) { /* getBBox失敗時は無視 */ }
+                }
+
+                const left   = r.left   - wRect.left;
+                const top    = r.top    - wRect.top;
+                const right  = r.right  - wRect.left;
+                const bottom = r.bottom - wRect.top;
+                if (mx >= left && mx <= right && my >= top && my <= bottom) {
+                    return { el, id };
+                }
+            }
+        }
+
+        // ── フォールバック1: g.clusters 直下の子 g 要素 ──
+        // Mermaid v11 では g.clusters が2重ネストすることがあるため querySelectorAll で全て収集する
+        const allClustersContainers = Array.from(svgEl.querySelectorAll('g.clusters'));
+        // 最初に見つかったコンテナ（フォールバック2用）
+        const clustersContainer = allClustersContainers[0] || null;
+        {
+            // 全コンテナから直接の子 g 要素を収集（重複排除）
+            const seenEls = new Set();
+            const subgraphEls = [];
+            for (const container of allClustersContainers) {
+                for (const child of Array.from(container.children)) {
+                    if (child.tagName === 'g' && !seenEls.has(child)) {
+                        seenEls.add(child);
+                        subgraphEls.push(child);
+                    }
+                }
+            }
+            subgraphEls.sort((a, b) => {
+                const ra = a.getBoundingClientRect();
+                const rb = b.getBoundingClientRect();
+                return (ra.width * ra.height) - (rb.width * rb.height);
+            });
+            for (const sg of subgraphEls) {
+                // v11: getMermaidNodeIdは "SG1" を返すべきだが、subgraphIdsと照合して確実に正規IDを得る
+                let id = getMermaidNodeId(sg);
+                // subgraphIdsと照合: getMermaidNodeIdが正しくない場合のフォールバック
+                if (id && subgraphIds.size > 0 && !subgraphIds.has(id)) {
+                    // SVGのIDの末尾がsubgraphIdと一致するものを探す
+                    const matched = Array.from(subgraphIds).find(sgId => sg.id.endsWith('-' + sgId) || sg.id === sgId);
+                    if (matched) id = matched;
+                }
+                if (!id || id === excludeId) continue;
+                const r = sg.getBoundingClientRect();
+                const left   = r.left   - wRect.left;
+                const top    = r.top    - wRect.top;
+                const right  = r.right  - wRect.left;
+                const bottom = r.bottom - wRect.top;
+                if (mx >= left && mx <= right && my >= top && my <= bottom) {
+                    return { el: sg, id };
+                }
+            }
+        }
+
+        // ── フォールバック2: document.elementsFromPoint ──
+        const clientX = mx + wRect.left;
+        const clientY = my + wRect.top;
+        const hitElements = document.elementsFromPoint(clientX, clientY);
+        for (const el of hitElements) {
+            if (el.classList && (
+                el.classList.contains('mermaid-node-ghost') ||
+                el.classList.contains('mermaid-overlay-svg') ||
+                el.classList.contains('mermaid-connect-handle')
+            )) continue;
+
+            // g.clusters の子孫なら祖先の直子を探す（全コンテナ対象）
+            for (const container of allClustersContainers) {
+                if (container.contains(el) && el !== container) {
+                    let sg = el;
+                    while (sg && sg.parentElement !== container) sg = sg.parentElement;
+                    if (sg && sg.tagName === 'g') {
+                        let id = getMermaidNodeId(sg);
+                        // subgraphIdsと照合して正規IDに正規化
+                        if (id && subgraphIds.size > 0 && !subgraphIds.has(id)) {
+                            const matched = Array.from(subgraphIds).find(sgId => sg.id.endsWith('-' + sgId) || sg.id === sgId);
+                            if (matched) id = matched;
+                        }
+                        if (id && id !== excludeId) {
+                            return { el: sg, id };
+                        }
+                        break; // このコンテナで確定
+                    }
+                }
+            }
+
+            const clsVal = (el.className && el.className.baseVal !== undefined)
+                ? el.className.baseVal : String(el.className || '');
+            let cluster = null;
+            if (el.tagName && el.tagName.toLowerCase() === 'g' && clsVal.includes('cluster') && !clsVal.includes('clusters')) {
+                cluster = el;
+            } else if (el.closest) {
+                cluster = el.closest('g.cluster') || el.closest('g[class*="cluster"]:not(.clusters)');
+            }
+            if (!cluster || !svgEl.contains(cluster)) continue;
+            let id = getMermaidNodeId(cluster);
+            // subgraphIdsと照合して正規IDに正規化
+            if (id && subgraphIds.size > 0 && !subgraphIds.has(id)) {
+                const matched = Array.from(subgraphIds).find(sgId => cluster.id.endsWith('-' + sgId) || cluster.id === sgId);
+                if (matched) id = matched;
+            }
+            if (!id || id === excludeId) continue;
+            return { el: cluster, id };
+        }
+
+        return null;
+    }
+
+
+
+    /**
+     * Mermaidソース内で指定ノードが属するsubgraphを探す。
+     * @param {string[]} lines     - Mermaidブロック全行（lines配列）
+     * @param {number}   startIdx  - ブロック開始行インデックス（```mermaid行）
+     * @param {number}   endIdx    - ブロック終了行インデックス（```行）
+     * @param {string}   nodeId    - 検索するノードID
+     * @returns {{subId: string, subStart: number, subEnd: number}|null}
+     */
+    function findNodeCurrentSubgraph(lines, startIdx, endIdx, nodeId) {
+        // subgraphスタックを使って現在の所属subgraphを特定する
+        const stack = []; // { id, start }のスタック
+        for (let i = startIdx + 1; i < endIdx; i++) {
+            const line = lines[i];
+            // subgraph ID は空白または [ が来る前までを取得（例: "subgraph foo [Label]" → "foo"）
+            const subMatch = line.match(/^\s*subgraph\s+([^\s\[\]]+)/);
+            if (subMatch) {
+                stack.push({ id: subMatch[1], start: i });
+                continue;
+            }
+            if (/^\s*end\s*$/.test(line)) {
+                if (stack.length > 0) {
+                    const sub = stack.pop();
+                    // このsubgraph範囲内でnodeIdが定義されているか確認
+                    for (let j = sub.start + 1; j < i; j++) {
+                        const ln = lines[j];
+                        // 矢印を含まない行でnodeIdが含まれる → ノード定義とみなす
+                        if (!arrowPattern.test(ln) && containsNodeIdSimple(ln, nodeId)) {
+                            return { subId: sub.id, subStart: sub.start, subEnd: i };
+                        }
+                    }
+                }
+                continue;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 矢印なしでnodeIdを含む行かを判定するシンプルな版（arrowPattern未定義時のフォールバック用）。
+     */
+    function containsNodeIdSimple(line, nodeId) {
+        const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(^|[\\s\\(\\[\\{])${escaped}([\\s\\(\\[\\{\\)\\]\\}]|$)`).test(line);
+    }
+
+    /** 矢印パターン（ノード定義行と接続行を区別するため） */
+    const arrowPattern = /-->|--[>-]|==>/;
+    // NOTE: arrowPattern は上記で定義済み（findNodeCurrentSubgraph内で参照する定数）
+
+    /**
+     * Mermaidソース内で指定subgraphの範囲（start行インデックス、end行インデックス）を探す。
+     * @param {string[]} lines
+     * @param {number}   startIdx
+     * @param {number}   endIdx
+     * @param {string}   subgraphId
+     * @returns {{subStart: number, subEnd: number}|null}
+     */
+    function findSubgraphRange(lines, startIdx, endIdx, subgraphId) {
+        const esc = subgraphId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const subRegex = new RegExp(`^\\s*subgraph\\s+${esc}(\\s|\\[|$)`);
+        let depth = 0;
+        let subStart = -1;
+        for (let i = startIdx + 1; i < endIdx; i++) {
+            const line = lines[i];
+            if (subRegex.test(line)) {
+                subStart = i;
+                depth = 0;
+                continue;
+            }
+            if (subStart !== -1) {
+                if (/^\s*subgraph\s/.test(line)) { depth++; continue; }
+                if (/^\s*end\s*$/.test(line)) {
+                    if (depth === 0) return { subStart, subEnd: i };
+                    depth--;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * ノードIDに関連する「定義行」（矢印なし）をブロック内から収集する。
+     * subgraph/end 行は含まない。
+     * @param {string[]} lines
+     * @param {number}   rangeStart - 検索開始行インデックス（exclusive: この行+1から）
+     * @param {number}   rangeEnd   - 検索終了行インデックス（exclusive）
+     * @param {string}   nodeId
+     * @param {boolean}  isTopLevel - trueの場合、他のsubgraph内をスキップ（トップレベル専用）
+     * @returns {Array<{idx: number, line: string}>}
+     */
+    function collectNodeDefLines(lines, rangeStart, rangeEnd, nodeId, isTopLevel = false) {
+        const result = [];
+        let subgraphDepth = 0; // トップレベル時のsubgraph深度管理
+
+        for (let i = rangeStart + 1; i < rangeEnd; i++) {
+            const line = lines[i];
+
+            // トップレベル検索時：subgraphブロック内はスキップ
+            if (isTopLevel) {
+                if (/^\s*subgraph\s/.test(line)) {
+                    subgraphDepth++;
+                    continue;
+                }
+                if (/^\s*end\s*$/.test(line)) {
+                    if (subgraphDepth > 0) { subgraphDepth--; }
+                    continue;
+                }
+                if (subgraphDepth > 0) continue; // subgraph内の行はスキップ
+            } else {
+                if (/^\s*subgraph\s/.test(line) || /^\s*end\s*$/.test(line)) continue;
+            }
+
+            if (/^\s*direction\s/.test(line)) continue;
+            if (arrowPattern.test(line)) continue; // 矢印行は対象外
+            if (containsNodeIdSimple(line, nodeId)) {
+                result.push({ idx: i, line });
+            }
+        }
+        return result;
+    }
+
+    /**
+     * ノードをMermaidソース内で指定subgraphに移動する。
+     * エッジ（接続行）は移動しない。
+     * @param {Element} wrapper       - .mermaid-diagram-wrapper
+     * @param {string}  nodeId        - 移動するノードID
+     * @param {string}  targetGroupId - 移動先のsubgraphのID
+     */
+    function moveNodeToSubgraph(wrapper, nodeId, targetGroupId) {
+        if (!nodeId || !targetGroupId || nodeId === targetGroupId) return;
+
+        const range = getMermaidBlockRange(wrapper);
+        if (!range) return;
+        const { startIdx, endIdx, lines } = range;
+
+        // 移動先subgraphの範囲を取得
+        const targetRange = findSubgraphRange(lines, startIdx, endIdx, targetGroupId);
+        if (!targetRange) {
+            console.warn('[MermaidInteraction] moveNodeToSubgraph: 移動先subgraphが見つかりません:', targetGroupId);
+            return;
+        }
+
+        // 現在のnodeIdの所属subgraphを取得
+        const currentSub = findNodeCurrentSubgraph(lines, startIdx, endIdx, nodeId);
+
+        // 既に対象subgraphに所属している場合は何もしない
+        if (currentSub && currentSub.subId === targetGroupId) {
+            if (typeof showToast === 'function') showToast('既にそのグループに属しています', 'info');
+            return;
+        }
+
+        // 検索範囲を決定（現在のsubgraph内 or ブロック全体のトップレベル）
+        let searchStart, searchEnd;
+        if (currentSub) {
+            searchStart = currentSub.subStart;
+            searchEnd   = currentSub.subEnd;
+        } else {
+            // トップレベル：ブロック全体を対象とするが、他のsubgraph内は除く
+            searchStart = startIdx;
+            searchEnd   = endIdx;
+        }
+
+        // ノード定義行を収集（トップレベルの場合は他のsubgraph内をスキップ）
+        const defLines = collectNodeDefLines(lines, searchStart, searchEnd, nodeId, !currentSub);
+
+        if (defLines.length === 0) {
+            // 定義行がない場合（接続行にのみ登場するノード）→ 新規に定義を追加
+            defLines.push({ idx: -1, line: `    ${nodeId}` });
+        }
+
+        // 定義行のテキストを保存し、元の位置から削除するインデックスを収集
+        const defTexts = defLines.map(d => d.line.trim());
+        const deleteIndices = new Set(defLines.filter(d => d.idx >= 0).map(d => d.idx));
+
+        // Mermaidブロック（startIdx〜endIdx）の行を組み直す
+        // 削除対象を除外しつつ、移動先subgraphのend行直前に定義行を挿入する
+        const blockLines = [];
+        let insertionDone = false;
+
+        for (let i = startIdx; i <= endIdx; i++) {
+            if (deleteIndices.has(i)) {
+                // 削除対象行はスキップ
+                continue;
+            }
+
+            // 移動先subgraphのend行（元のインデックスで判定）の直前に定義行を挿入
+            if (!insertionDone && i === targetRange.subEnd) {
+                defTexts.forEach(t => blockLines.push(`    ${t}`));
+                insertionDone = true;
+            }
+
+            blockLines.push(lines[i]);
+        }
+
+        // フォールバック：挿入が完了していない場合
+        if (!insertionDone) {
+            console.warn('[MermaidInteraction] moveNodeToSubgraph: 挿入位置が特定できませんでした。ブロック末尾に追記します。');
+            blockLines.splice(blockLines.length - 1, 0, ...defTexts.map(t => `    ${t}`));
+        }
+
+        // blockLines（startIdx〜endIdx範囲）をエディタ全行配列に書き戻す
+        // applyEditorTextAndRestore には全行配列を渡す必要がある
+        lines.splice(startIdx, endIdx - startIdx + 1, ...blockLines);
+
+        applyEditorTextAndRestore(wrapper, lines);
+        if (typeof showToast === 'function') {
+            showToast(`「${nodeId}」を「${targetGroupId}」グループに移動しました`, 'success');
+        }
+    }
+
+    /**
+     * ノードをMermaidソース内のsubgraphから取り出してトップレベルに移動する。
+     * すでにトップレベルにある場合は何もしない。
+     * @param {Element} wrapper - .mermaid-diagram-wrapper
+     * @param {string}  nodeId  - 移動するノードID
+     */
+    function moveNodeToTopLevel(wrapper, nodeId) {
+        if (!nodeId) return;
+
+        const range = getMermaidBlockRange(wrapper);
+        if (!range) return;
+        const { startIdx, endIdx, lines } = range;
+
+        // 現在の所属subgraphを確認
+        const currentSub = findNodeCurrentSubgraph(lines, startIdx, endIdx, nodeId);
+        if (!currentSub) {
+            // 既にトップレベル → 何もしない
+            return;
+        }
+
+        // 現在のsubgraph内からノード定義行を収集
+        const defLines = collectNodeDefLines(lines, currentSub.subStart, currentSub.subEnd, nodeId, false);
+
+        if (defLines.length === 0) {
+            // 定義行がない場合（接続行にのみ登場するノード）→ 新規に定義を追加
+            defLines.push({ idx: -1, line: `    ${nodeId}` });
+        }
+
+        // 定義行のテキストを保存し、元の位置から削除するインデックスを収集
+        const defTexts = defLines.map(d => d.line.trim());
+        const deleteIndices = new Set(defLines.filter(d => d.idx >= 0).map(d => d.idx));
+
+        // Mermaidブロック（startIdx〜endIdx）の行を組み直す
+        // 削除対象を除外しつつ、ブロックの終端（```行）の直前にトップレベルとして挿入する
+        const blockLines = [];
+        let insertionDone = false;
+
+        for (let i = startIdx; i <= endIdx; i++) {
+            if (deleteIndices.has(i)) {
+                // 削除対象行はスキップ
+                continue;
+            }
+
+            // ブロック終端行（```）の直前にトップレベル定義を挿入
+            if (!insertionDone && i === endIdx) {
+                defTexts.forEach(t => blockLines.push(`    ${t}`));
+                insertionDone = true;
+            }
+
+            blockLines.push(lines[i]);
+        }
+
+        if (!insertionDone) {
+            blockLines.splice(blockLines.length - 1, 0, ...defTexts.map(t => `    ${t}`));
+        }
+
+        lines.splice(startIdx, endIdx - startIdx + 1, ...blockLines);
+
+        applyEditorTextAndRestore(wrapper, lines);
+        if (typeof showToast === 'function') {
+            showToast(`「${nodeId}」をグループから外しました`, 'success');
+        }
+    }
+
     // ── イベント初期化 ─────────────────────────────────────────
 
 
@@ -938,7 +1601,7 @@ const MermaidInteraction = (() => {
         // 重複を排除
         edgePaths = [...new Set(edgePaths)];
 
-        console.log('[MermaidInteraction] enhanceEdgeHitboxes: 対象のパス数 =', edgePaths.length);
+        // console.log('[MermaidInteraction] enhanceEdgeHitboxes: 対象のパス数 =', edgePaths.length);
         edgePaths.forEach(path => {
             // すでにヒットボックスがあればスキップ
             if (path.dataset.hasHitbox) return;
@@ -964,7 +1627,7 @@ const MermaidInteraction = (() => {
             hitbox.removeAttribute('stroke-dasharray');
 
             path.parentNode.appendChild(hitbox);
-            console.log('[MermaidInteraction] ヒットボックスを追加しました:', hitbox);
+            // console.log('[MermaidInteraction] ヒットボックスを追加しました:', hitbox);
         });
     }
 
@@ -1071,6 +1734,15 @@ const MermaidInteraction = (() => {
         // ── 編集用API（外部やショートカットキーから呼び出せるようにマウント） ──
         wrapper._mermaidAPI = {
             updateSelectionUI: () => updateSelectionUI(),
+            restoreSelection: (nodeIds) => {
+                // 再描画後に選択状態を外部から復元するためのAPI
+                selectedNodes.clear();
+                if (nodeIds) nodeIds.forEach(id => selectedNodes.add(id));
+                selectedEdges.clear();
+                // 復元完了したのでペンディングもクリア
+                delete wrapper._pendingSelectedNodes;
+                updateSelectionUI();
+            },
             hasNodeSelection: () => {
                 return selectedNodes.size > 0;
             },
@@ -1166,8 +1838,22 @@ const MermaidInteraction = (() => {
                     }
                 });
 
+                // サブグラフ全体の削除対象行を特定
+                const subgraphLinesToRemove = new Set();
+                for (const mId of selectedNodes) {
+                    const subRange = findSubgraphRange(lines, startIdx, endIdx, mId);
+                    if (subRange) {
+                        for (let i = subRange.subStart; i <= subRange.subEnd; i++) {
+                            subgraphLinesToRemove.add(i);
+                        }
+                    }
+                }
+
                 const newLines = [];
                 for (let i = startIdx + 1; i < endIdx; i++) {
+                    // サブグラフ削除の対象行なら無条件でスキップ（ブロックごと削除）
+                    if (subgraphLinesToRemove.has(i)) continue;
+
                     const line = lines[i];
                     let hasTargetNode = false;
                     let hasTargetEdge = false;
@@ -1221,34 +1907,8 @@ const MermaidInteraction = (() => {
                     }
                 }
 
-                // 不要な単独ノード行のクリーンアップ
-                // 分割によって生じた「B」のような単なるIDだけの行は、他で定義・使用されているなら削除する
-                const finalLines = [];
-                for (let i = 0; i < newLines.length; i++) {
-                    const line = newLines[i];
-                    const trimmed = line.trim();
-                    
-                    // 矢印がなく、かつカッコ等の定義記号を含まない単独行か？
-                    if (!arrowSplitRegex.test(trimmed) && !/[\(\[\{>]/.test(trimmed)) {
-                        const mId = trimmed; // 単なるIDとみなす
-                        let usedElsewhere = false;
-                        for (let j = 0; j < newLines.length; j++) {
-                            if (i === j) continue;
-                            if (containsNodeId(newLines[j], mId)) {
-                                usedElsewhere = true;
-                                break;
-                            }
-                        }
-                        // 他で使われているならこの単独行は不要
-                        if (usedElsewhere) {
-                            continue;
-                        }
-                    }
-                    finalLines.push(line);
-                }
-
                 // 書き戻しと再描画
-                lines.splice(startIdx + 1, endIdx - startIdx - 1, ...finalLines);
+                lines.splice(startIdx + 1, endIdx - startIdx - 1, ...newLines);
                 applyEditorTextAndRestore(wrapper, lines);
                 selectedNodes.clear();
                 selectedEdges.clear();
@@ -1259,26 +1919,52 @@ const MermaidInteraction = (() => {
                 if (!range) return;
 
                 const copiedNodes = [];
+                const allNodeIds = collectNodes(svgEl).map(n => n.id).filter(id => id);
+
                 // 選択されたノードの定義を探す
                 for (const mId of selectedNodes) {
                     let bestDef = mId; // デフォルトはIDのみ
+                    let isSubgraph = false;
+                    let blockLines = [];
+                    let internalNodes = [];
                     
-                    for (let i = range.startIdx + 1; i < range.endIdx; i++) {
-                        const line = range.lines[i];
-                        // 矢印で分割した各破片の中で探す
-                        const fragments = line.split(arrowSplitRegex).map(s => s.trim()).filter(s => s);
-                        for (const frag of fragments) {
-                            if (containsNodeId(frag, mId)) {
-                                // もしこの破片が形状定義を持っているなら、これを採用
-                                if (/[\(\[\{>]/.test(frag)) {
-                                    bestDef = frag;
-                                    break; // 良い定義を見つけたらこの行の探索は終了
+                    // subgraphかどうかチェック
+                    const subRange = findSubgraphRange(range.lines, range.startIdx, range.endIdx, mId);
+                    if (subRange) {
+                        isSubgraph = true;
+                        bestDef = range.lines[subRange.subStart].trim();
+                        blockLines = range.lines.slice(subRange.subStart + 1, subRange.subEnd);
+                        // このsubgraph(または子孫)に属する内部ノードを特定
+                        internalNodes = allNodeIds.filter(nId => {
+                            let curr = findNodeCurrentSubgraph(range.lines, range.startIdx, range.endIdx, nId);
+                            const visited = new Set();
+                            while (curr && !visited.has(curr.subId)) {
+                                if (curr.subId === mId) return true;
+                                visited.add(curr.subId);
+                                curr = findNodeCurrentSubgraph(range.lines, range.startIdx, range.endIdx, curr.subId);
+                            }
+                            return false;
+                        });
+                    }
+
+                    if (!isSubgraph) {
+                        for (let i = range.startIdx + 1; i < range.endIdx; i++) {
+                            const line = range.lines[i];
+                            // 矢印で分割した各破片の中で探す
+                            const fragments = line.split(arrowSplitRegex).map(s => s.trim()).filter(s => s);
+                            for (const frag of fragments) {
+                                if (containsNodeId(frag, mId)) {
+                                    // もしこの破片が形状定義を持っているなら、これを採用
+                                    if (/[\(\[\{>]/.test(frag)) {
+                                        bestDef = frag;
+                                        break; // 良い定義を見つけたらこの行の探索は終了
+                                    }
                                 }
                             }
+                            if (bestDef !== mId) break; // すでに良い定義を見つけたら他の行も探索終了
                         }
-                        if (bestDef !== mId) break; // すでに良い定義を見つけたら他の行も探索終了
                     }
-                    copiedNodes.push({ id: mId, def: bestDef });
+                    copiedNodes.push({ id: mId, def: bestDef, isSubgraph, blockLines, internalNodes });
                 }
 
                 _clipboard = copiedNodes;
@@ -1311,9 +1997,54 @@ const MermaidInteraction = (() => {
                     existingIds.add(newId);
                     newSelectedIds.add(newId);
 
-                    // 定義のID部分を新しいIDに置換して挿入
-                    const newDef = node.def.replace(new RegExp(`^${node.id}`), newId);
-                    pastedLines.push(`    ${newDef}`);
+                    const escId = node.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    if (node.isSubgraph) {
+                        // 1. サブグラフ自身の開始行を置換
+                        const newDef = node.def.replace(new RegExp(`^subgraph\\s+${escId}`), `subgraph ${newId}`);
+                        pastedLines.push(`    ${newDef}`);
+                        
+                        // 2. 内部ノードのIDマッピングを作成
+                        const internalIdMap = {};
+                        (node.internalNodes || []).forEach(nId => {
+                            let newInternalId = `${nId}_copy`;
+                            let c = 1;
+                            while (existingIds.has(newInternalId)) {
+                                newInternalId = `${nId}_copy${c}`;
+                                c++;
+                            }
+                            existingIds.add(newInternalId);
+                            internalIdMap[nId] = newInternalId;
+                        });
+
+                        // 3. 内部行のノードIDを置換
+                        (node.blockLines || []).forEach(line => {
+                            let replacedLine = line;
+                            Object.keys(internalIdMap).forEach(oldNodeId => {
+                                const newNodeId = internalIdMap[oldNodeId];
+                                const escOld = oldNodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                                // ノードIDの境界(行頭/スペース/カッコ/矢印など)を考慮して置換
+                                const regex = new RegExp(`(^|[\\s\\(\\[\\{\\|\\->])` + escOld + `(?=[\\s\\(\\[\\{\\)\\]\\}\\|\\->]|$)`, 'g');
+                                replacedLine = replacedLine.replace(regex, (match, p1) => {
+                                    return p1 + newNodeId;
+                                });
+                            });
+                            // subgraph定義自体が内部に含まれている場合（ネスト）のID置換
+                            if (/^\s*subgraph\s/.test(replacedLine)) {
+                                Object.keys(internalIdMap).forEach(oldNodeId => {
+                                    const newNodeId = internalIdMap[oldNodeId];
+                                    const escOld = oldNodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                                    replacedLine = replacedLine.replace(new RegExp(`(^\\s*subgraph\\s+)${escOld}(\\s|\\[|$)`), `$1${newNodeId}$2`);
+                                });
+                            }
+                            pastedLines.push(replacedLine);
+                        });
+
+                        pastedLines.push(`    end`);
+                    } else {
+                        // 定義のID部分を新しいIDに置換して挿入
+                        const newDef = node.def.replace(new RegExp(`^${escId}`), newId);
+                        pastedLines.push(`    ${newDef}`);
+                    }
                 });
 
                 const targetIdx = calculateInsertLineIndex(range.lines, range.startIdx, range.endIdx, selectedNodes);
@@ -1330,18 +2061,25 @@ const MermaidInteraction = (() => {
                 if (!range) return;
 
                 const cycleDir = ['TB', 'LR', 'BT', 'RL'];
+                const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const getNextDir = (curr) => {
                     if (curr === 'TD') curr = 'TB';
                     const idx = cycleDir.indexOf(curr);
                     return idx !== -1 ? cycleDir[(idx + 1) % cycleDir.length] : 'LR';
                 };
 
-                // 選択中ノードの中に subgraph があるかチェック
+                // 選択中ノードの中に subgraph として定義されているものがあるかチェック
+                // selectedNodesが空の場合、500ms復元待機中の可能性があるため、
+                // _pendingSelectedNodes(前回の意図した選択)をフォールバックとして使用する
+                const effectiveSelectedNodes = selectedNodes.size > 0
+                    ? selectedNodes
+                    : (wrapper._pendingSelectedNodes || new Set());
+
                 let targetSubgraphId = null;
-                for (const mId of selectedNodes) {
+                for (const mId of effectiveSelectedNodes) {
+                    const subRegex = new RegExp(`^\\s*subgraph\\s+${escRe(mId)}(\\s|\\[|$)`);
                     for (let i = range.startIdx + 1; i < range.endIdx; i++) {
-                        function esc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-                        if (range.lines[i].match(new RegExp(`^\\s*subgraph\\s+${esc(mId)}\\b`))) {
+                        if (subRegex.test(range.lines[i])) {
                             targetSubgraphId = mId;
                             break;
                         }
@@ -1349,43 +2087,52 @@ const MermaidInteraction = (() => {
                     if (targetSubgraphId) break;
                 }
 
+
                 if (targetSubgraphId) {
                     // グループの direction を切り替える
-                    let inSubgraph = false;
+                    const subRegex = new RegExp(`^\\s*subgraph\\s+${escRe(targetSubgraphId)}(\\s|\\[|$)`);
+                    let subgraphStartIdx = -1;
+                    let subgraphEndIdx = -1;
                     let directionLineIdx = -1;
                     let currentDirection = null;
-                    let subgraphStartIdx = -1;
 
-                    function esc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-                    const subRegex = new RegExp(`^\\s*subgraph\\s+${esc(targetSubgraphId)}\\b`);
-
+                    // サブグラフの開始行と終端行を探す（ネスト対応）
                     for (let i = range.startIdx + 1; i < range.endIdx; i++) {
-                        const line = range.lines[i];
-                        if (line.match(subRegex)) {
-                            inSubgraph = true;
+                        if (subRegex.test(range.lines[i])) {
                             subgraphStartIdx = i;
-                            continue;
-                        }
-                        if (inSubgraph) {
-                            if (line.trim() === 'end') {
-                                break; // subgraph 終了
-                            }
-                            const dirMatch = line.match(/^\s*direction\s+(TB|TD|LR|RL|BT)\s*$/);
-                            if (dirMatch) {
-                                directionLineIdx = i;
-                                currentDirection = dirMatch[1];
-                                break;
-                            }
+                            break;
                         }
                     }
 
-                    if (directionLineIdx !== -1) {
-                        // 既に direction がある場合は次の方向に変更
-                        const newDir = getNextDir(currentDirection);
-                        range.lines[directionLineIdx] = range.lines[directionLineIdx].replace(currentDirection, newDir);
-                    } else if (subgraphStartIdx !== -1) {
-                        // direction がない場合はデフォルトTBとみなし、LRを追加する
-                        range.lines.splice(subgraphStartIdx + 1, 0, '    direction LR');
+                    if (subgraphStartIdx !== -1) {
+                        let depth = 1;
+                        for (let i = subgraphStartIdx + 1; i < range.endIdx; i++) {
+                            const trimmed = range.lines[i].trim();
+                            if (/^subgraph\s/.test(trimmed)) depth++;
+                            else if (trimmed === 'end') {
+                                depth--;
+                                if (depth === 0) { subgraphEndIdx = i; break; }
+                            }
+                        }
+
+                        // サブグラフ内の direction 行を探す
+                        for (let i = subgraphStartIdx + 1; i < subgraphEndIdx; i++) {
+                            const dirMatch = range.lines[i].match(/^(\s*)direction\s+(TB|TD|LR|RL|BT)\s*$/);
+                            if (dirMatch) {
+                                directionLineIdx = i;
+                                currentDirection = dirMatch[2];
+                                break;
+                            }
+                        }
+
+                        if (directionLineIdx !== -1) {
+                            // 既に direction がある場合は次の方向に変更
+                            const newDir = getNextDir(currentDirection);
+                            range.lines[directionLineIdx] = range.lines[directionLineIdx].replace(/direction\s+\S+/, `direction ${newDir}`);
+                        } else {
+                            // direction がない場合はデフォルトTBとみなし、LRを追加する
+                            range.lines.splice(subgraphStartIdx + 1, 0, '    direction LR');
+                        }
                     }
                 } else {
                     // 全体の direction を切り替える
@@ -1413,19 +2160,75 @@ const MermaidInteraction = (() => {
                     }
                 }
 
-                applyEditorTextAndRestore(wrapper, range.lines);
-                if (typeof showToast === 'function') showToast(`縦横(TB/LR)を切り替えました`, 'success');
+                // 再描画後に選択状態を復元するため、事前にIDを保存しておく
+                // selectedNodesが空でも_pendingSelectedNodesを参照したeffectiveSelectedNodesを使う
+                const savedSelectedNodes = new Set(effectiveSelectedNodes);
+                const savedSelectedEdges = new Set(selectedEdges);
+
+                applyEditorTextAndRestore(wrapper, range.lines, undefined, undefined, {
+                    onAfterRestore: (newDiagramWrapper) => {
+                        // 拡大表示中の場合はリセット（全体表示に戻す）
+                        if (window.MermaidExpandedManager &&
+                            (window.MermaidExpandedManager.activeCodeIndex != null ||
+                             window.MermaidExpandedManager.activeWrapperLine != null)) {
+                            window.MermaidExpandedManager.resetView();
+                        }
+
+                        if (newDiagramWrapper && newDiagramWrapper !== wrapper) {
+                            // wrapperが差し替わった場合：initDiagram完了待ち後に_mermaidAPI.restoreSelectionで復元
+                            // initDiagramはrender()内のsetTimeout(100)で呼ばれるが、
+                            // onAfterRestoreはrender()後の更にsetTimeout(100)で呼ばれるため競合する。
+                            // 500ms待てば確実にinitDiagramが完了している。
+                            // また、待機中に再度toggleDirectionが呼ばれても_pendingSelectedNodesがあるので
+                            // グループ切り替えと判定できる。
+                            newDiagramWrapper._pendingSelectedNodes = savedSelectedNodes;
+                            setTimeout(() => {
+                                if (newDiagramWrapper._mermaidAPI && typeof newDiagramWrapper._mermaidAPI.restoreSelection === 'function') {
+                                    newDiagramWrapper._mermaidAPI.restoreSelection(savedSelectedNodes);
+                                } else {
+                                    // さらに500ms後にリトライ
+                                    setTimeout(() => {
+                                        if (newDiagramWrapper._mermaidAPI && typeof newDiagramWrapper._mermaidAPI.restoreSelection === 'function') {
+                                            newDiagramWrapper._mermaidAPI.restoreSelection(savedSelectedNodes);
+                                        } else {
+                                            delete newDiagramWrapper._pendingSelectedNodes;
+                                        }
+                                    }, 500);
+                                }
+                            }, 500);
+                        } else {
+                            // wrapperが同じ場合：即座に復元
+                            selectedNodes.clear();
+                            savedSelectedNodes.forEach(id => selectedNodes.add(id));
+                            selectedEdges.clear();
+                            savedSelectedEdges.forEach(e => selectedEdges.add(e));
+                            updateSelectionUI();
+                        }
+                    }
+                });
+                if (typeof showToast === 'function') {
+                    const msg = targetSubgraphId
+                        ? `グループ「${targetSubgraphId}」の縦横(TB/LR)を切り替えました`
+                        : `縦横(TB/LR)を切り替えました`;
+                    showToast(msg, 'success');
+                }
+
+            },
+            // 拡大表示など外部から呼び出せるコンテキストメニュー表示API
+            showContextMenu: (x, y) => {
+                showMermaidContextMenu(x, y, wrapper);
             }
         };
 
         // ── コンテキストメニュー ──
-        svgEl.addEventListener('contextmenu', e => {
+        wrapper.addEventListener('contextmenu', e => {
             if (!wrapper.classList.contains('mermaid-edit-mode')) return;
+            if (e.target.closest('.mermaid-toolbar, .mermaid-edit-toolbar, .mermaid-context-menu')) return;
             e.preventDefault();
             e.stopPropagation();
 
             // クリック対象を取得し、選択されていない場合はそれを単一選択する
-            const nodeEl = e.target.closest('g.node');
+            const nodeEl = e.target.closest('g.node, g.cluster, g[class*="cluster"]:not(.clusters)');
             let edgePathEl = e.target.closest('.edge-hitbox, path[marker-end], .edgePath, .flowchart-link, path[id^="L-"]');
             const edgeLabelEl = e.target.closest('.edgeLabel, g.edgeLabel');
 
@@ -1491,14 +2294,134 @@ const MermaidInteraction = (() => {
                     drawHandles(overlay, nodeInfo, wrapper, true);
                 }
             });
+
+            // エディタ連携ハイライト
+            if (typeof window.highlightEditorLine === 'function') {
+                const range = getMermaidBlockRange(wrapper);
+                if (range) {
+                    let targetLineIndex = -1;
+                    if (selectedNodes.size > 0) {
+                        const mId = Array.from(selectedNodes)[0];
+
+                        // クラスター（グループ/subgraph）の場合は subgraph〜end 全体をハイライト
+                        const nodeInfo = nodes.find(n => n.id === mId);
+                        if (nodeInfo && isClusterNode(nodeInfo)) {
+                            // findSubgraphRange でグループのソース行範囲を取得
+                            const sgRange = findSubgraphRange(range.lines, range.startIdx, range.endIdx, mId);
+                            if (sgRange && typeof window.highlightEditorLineRange === 'function') {
+                                window.highlightEditorLineRange(sgRange.subStart, sgRange.subEnd);
+                            }
+                        } else {
+                            // 通常ノード: 定義行1行をハイライト
+                            const defs = collectNodeDefLines(range.lines, range.startIdx, range.endIdx, mId, false);
+                            if (defs && defs.length > 0) {
+                                targetLineIndex = defs[0].idx;
+                            }
+                        }
+                    } else if (selectedEdges.size > 0) {
+                        const edge = Array.from(selectedEdges)[0];
+                        const idMatch = edge.id ? edge.id.match(/^L-(.+?)-(.+?)-\d+/) : null;
+                        if (idMatch) {
+                            const from = idMatch[1];
+                            const to = idMatch[2];
+                            for (let i = range.startIdx + 1; i < range.endIdx; i++) {
+                                if (containsNodeId(range.lines[i], from) && containsNodeId(range.lines[i], to) && arrowSplitRegex.test(range.lines[i])) {
+                                    targetLineIndex = i;
+                                    break;
+                                }
+                            }
+                        } else if (edge.classList) {
+                            let fromMatch = null, toMatch = null;
+                            edge.classList.forEach(cls => {
+                                if (cls.startsWith('LS-')) fromMatch = cls.substring(3);
+                                if (cls.startsWith('LE-')) toMatch = cls.substring(3);
+                            });
+                            if (fromMatch && toMatch) {
+                                for (let i = range.startIdx + 1; i < range.endIdx; i++) {
+                                    if (containsNodeId(range.lines[i], fromMatch) && containsNodeId(range.lines[i], toMatch) && arrowSplitRegex.test(range.lines[i])) {
+                                        targetLineIndex = i;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (targetLineIndex !== -1) {
+                        window.highlightEditorLine(targetLineIndex);
+                    }
+                }
+            }
         };
 
-        // ── ノード・エッジ クリック検出 ──
-        svgEl.addEventListener('click', e => {
+        // ── ノード本体ドラッグ（mousedown on node）──
+        // mousedown 時点ではドラッグ意図のみ記録し、閾値超過後にゴースト生成する。
+        // これにより、単純クリックとドラッグを正しく区別できる。
+        const NODE_DRAG_THRESHOLD = 5; // ドラッグ判定の最低移動距離（px）
+
+        wrapper.addEventListener('mousedown', e => {
+            // 編集モードでなければ無視
+            if (!wrapper.classList.contains('mermaid-edit-mode')) return;
+            if (e.target.closest('.mermaid-toolbar, .mermaid-edit-toolbar, .mermaid-context-menu')) return;
             // SVGエディタ起動中は干渉しない
             if (window.currentEditingSVG) return;
-            // ドラッグ中はハンドル更新しない
+            // 接続ハンドルドラッグ中は無視
             if (_dragState) return;
+            // 右クリック・中クリックは無視
+            if (e.button !== 0) return;
+
+            // ノード要素を取得（g.node または g.cluster 等）
+            const nodeEl = e.target.closest('g.node, g.cluster, g[class*="cluster"]:not(.clusters)');
+            if (!nodeEl) return;
+
+            // 接続ハンドル上からのドラッグは除外
+            if (e.target.closest('.mermaid-connect-handle')) return;
+
+            const mId = getMermaidNodeId(nodeEl);
+            if (!mId) return;
+
+            // mousedown時点では preventDefault/stopPropagation せず、ドラッグ意図のみ記録
+            // （stopPropagation するとクリックイベントに影響する可能性があるため）
+            const nodeRect = nodeEl.getBoundingClientRect();
+            const wRect   = wrapper.getBoundingClientRect();
+            const offsetX = e.clientX - nodeRect.left;
+            const offsetY = e.clientY - nodeRect.top;
+
+            // ノードのラベルテキストを取得（ゴーストに表示）
+            const labelEl = nodeEl.querySelector('.nodeLabel, .label, .cluster-label, text, foreignObject');
+            let label = mId;
+            if (labelEl) {
+                const p = labelEl.querySelector && labelEl.querySelector('p, span, div');
+                label = ((p ? p.textContent : labelEl.textContent) || mId).trim();
+            }
+
+            // 状態を記録（ゴーストはまだ生成しない）
+            _nodeDragState = {
+                nodeId:       mId,
+                nodeEl,
+                nodeRect,
+                label,
+                wrapper,
+                svgEl,
+                ghost:        null,   // ドラッグ開始後に生成
+                offsetX,
+                offsetY,
+                startX:       e.clientX, // ドラッグ判定の基準位置
+                startY:       e.clientY,
+                dragStarted:  false,  // 閾値を超えてドラッグが開始されたか
+                prevDropTarget: null,
+                hasMoved: false,
+            };
+        });
+
+        // ── ノード・エッジ クリック検出 ──
+        wrapper.addEventListener('click', e => {
+            // SVGエディタ起動中は干渉しない
+            if (window.currentEditingSVG) return;
+            if (e.target.closest('.mermaid-toolbar, .mermaid-edit-toolbar, .mermaid-context-menu')) return;
+            // 接続ドラッグ中はハンドル更新しない
+            if (_dragState) return;
+            // ノードドラッグ後のクリック誤検知を防ぐ（ドラッグして移動した場合はclickを無視）
+            if (_nodeDragState && _nodeDragState.hasMoved) return;
             // 編集モード（.mermaid-edit-mode）の時だけハンドルを表示する
             // プレビューモードではハンドルを出さない
             if (!wrapper.classList.contains('mermaid-edit-mode')) return;
@@ -1506,7 +2429,7 @@ const MermaidInteraction = (() => {
             console.log(`[MermaidInteraction] Clicked at (${e.clientX}, ${e.clientY})`);
             console.log(`[MermaidInteraction] e.target =`, e.target);
 
-            const nodeEl = e.target.closest('g.node, g.cluster');
+            const nodeEl = e.target.closest('g.node, g.cluster, g[class*="cluster"]:not(.clusters)');
             // ヒットボックス自身、または flowchart-link クラス、marker-end を持つ path などを探す
             let edgePathEl = e.target.closest('.edge-hitbox, path[marker-end], .edgePath, .flowchart-link, path[id^="L-"]');
             const edgeLabelEl = e.target.closest('.edgeLabel, g.edgeLabel');
@@ -1579,14 +2502,15 @@ const MermaidInteraction = (() => {
         });
 
         // ── ノード・エッジダブルクリック → ラベルインライン編集 ──
-        svgEl.addEventListener('dblclick', e => {
+        wrapper.addEventListener('dblclick', e => {
             // 編集モードでなければ無視
             if (!wrapper.classList.contains('mermaid-edit-mode')) return;
+            if (e.target.closest('.mermaid-toolbar, .mermaid-edit-toolbar, .mermaid-context-menu')) return;
 
             console.log(`[MermaidInteraction] DblClicked at (${e.clientX}, ${e.clientY})`);
             console.log(`[MermaidInteraction] e.target =`, e.target);
 
-            const nodeEl = e.target.closest('g.node, g.cluster');
+            const nodeEl = e.target.closest('g.node, g.cluster, g[class*="cluster"]:not(.clusters)');
             const edgeLabelEl = e.target.closest('.edgeLabel, g.edgeLabel');
             let edgePathEl = e.target.closest('.edge-hitbox, path[marker-end], .edgePath, .flowchart-link, path[id^="L-"]');
 
@@ -1787,59 +2711,141 @@ const MermaidInteraction = (() => {
         if (!wrapper._miMoveRegistered) {
             wrapper._miMoveRegistered = true;
             document.addEventListener('mousemove', e => {
-                if (!_dragState || _dragState.wrapper !== wrapper) return;
+                // ── 接続ハンドルドラッグの処理 ──
+                if (_dragState && _dragState.wrapper === wrapper) {
+                    const wRect = wrapper.getBoundingClientRect();
+                    const mx = e.clientX - wRect.left;
+                    const my = e.clientY - wRect.top;
 
-                const wRect = wrapper.getBoundingClientRect();
-                const mx = e.clientX - wRect.left;
-                const my = e.clientY - wRect.top;
+                    // ラバーバンドの終点を更新
+                    _dragState.rubberLine.setAttribute('x2', mx);
+                    _dragState.rubberLine.setAttribute('y2', my);
 
-                // ラバーバンドの終点を更新
-                _dragState.rubberLine.setAttribute('x2', mx);
-                _dragState.rubberLine.setAttribute('y2', my);
+                    // スナップ検索
+                    const snap = findSnapTarget(mx, my, _dragState.nodes, _dragState.fromId, wRect);
 
-                // スナップ検索
-                const snap = findSnapTarget(mx, my, _dragState.nodes, _dragState.fromId, wRect);
+                    // 前回スナップ対象のハイライト解除
+                    if (_dragState.prevSnapEl) {
+                        _dragState.prevSnapEl.classList.remove('mermaid-snap-highlight');
+                        _dragState.prevSnapEl = null;
+                    }
 
-                // 前回スナップ対象のハイライト解除
-                if (_dragState.prevSnapEl) {
-                    _dragState.prevSnapEl.classList.remove('mermaid-snap-highlight');
-                    _dragState.prevSnapEl = null;
+                    if (snap) {
+                        // ラバーバンドをスナップ先の中心に吸い付かせる
+                        _dragState.rubberLine.setAttribute('x2', snap.cx);
+                        _dragState.rubberLine.setAttribute('y2', snap.cy);
+                        snap.nodeInfo.el.classList.add('mermaid-snap-highlight');
+                        _dragState.prevSnapEl    = snap.nodeInfo.el;
+                        _dragState.snapTarget    = snap.nodeInfo;
+                    } else {
+                        _dragState.snapTarget = null;
+                    }
                 }
 
-                if (snap) {
-                    // ラバーバンドをスナップ先の中心に吸い付かせる
-                    _dragState.rubberLine.setAttribute('x2', snap.cx);
-                    _dragState.rubberLine.setAttribute('y2', snap.cy);
-                    snap.nodeInfo.el.classList.add('mermaid-snap-highlight');
-                    _dragState.prevSnapEl    = snap.nodeInfo.el;
-                    _dragState.snapTarget    = snap.nodeInfo;
-                } else {
-                    _dragState.snapTarget = null;
+                // ── ノード本体ドラッグの処理 ──
+                if (_nodeDragState && _nodeDragState.wrapper === wrapper) {
+                    const dx = e.clientX - _nodeDragState.startX;
+                    const dy = e.clientY - _nodeDragState.startY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    // 閾値を超えた場合のみドラッグを開始
+                    if (!_nodeDragState.dragStarted) {
+                        if (dist < NODE_DRAG_THRESHOLD) return; // 閾値未満はまだ待機
+                        // ドラッグ開始：ゴーストを生成し、元ノードを半透明化
+                        _nodeDragState.dragStarted = true;
+                        _nodeDragState.ghost = createNodeGhost(_nodeDragState.nodeRect, wrapper, _nodeDragState.label);
+                        _nodeDragState.nodeEl.classList.add('mermaid-node-dragging');
+                    }
+
+                    const wRect = wrapper.getBoundingClientRect();
+                    const mx = e.clientX - wRect.left;
+                    const my = e.clientY - wRect.top;
+
+                    // ゴーストをマウス位置に追従
+                    moveNodeGhost(_nodeDragState.ghost, mx, my, _nodeDragState.offsetX, _nodeDragState.offsetY);
+                    _nodeDragState.hasMoved = true;
+
+                    // subgraphへのホバー判定とハイライト切り替え
+                    const dropTarget = findSubgraphAtPoint(mx, my, _nodeDragState.svgEl, wrapper, _nodeDragState.nodeId);
+                    // デバッグ: subgraph検出結果を一定間隔で出力（パフォーマンス対策）
+                    if (!_nodeDragState._lastDropLog || Date.now() - _nodeDragState._lastDropLog > 500) {
+                        console.log('[MermaidInteraction] ドラッグ中 mx,my=', mx, my, 'dropTarget=', dropTarget ? dropTarget.id : null);
+                        _nodeDragState._lastDropLog = Date.now();
+                    }
+
+                    // 前回のドロップターゲットハイライト解除
+                    if (_nodeDragState.prevDropTarget && _nodeDragState.prevDropTarget !== (dropTarget && dropTarget.el)) {
+                        _nodeDragState.prevDropTarget.classList.remove('mermaid-subgraph-drop-target');
+                        _nodeDragState.prevDropTarget = null;
+                    }
+
+                    if (dropTarget) {
+                        if (_nodeDragState.prevDropTarget !== dropTarget.el) {
+                            dropTarget.el.classList.add('mermaid-subgraph-drop-target');
+                            _nodeDragState.prevDropTarget = dropTarget.el;
+                        }
+                        _nodeDragState.currentDropTarget = dropTarget;
+                    } else {
+                        _nodeDragState.currentDropTarget = null;
+                    }
                 }
             });
 
             // ── グローバル mouseup ──
             document.addEventListener('mouseup', e => {
-                if (!_dragState || _dragState.wrapper !== wrapper) return;
+                // ── 接続ハンドルドラッグの終了処理 ──
+                if (_dragState && _dragState.wrapper === wrapper) {
+                    const state = _dragState;
+                    _dragState = null;
 
-                const state = _dragState;
-                _dragState = null;
+                    // ハイライト解除
+                    if (state.prevSnapEl) {
+                        state.prevSnapEl.classList.remove('mermaid-snap-highlight');
+                    }
 
-                // ハイライト解除
-                if (state.prevSnapEl) {
-                    state.prevSnapEl.classList.remove('mermaid-snap-highlight');
+                    // オーバーレイのポインタイベントをデフォルトに戻す
+                    state.overlay.style.pointerEvents = '';
+
+                    // ドラッグ終了時はオーバーレイ全体をクリアする（選択枠も消えるが、
+                    // クリックイベントで再描画されるか、次回選択時に復帰する）
+                    clearOverlay(state.overlay);
+
+                    if (state.snapTarget) {
+                        // 接続確定
+                        appendConnectionToSource(state.wrapper, state.fromId, state.snapTarget.id);
+                    }
                 }
 
-                // オーバーレイのポインタイベントをデフォルトに戻す
-                state.overlay.style.pointerEvents = '';
+                // ── ノード本体ドラッグの終了処理 ──
+                if (_nodeDragState && _nodeDragState.wrapper === wrapper) {
+                    const state = _nodeDragState;
+                    _nodeDragState = null;
 
-                // ドラッグ終了時はオーバーレイ全体をクリアする（選択枠も消えるが、
-                // クリックイベントで再描画されるか、次回選択時に復帰する）
-                clearOverlay(state.overlay);
+                    // 元ノードの半透明を解除
+                    state.nodeEl.classList.remove('mermaid-node-dragging');
 
-                if (state.snapTarget) {
-                    // 接続確定
-                    appendConnectionToSource(state.wrapper, state.fromId, state.snapTarget.id);
+                    // subgraphハイライト解除
+                    if (state.prevDropTarget) {
+                        state.prevDropTarget.classList.remove('mermaid-subgraph-drop-target');
+                    }
+
+                    // ゴーストを削除
+                    removeNodeGhost(state.ghost);
+
+                    // ドロップ先がsubgraphなら永続化処理
+                    if (state.currentDropTarget && state.hasMoved) {
+                        moveNodeToSubgraph(state.wrapper, state.nodeId, state.currentDropTarget.id);
+                    } else if (!state.currentDropTarget && state.hasMoved) {
+                        // subgraph外にドロップされた場合：
+                        // 元のsubgraphに所属していたならトップレベルへ移動する
+                        const range = getMermaidBlockRange(state.wrapper);
+                        if (range) {
+                            const currentSub = findNodeCurrentSubgraph(range.lines, range.startIdx, range.endIdx, state.nodeId);
+                            if (currentSub) {
+                                moveNodeToTopLevel(state.wrapper, state.nodeId);
+                            }
+                        }
+                    }
                 }
             });
         }
@@ -1896,7 +2902,8 @@ const MermaidInteraction = (() => {
         menu.id = 'mermaid-context-menu';
         menu.className = 'context-menu visible';
         menu.style.position = 'fixed';
-        menu.style.zIndex = '10000';
+        // 拡大表示(.mermaid-fixed-expanded)のz-indexが100000なので、それより前に出す
+        menu.style.zIndex = '100002';
         
         // メニュー項目
         const items = [

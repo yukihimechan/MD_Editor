@@ -142,6 +142,92 @@ async function exportPDFAsImage(orientation = 'portrait') {
             paperAttributes.forEach(attr => svg.removeAttribute(attr));
         });
 
+        // [FIX] html2canvasはSVGのoverflow:visibleコンテンツ（SVG境界外の要素）を
+        // キャプチャできないため、Mermaid SVGをPNG画像に事前変換してIMGタグに置換する。
+        // PageSplitter実行「前」に行うことでページ分割も正しい高さで行われる。
+        status = "Converting SVGs to PNG...";
+        const svgsInClone = Array.from(clonedPreview.querySelectorAll('svg'));
+        for (const svg of svgsInClone) {
+            const origWidth = svg.getAttribute('width');
+            const viewBox = svg.getAttribute('viewBox');
+            // 数値px指定のwidth属性 かつ viewBox を持つSVG（Mermaid生成）のみ対象
+            if (!origWidth || origWidth.endsWith('%') || !viewBox) continue;
+            const vbParts = viewBox.trim().split(/[\s,]+/).map(parseFloat);
+            if (vbParts.length < 4 || isNaN(vbParts[2]) || isNaN(vbParts[3]) || vbParts[2] <= 0) continue;
+
+            const vbW = vbParts[2];
+            const vbH = vbParts[3];
+            const aspectRatio = vbH / vbW;
+
+            // SVGの自然な幅（プレビューで実際に表示されている幅）を使用する。
+            // 常に elementWidthPx に引き伸ばすとプレビューより大きくなり余白がなくなるため、
+            // naturalWidth を上限として使い、ページ高さの制約を超える場合のみ縮小する。
+            const naturalWidth = Math.min(parseFloat(origWidth) || elementWidthPx, elementWidthPx);
+            const heightAtNaturalWidth = naturalWidth * aspectRatio;
+            let targetW;
+            if (heightAtNaturalWidth <= pageHeightPx * 0.95) {
+                // 自然な幅でページ高さに収まる場合はそのまま使用
+                targetW = naturalWidth;
+            } else {
+                // ページ高さを超える場合は比率を維持しながら縮小
+                targetW = Math.min(naturalWidth, (pageHeightPx * 0.95) / aspectRatio);
+            }
+            const targetH = Math.round(targetW * aspectRatio);
+            targetW = Math.round(targetW);
+
+            try {
+                // SVGをシリアライズしてData URLに変換
+                // width/heightを目標サイズに設定してから変換（正しいスケールで描画するため）
+                const svgClone = svg.cloneNode(true);
+                svgClone.setAttribute('width', targetW);
+                svgClone.setAttribute('height', targetH);
+                if (!svgClone.getAttribute('xmlns')) {
+                    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                }
+                const svgStr = new XMLSerializer().serializeToString(svgClone);
+                const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+
+                // CanvasにSVGを描画してPNGとして取得
+                const cvs = document.createElement('canvas');
+                cvs.width = targetW * 2;  // Retina対応（2倍解像度）
+                cvs.height = targetH * 2;
+                const ctx = cvs.getContext('2d');
+                ctx.scale(2, 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, targetW, targetH);
+
+                await new Promise((resolve) => {
+                    const tempImg = new Image();
+                    tempImg.onload = () => {
+                        ctx.drawImage(tempImg, 0, 0, targetW, targetH);
+                        resolve();
+                    };
+                    tempImg.onerror = (e) => {
+                        console.warn('[PDF Fix] SVG→PNG変換失敗（フォールバック: SVGのまま）', e);
+                        resolve(); // 失敗してもスキップして続行
+                    };
+                    tempImg.src = svgDataUrl;
+                });
+
+                // SVGをIMGタグに置き換え（html2canvasはIMGを正しくキャプチャできる）
+                const imgEl = document.createElement('img');
+                imgEl.src = cvs.toDataURL('image/png');
+                imgEl.style.width = targetW + 'px';
+                imgEl.style.height = targetH + 'px';
+                imgEl.style.display = 'block';
+                imgEl.style.margin = '0 auto';
+                imgEl.setAttribute('data-pdf-converted-svg', '1');
+                svg.parentNode.replaceChild(imgEl, svg);
+            } catch (e) {
+                console.warn('[PDF Fix] SVG変換中にエラー（スキップ）:', e);
+            }
+        }
+
+        // [FIX] Mermaid編集ボタンなど印刷不要なUI要素を非表示にする
+        clonedPreview.querySelectorAll('.btn-save-mermaid, .btn-expand-mermaid, .code-edit-btn, .mermaid-edit-overlay').forEach(el => {
+            el.style.display = 'none';
+        });
+
         const pages = await PageSplitter.splitToPages(clonedPreview, pageHeightPx, elementWidthPx);
 
         // 分割されたページを描画するための専用の一時コンテナを作成
@@ -152,7 +238,12 @@ async function exportPDFAsImage(orientation = 'portrait') {
             top: '-9999px',
             left: '0',
             width: `${elementWidthPx}px`, // 元の幅と同じにする
-            backgroundColor: '#ffffff'
+            backgroundColor: '#ffffff',
+            // #preview の CSS (padding: 20px 40px) がクラス経由で引き継がれると
+            // 有効キャプチャ幅が狭まり、図の左右が切れて見えるため 0 でリセットする
+            padding: '0',
+            margin: '0',
+            maxWidth: 'none',
         });
         document.body.appendChild(renderContainer);
 
@@ -182,19 +273,16 @@ async function exportPDFAsImage(orientation = 'portrait') {
                 // Capture this segment (pageNode)
                 status = `Capturing canvas for page ${i + 1}`;
                 const canvas = await html2canvas(renderContainer, {
-                    scale: 2, // High resolution
+                    scale: 2, // 高解像度
                     useCORS: true,
                     backgroundColor: '#ffffff',
                     windowWidth: elementWidthPx,
-                    // scrollY: 0, // Topから
-                    // x: 0,
-                    // y: 0
                 });
 
                 // [FIX] 空のキャンバス（高さ0または幅0）が生成された場合のクラッシュを防止
                 if (canvas.width === 0 || canvas.height === 0) {
-                    console.warn(`[PDF Debug] Skipped empty canvas for page ${i + 1}`);
-                    continue; // 空白ページとして扱い、PDFの描画処理をスキップ
+                    console.warn(`[PDF Fix] Skipped empty canvas for page ${i + 1}`);
+                    continue;
                 }
                 const imgData = canvas.toDataURL('image/jpeg', 0.8);
 

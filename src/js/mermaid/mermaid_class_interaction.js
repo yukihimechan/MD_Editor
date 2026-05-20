@@ -287,6 +287,11 @@ window.MermaidClassInteraction = {
                         if (window.activeMermaidClassToolbar) {
                             window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
                         }
+                        if (window.MermaidExpandedManager &&
+                            (window.MermaidExpandedManager.activeCodeIndex != null ||
+                             window.MermaidExpandedManager.activeWrapperLine != null)) {
+                            window.MermaidExpandedManager.resetView();
+                        }
                     }, 100);
                 }, 50);
                 if (typeof showToast === 'function') showToast(`縦横(TB/LR/BT/RL)を切り替えました`, 'success');
@@ -335,6 +340,11 @@ window.MermaidClassInteraction = {
                     stroke: #7c3aed !important;
                     stroke-width: 3px !important;
                     stroke-dasharray: 4,2 !important;
+                }
+                .mermaid-class-edit-mode path.mermaid-class-arrow-selected {
+                    stroke: #3b82f6 !important;
+                    stroke-dasharray: 4,2 !important;
+                    filter: drop-shadow(0 0 4px rgba(59, 130, 246, 1));
                 }
                 .mermaid-class-hitbox-title,
                 .mermaid-class-hitbox-attributes,
@@ -514,28 +524,11 @@ window.MermaidClassInteraction = {
         });
 
         const edges = diagramContainer.querySelectorAll('.edgePath path:not(.mermaid-class-arrow-hitbox), path.relation:not(.mermaid-class-arrow-hitbox)');
-        const wRect = diagramContainer.getBoundingClientRect();
 
         edges.forEach(edge => {
             const mId = edge.id || (edge.parentNode && edge.parentNode.id);
             if (mId && selectedRelations.has(mId)) {
-                const rect = edge.getBoundingClientRect();
-                
-                const selBox = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                const x = rect.left - wRect.left;
-                const y = rect.top - wRect.top;
-                
-                selBox.setAttribute('x', x - 4);
-                selBox.setAttribute('y', y - 4);
-                selBox.setAttribute('width', rect.width + 8);
-                selBox.setAttribute('height', rect.height + 8);
-                selBox.setAttribute('fill', 'rgba(59, 130, 246, 0.1)'); // 薄い青色
-                selBox.setAttribute('stroke', '#3b82f6'); // 青色の点線
-                selBox.setAttribute('stroke-width', '2');
-                selBox.setAttribute('stroke-dasharray', '4,4');
-                selBox.classList.add('mermaid-class-selection-overlay');
-                
-                overlay.appendChild(selBox);
+                edge.classList.add('mermaid-class-arrow-selected');
             }
         });
 
@@ -549,6 +542,54 @@ window.MermaidClassInteraction = {
                 // 循環参照ループを防ぐためイベントハンドラを一時無効化するか、値が違う場合のみセット
                 console.log('[_updateSelectionUI] ツールバーにセットします:', rel.arrow, rel.leftMulti, rel.rightMulti);
                 window.activeMermaidClassToolbar.setRelationState(rel.arrow, rel.leftMulti, rel.rightMulti);
+            }
+        }
+
+        // エディタ連携ハイライト
+        if (typeof window.highlightEditorLine === 'function') {
+            let targetLineIndex = -1;
+            if (selectedNodes.size > 0) {
+                const mId = Array.from(selectedNodes)[0];
+                if (typeof getEditorText === 'function') {
+                    let dataLine = parseInt(diagramContainer.getAttribute('data-line'), 10);
+                    if (!dataLine || isNaN(dataLine)) {
+                        const cbw = diagramContainer.closest('.code-block-wrapper');
+                        if (cbw) dataLine = parseInt(cbw.getAttribute('data-line'), 10);
+                    }
+                    if (dataLine && !isNaN(dataLine)) {
+                        const lines = getEditorText().split('\n');
+                        const startIdx = dataLine - 1;
+                        const fenceChar = (lines[startIdx] || '').trim().startsWith('~~~') ? '~~~' : '```';
+                        let endIdx = -1;
+                        for (let i = startIdx + 1; i < lines.length; i++) {
+                            if (lines[i].trimEnd() === fenceChar) { endIdx = i; break; }
+                        }
+                        if (endIdx !== -1) {
+                            for (let i = startIdx + 1; i < endIdx; i++) {
+                                const line = lines[i];
+                                if (new RegExp(`^\\s*class\\s+${mId}\\b`).test(line) ||
+                                    new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line) ||
+                                    new RegExp(`^\\s*${mId}\\s*:\\s*`).test(line) ||
+                                    (line.includes(mId) && !line.match(/--|<\||\*|o|\.\./))) {
+                                    targetLineIndex = i;
+                                    // class 定義（カッコ開始）があれば優先
+                                    if (new RegExp(`^\\s*class\\s+${mId}\\s*\\{`).test(line)) {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (selectedRelations.size > 0) {
+                const mId = Array.from(selectedRelations)[0];
+                const rel = this._getRelationFromText(diagramContainer, mId);
+                if (rel) {
+                    targetLineIndex = rel.lineIndex;
+                }
+            }
+            if (targetLineIndex !== -1) {
+                window.highlightEditorLine(targetLineIndex);
             }
         }
     },
@@ -674,15 +715,25 @@ window.MermaidClassInteraction = {
     },
 
     _getMermaidClassId(el) {
-        // classDiagram-ClassName-数字 の形式
         const id = el.id || '';
-        const m = id.match(/^classId-(.+?)-\d+$/) || id.match(/^classDiagram-(.+?)-\d+$/);
+
+        // v11形式: {diagId}-classId-ClassName-数字
+        // 例: "mermaid-1234567890-0-classId-Animal-0"
+        let m = id.match(/^.+-classId-(.+?)-\d+$/);
         if (m) return m[1];
-        
-        // もし id がない場合、内部の text 要素などから取得を試みる
+
+        // v10形式: classId-ClassName-数字
+        m = id.match(/^classId-(.+?)-\d+$/);
+        if (m) return m[1];
+
+        // v10互換形式: classDiagram-ClassName-数字
+        m = id.match(/^(?:.+-)?classDiagram-(.+?)-\d+$/);
+        if (m) return m[1];
+
+        // フォールバック: 内部の classTitle / title テキストから取得
         const titleEl = el.querySelector('.classTitle, .title');
         if (titleEl) return titleEl.textContent.trim();
-        
+
         return null;
     },
 
@@ -1269,6 +1320,7 @@ window.MermaidClassInteraction = {
             const clone = path.cloneNode(true);
             clone.classList.add('mermaid-class-arrow-hitbox');
             clone.classList.remove('relation');
+            clone.classList.remove('mermaid-class-arrow-selected');
             clone.removeAttribute('marker-end');
             clone.removeAttribute('marker-start');
             

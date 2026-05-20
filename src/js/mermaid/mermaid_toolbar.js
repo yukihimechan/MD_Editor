@@ -339,6 +339,26 @@ class MermaidToolbar extends SVGToolbarBase {
         this.toolbarElement.style.right    = 'auto';
         this.toolbarElement.style.display  = 'flex';
         this.toolbarElement.style.zIndex   = '1200';
+
+        this.updatePosition();
+    }
+
+    updatePosition() {
+        if (!this._diagramWrapper || !this.contentArea) return;
+        const isExpanded = this._diagramWrapper.classList.contains('mermaid-fixed-expanded');
+        const expandBtn = this.contentArea.querySelector('button[data-tool="expand"]');
+        if (expandBtn) {
+            const svgPath = expandBtn.querySelector('path');
+            if (svgPath) {
+                if (isExpanded) {
+                    svgPath.setAttribute('d', 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7');
+                    expandBtn.title = '縮小表示（元のサイズに戻す）';
+                } else {
+                    svgPath.setAttribute('d', 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7');
+                    expandBtn.title = '拡大表示（パン・ズーム対応）';
+                }
+            }
+        }
     }
 
     /** 編集モード終了時に呼び出す。 */

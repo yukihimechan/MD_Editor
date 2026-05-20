@@ -149,7 +149,7 @@ class AnnotationToolbar extends SVGToolbarBase {
                 font-size: 14px;
             `;
             if (t.color) btn.style.color = t.color;
-            if (t.id === 'freehand') {
+            if (t.id === 'select') {
                 btn.classList.add('active');
                 btn.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
                 btn.style.borderColor = '#ddd';

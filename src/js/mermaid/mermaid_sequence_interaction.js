@@ -599,6 +599,61 @@ window.MermaidSequenceInteraction = {
                     this._drawSelectionBox(svg, ...sel.drawParams);
                 }
             });
+
+            // エディタ連携ハイライト
+            if (typeof window.highlightEditorLine === 'function' && this._currentSelections.length > 0) {
+                const sel = this._currentSelections[0];
+                const container = svg.closest('.mermaid-diagram-wrapper') || svg.closest('.code-block-wrapper');
+                if (container && typeof getEditorText === 'function') {
+                    let dataLine = parseInt(container.getAttribute('data-line'), 10);
+                    if (!dataLine || isNaN(dataLine)) {
+                        const cbw = container.closest('.code-block-wrapper');
+                        if (cbw) dataLine = parseInt(cbw.getAttribute('data-line'), 10);
+                    }
+                    if (dataLine && !isNaN(dataLine)) {
+                        const lines = getEditorText().split('\n');
+                        const startIdx = dataLine - 1;
+                        const fenceChar = (lines[startIdx] || '').trim().startsWith('~~~') ? '~~~' : '```';
+                        let endIdx = -1;
+                        for (let i = startIdx + 1; i < lines.length; i++) {
+                            if (lines[i].trimEnd() === fenceChar) { endIdx = i; break; }
+                        }
+                        if (endIdx !== -1) {
+                            let targetLineIndex = -1;
+                            if (sel.type === 'message' && sel.index !== -1) {
+                                const skipWords = "note|loop|alt|opt|par|and|rect|break|critical|option|end|else|activate|deactivate|autonumber|participant|actor|box|title|link|links|create|destroy";
+                                const re = new RegExp(`^(?!\\s*%%)(\\s*(?!(?:${skipWords})\\b).+?(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->).*?:\\s*)(.*)$`, 'i');
+                                let count = 0;
+                                for (let i = startIdx + 1; i < endIdx; i++) {
+                                    if (lines[i].match(re)) {
+                                        if (count === sel.index) {
+                                            targetLineIndex = i;
+                                            break;
+                                        }
+                                        count++;
+                                    }
+                                }
+                            } else if (sel.type === 'actor' && sel.index !== -1) {
+                                const reDef = /^\s*(participant|actor)\s+([^\s]+)(?:\s+as\s+(.*))?\s*$/i;
+                                const defLines = [];
+                                for (let i = startIdx + 1; i < endIdx; i++) {
+                                    const match = lines[i].match(reDef);
+                                    if (match) {
+                                        defLines.push({ index: i, match: match });
+                                    }
+                                }
+                                if (defLines.length > sel.index) {
+                                    targetLineIndex = defLines[sel.index].index;
+                                }
+                            }
+
+                            if (targetLineIndex !== -1) {
+                                window.highlightEditorLine(targetLineIndex);
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
 

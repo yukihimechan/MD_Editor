@@ -571,6 +571,39 @@ function initEditor() {
                     }
                 }
             }
+            
+            // [NEW] Mermaid Fold (subgraph...end, class...{...}, ENTITY...{...})
+            const lineObj = state.doc.lineAt(lineStart);
+            const text = lineObj.text.trim();
+            
+            if (text.startsWith("subgraph ")) {
+                let depth = 1;
+                for (let i = lineObj.number + 1; i <= state.doc.lines; i++) {
+                    const l = state.doc.line(i).text.trim();
+                    if (l.startsWith("subgraph ")) depth++;
+                    else if (l === "end") {
+                        depth--;
+                        if (depth === 0) {
+                            return { from: lineObj.to, to: state.doc.line(i).to };
+                        }
+                    }
+                    if (l.startsWith("```")) break;
+                }
+            } else if (text.endsWith("{")) {
+                let depth = 1;
+                for (let i = lineObj.number + 1; i <= state.doc.lines; i++) {
+                    const l = state.doc.line(i).text.trim();
+                    if (l.endsWith("{")) depth++;
+                    else if (l === "}") {
+                        depth--;
+                        if (depth === 0) {
+                            return { from: lineObj.to, to: state.doc.line(i).to };
+                        }
+                    }
+                    if (l.startsWith("```")) break;
+                }
+            }
+            
             return null;
         }));
     }
@@ -1268,6 +1301,35 @@ function initEditor() {
         if (DOM.cmCompartments && DOM.cmCompartments.setSVGSourceHighlights) {
             DOM.cmCompartments.setSVGSourceHighlights(highlights);
         }
+    };
+
+    // [NEW] Global Shorthand for Editor Line Highlighting (e.g. for Mermaid Selection)
+    window.highlightEditorLine = function(lineIndex) {
+        if (!editorView) return;
+        const docLines = editorView.state.doc.lines;
+        const safeLine = Math.max(1, Math.min(lineIndex + 1, docLines));
+        const lineObj = editorView.state.doc.line(safeLine);
+        
+        editorView.dispatch({
+            selection: { anchor: lineObj.from, head: lineObj.to },
+            effects: [window.CM6.EditorView.scrollIntoView(lineObj.from, { y: "center" })]
+        });
+    };
+
+    // [NEW] Global Shorthand for Editor Line Range Highlighting (e.g. for Mermaid subgraph Selection)
+    // startLineIndex, endLineIndex は 0-based インデックス
+    window.highlightEditorLineRange = function(startLineIndex, endLineIndex) {
+        if (!editorView) return;
+        const docLines = editorView.state.doc.lines;
+        const safeStart = Math.max(1, Math.min(startLineIndex + 1, docLines));
+        const safeEnd   = Math.max(1, Math.min(endLineIndex   + 1, docLines));
+        const startObj  = editorView.state.doc.line(safeStart);
+        const endObj    = editorView.state.doc.line(safeEnd);
+
+        editorView.dispatch({
+            selection: { anchor: startObj.from, head: endObj.to },
+            effects: [window.CM6.EditorView.scrollIntoView(startObj.from, { y: "center" })]
+        });
     };
 
     // Shim DOM.editor compatibility layer

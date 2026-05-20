@@ -82,7 +82,7 @@ window.MermaidBase = {
      * @param {string} modeClass - 'mermaid-edit-mode', 'mermaid-sequence-edit-mode', etc.
      * @param {Object} toolbar - window.activeMermaidToolbar 等
      */
-    applyEditorTextAndRestore(wrapper, newTextLines, modeClass = 'mermaid-edit-mode', toolbar = null) {
+    applyEditorTextAndRestore(wrapper, newTextLines, modeClass = 'mermaid-edit-mode', toolbar = null, options = {}) {
         // 再描画前に編集状態情報を保存
         const savedCodeIndex = wrapper.closest('.code-block-wrapper')?.dataset?.codeIndex;
         const savedDataLine  = wrapper.getAttribute('data-line')
@@ -123,6 +123,11 @@ window.MermaidBase = {
                     if (toolbar && typeof toolbar.show === 'function') {
                         toolbar.show(newDiagramWrapper);
                     }
+                }
+
+                // 復元完了後のコールバック（拡大ビューのリセット等に使用）
+                if (typeof options.onAfterRestore === 'function') {
+                    options.onAfterRestore(newDiagramWrapper);
                 }
             }, 100);
         }, 50);
