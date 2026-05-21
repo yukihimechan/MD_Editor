@@ -802,6 +802,11 @@ function startSVGEdit(container, svgIndex) {
         // Search upward until we hit the root element
         while (target && target !== svgElement && target !== draw.node) {
             if (target.nodeType === 1) { // Element nodes only
+                const rawTagName = target.tagName.toLowerCase();
+                if (['tspan', 'textpath'].includes(rawTagName)) {
+                    target = target.parentNode;
+                    continue;
+                }
                 // Get existing SVG.js wrapper, or create it if missing (e.g. raw DOM nodes from DOMParser)
                 const el = target.instance || (typeof window.SVG === 'function' ? window.SVG(target) : null);
                 if (el && !el.remember('_shapeInstance')) {
@@ -845,6 +850,8 @@ function startSVGEdit(container, svgIndex) {
 
     draw.node.addEventListener('pointerover', lazyInitHandler, { passive: true });
     draw.node.addEventListener('pointerdown', lazyInitHandler, { passive: true });
+    draw.node.addEventListener('mouseover', lazyInitHandler, { passive: true });
+    draw.node.addEventListener('mousedown', lazyInitHandler, { passive: true });
     current.lazyInitHandler = lazyInitHandler;
 
     // Restore selection if pending
@@ -876,6 +883,65 @@ function startSVGEdit(container, svgIndex) {
         }
     }
 
+    // [NEW] Initialize hybrid sync queue
+    current.syncQueue = {
+        changedNodeIds: new Set(),
+        requiresFullSync: false
+    };
+
+    const syncObserver = new MutationObserver((mutations) => {
+        // Skip sync if we are currently updating from editor
+        if (current._updatingFromEditor) return;
+
+        const queue = current.syncQueue;
+        let hasChanges = false;
+
+        for (const mutation of mutations) {
+            const targetNode = mutation.target;
+            if (targetNode.nodeType !== 1) continue;
+
+            // Completely ignore modifications on internal tool helper elements
+            if (targetNode.closest('.svg-grid-lines, .svg-canvas-proxy, .svg-snap-guides, .svg-interaction-hitarea, .svg-control-marker, .svg-ruler, .svg_select_group')) {
+                continue;
+            }
+
+            // Fallback to full sync on structural, content or text modifications
+            if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                queue.requiresFullSync = true;
+                hasChanges = true;
+            }
+            // Record target node ID for partial sync on attribute modifications (e.g. drag, resize)
+            else if (mutation.type === 'attributes') {
+                if (targetNode.tagName.toLowerCase() === 'svg') {
+                    queue.changedNodeIds.add('__root__');
+                    hasChanges = true;
+                } else {
+                    const closestInteractive = targetNode.closest('[id]');
+                    if (closestInteractive && closestInteractive.id) {
+                        queue.changedNodeIds.add(closestInteractive.id);
+                        hasChanges = true;
+                    }
+                }
+            }
+        }
+
+        // Trigger sync using schedulePartialSync
+        if (hasChanges && (queue.requiresFullSync || queue.changedNodeIds.size > 0)) {
+            if (typeof window.schedulePartialSync === 'function') {
+                window.schedulePartialSync();
+            }
+        }
+    });
+
+    syncObserver.observe(svgElement, {
+        attributes: true,
+        childList: true,
+        characterData: true,
+        subtree: true,
+        attributeFilter: ['transform', 'd', 'points', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'width', 'height', 'fill', 'stroke', 'style', 'class', 'viewBox']
+    });
+    current.syncObserver = syncObserver;
+
     // [NEW] Initialize Zoom and CSS Variables (RESTORED STATE)
     current.setZoom(current.zoom || 100);
 }
@@ -887,6 +953,11 @@ window.startSVGEdit = startSVGEdit;
  */
 function stopSVGEdit(skipRender = false) {
     if (!window.currentEditingSVG) return;
+
+    if (window.currentEditingSVG.syncObserver) {
+        window.currentEditingSVG.syncObserver.disconnect();
+        window.currentEditingSVG.syncObserver = null;
+    }
 
     if (window.currentEditingSVG.expandedViewData && typeof closeSVGExpandedView === 'function') {
         closeSVGExpandedView();

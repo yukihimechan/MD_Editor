@@ -9,6 +9,18 @@
  * @param {boolean} silent - If true, sync source but don't trigger re-render. Default: true for safety.
  * @param {Object} overrideDims - Optional {w, h, x, y} to enforce specific canvas dimensions.
  */
+let partialSyncTimeout = null;
+
+function schedulePartialSync() {
+    clearTimeout(partialSyncTimeout);
+    partialSyncTimeout = setTimeout(() => {
+        if (!window.currentEditingSVG) return;
+        // 溜まった変更を同期実行（ドラッグ中は silent=true で呼ばれる）
+        syncChanges(true); 
+    }, 50); // 50ms（約20fps）のデバウンス
+}
+window.schedulePartialSync = schedulePartialSync;
+
 function syncChanges(silent = true, overrideDims = null) {
     console.log(`[svg_sync] syncChanges called (silent: ${silent}, override: ${overrideDims ? 'yes' : 'no'})`);
     
@@ -38,7 +50,56 @@ function syncChanges(silent = true, overrideDims = null) {
         }
     });
 
-    syncSVGToEditor(window.currentEditingSVG.container, window.currentEditingSVG.svgIndex, silent, overrideDims);
+    const cur = window.currentEditingSVG;
+
+    // MutationObserverの未処理キューを即座に回収（タイミングズレ防止）
+    if (cur.syncObserver) {
+        const records = cur.syncObserver.takeRecords();
+        if (records.length > 0 && typeof cur.syncQueue !== 'undefined') {
+            const queue = cur.syncQueue;
+            for (const mutation of records) {
+                const targetNode = mutation.target;
+                if (targetNode.nodeType !== 1) continue;
+
+                if (targetNode.closest('.svg-grid-lines, .svg-canvas-proxy, .svg-snap-guides, .svg-interaction-hitarea, .svg-control-marker, .svg-ruler, .svg_select_group')) {
+                    continue;
+                }
+
+                if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                    queue.requiresFullSync = true;
+                } else if (mutation.type === 'attributes') {
+                    if (targetNode.tagName.toLowerCase() === 'svg') {
+                        queue.changedNodeIds.add('__root__');
+                    } else {
+                        const closestInteractive = targetNode.closest('[id]');
+                        if (closestInteractive && closestInteractive.id) {
+                            queue.changedNodeIds.add(closestInteractive.id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let isPartialSuccess = false;
+    const queue = cur.syncQueue;
+
+    // キャンバスのリサイズ(overrideDims) や 構造変更 がある場合は安全優先でフル同期
+    if (queue && !queue.requiresFullSync && !overrideDims && queue.changedNodeIds.size > 0 && queue.changedNodeIds.size < 50) {
+        // 属性の変更のみであれば超高速な部分同期
+        isPartialSuccess = applyPartialSvgSync(cur.svgIndex, queue.changedNodeIds, silent);
+    }
+
+    if (!isPartialSuccess) {
+        // 部分同期がスキップされた、またはパースエラー等で失敗した場合は従来のフル同期へ
+        syncSVGToEditor(cur.container, cur.svgIndex, silent, overrideDims);
+    }
+
+    // キューの初期化
+    if (queue) {
+        queue.changedNodeIds.clear();
+        queue.requiresFullSync = false;
+    }
 
     // [NEW] Ensure transform toolbar is updated after sync
     if (typeof updateTransformToolbarValues === 'function') {
@@ -46,6 +107,147 @@ function syncChanges(silent = true, overrideDims = null) {
     }
 }
 window.syncChanges = syncChanges;
+
+/**
+ * 変更があったノードの「属性のみ」を高速同期する (Fast Path)
+ */
+function applyPartialSvgSync(targetSvgIndex, changedIds, silent) {
+    if (!DOM.editor || (window.currentEditingSVG && window.currentEditingSVG._updatingFromEditor)) return false;
+
+    // 1. 正規表現のリスクを避け、既存と同じ行ベースでブロックを特定
+    const editorContent = getEditorText();
+    const lines = editorContent.split('\n');
+    let currentIdx = 0, startLine = -1, endLine = -1, inBlock = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        const lineStr = lines[i].trim();
+        if (lineStr === '```svg') {
+            if (currentIdx === targetSvgIndex) { startLine = i; inBlock = true; }
+            currentIdx++;
+        } else if (inBlock && lineStr === '```') {
+            endLine = i;
+            break;
+        }
+    }
+    if (startLine === -1 || endLine <= startLine) return false;
+
+    const indentationMatch = lines[startLine].match(/^\s*/);
+    const indentation = indentationMatch ? indentationMatch[0] : '';
+    const oldSvgString = lines.slice(startLine + 1, endLine).join('\n');
+
+    // 2. ブロック内のみを DOMParser でパース (1〜2msで完了)
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(oldSvgString, 'image/svg+xml');
+    if (svgDoc.querySelector('parsererror')) return false;
+
+    let hasChange = false;
+    const draw = window.currentEditingSVG.draw;
+    const round3 = (val) => Math.round(parseFloat(val) * 1000) / 1000;
+
+    // 3. 属性のピンポイントコピー
+    changedIds.forEach(id => {
+        let liveElNode = null, docEl = null;
+
+        if (id === '__root__') {
+            liveElNode = draw.node;
+            docEl = svgDoc.documentElement;
+        } else {
+            const elements = draw.find(`#${id}`);
+            if (elements.length > 0) liveElNode = elements[0].node;
+            docEl = svgDoc.getElementById(id);
+        }
+
+        if (!liveElNode || !docEl) return;
+
+        // [A] Live側で消えた属性の削除
+        const liveAttrs = liveElNode.attributes;
+        for (let i = docEl.attributes.length - 1; i >= 0; i--) {
+            const name = docEl.attributes[i].name;
+            if (name === 'xmlns' || name.startsWith('data-paper')) continue;
+            if (!liveElNode.hasAttribute(name)) {
+                docEl.removeAttribute(name);
+                hasChange = true;
+            }
+        }
+
+        // [B] 属性の転記と丸め処理
+        for (let i = 0; i < liveAttrs.length; i++) {
+            const name = liveAttrs[i].name;
+            let val = liveAttrs[i].value;
+
+            if (['data-is-proxy', 'data-is-canvas', 'data-internal', 'data-locked', 'data-tool-id'].includes(name) && id !== '__root__') continue;
+
+            if (name === 'class') {
+                val = val.split(' ').filter(c => !c.includes('svg_select') && !c.includes('svg-interaction')).join(' ').trim();
+                if (!val) { docEl.removeAttribute('class'); hasChange = true; continue; }
+            }
+
+            if (['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2'].includes(name)) {
+                if (!isNaN(val) && val !== '') val = round3(val).toString();
+            } else if (['transform', 'd', 'points', 'data-poly-points', 'viewBox'].includes(name)) {
+                if (val.includes('.')) val = val.replace(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g, m => round3(m));
+            }
+
+            if (docEl.getAttribute(name) !== String(val)) {
+                docEl.setAttribute(name, String(val));
+                hasChange = true;
+            }
+        }
+
+        // [C] ルート要素特有の永続化メタデータ (data-paper-*) を強制注入
+        if (id === '__root__') {
+            const cur = window.currentEditingSVG;
+            docEl.setAttribute('data-paper-zoom', cur.zoom || 100);
+            docEl.setAttribute('data-paper-offx', cur.offX || 0);
+            docEl.setAttribute('data-paper-offy', cur.offY || 0);
+            if (cur.baseWidth) docEl.setAttribute('data-paper-width', Math.round(cur.baseWidth));
+            if (cur.baseHeight) docEl.setAttribute('data-paper-height', Math.round(cur.baseHeight));
+            hasChange = true;
+        }
+    });
+
+    if (!hasChange) return true;
+
+    // 4. 文字列化し、インデントを整える
+    const serializer = new XMLSerializer();
+    let newSvgString = serializer.serializeToString(svgDoc.documentElement);
+    if (typeof formatSVGCode === 'function') newSvgString = formatSVGCode(newSvgString);
+
+    const indentedSvgCode = newSvgString.split('\n')
+        .map(line => line.trim() ? indentation + line : line).join('\n');
+    const newBlock = `${indentation}\`\`\`svg\n${indentedSvgCode}\n${indentation}\`\`\``;
+
+    // [SAFETY] 逆方向同期タイマーのキャンセル
+    if (window.currentEditingSVG) {
+        window.currentEditingSVG._syncingToEditor = true;
+        if (window._svgSyncFromEditorTimer) {
+            console.log('[applyPartialSvgSync] Cancelling pending reverse sync timer.');
+            clearTimeout(window._svgSyncFromEditorTimer);
+            window._svgSyncFromEditorTimer = null;
+        }
+    }
+
+    // 5. CodeMirror へ行範囲を指定して差分適用
+    DOM.editor.replaceLines(startLine + 1, endLine + 1, newBlock);
+
+    if (typeof AppState !== 'undefined') {
+        AppState.text = getEditorText();
+        AppState.isModified = true;
+        if (typeof updateTitle === 'function') updateTitle();
+    }
+    if (!silent) DOM.editor.dispatchEvent(new Event('input'));
+    if (typeof updateSVGSourceHighlight === 'function') updateSVGSourceHighlight();
+    if (typeof window.buildSvgList === 'function') window.buildSvgList();
+
+    if (window.currentEditingSVG) {
+        clearTimeout(window.currentEditingSVG._syncingToEditorTimer);
+        window.currentEditingSVG._syncingToEditorTimer = setTimeout(() => {
+            if (window.currentEditingSVG) window.currentEditingSVG._syncingToEditor = false;
+        }, 400);
+    }
+
+    return true;
+}
 
 /**
  * Helper to pretty-print SVG HTML for CodeMirror folding

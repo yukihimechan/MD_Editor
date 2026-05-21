@@ -16,6 +16,10 @@ window.isSVGEditing = isSVGEditing;
  * Make an element interactive (Selectable, Draggable, Sync)
  */
 function makeInteractive(el) {
+    if (!el || !el.node) return;
+    const tagName = el.node.tagName.toLowerCase();
+    if (['tspan', 'textpath'].includes(tagName)) return;
+
     // Avoid re-initializing internal tools
     const toolClasses = [
         'svg_select_shape', 'svg-select-shape',
@@ -85,6 +89,20 @@ function selectElement(el, isMulti, silent = false) {
     // [NEW] Robustness: If el is a native Node, wrap it with SVG()
     if (el instanceof Node) {
         el = SVG(el);
+    }
+
+    // [FIX] tspan や textpath タグは個別に選択されるべきではないため、親の text 要素に遡上（デリゲーション）する
+    if (el) {
+        const node = el.node || el;
+        if (node && node.tagName) {
+            const tagName = node.tagName.toLowerCase();
+            if (tagName === 'tspan' || tagName === 'textpath') {
+                const parentText = node.closest('text');
+                if (parentText) {
+                    el = SVG(parentText);
+                }
+            }
+        }
     }
 
     // [FIX] Prevent selection of hidden elements
