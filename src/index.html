@@ -6,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Markdown Editor (Offline)</title>
 
-    <!-- CodeMirror 6 (Bundled) -->
-    <script charset="utf-8" src="lib/codemirror6/codemirror.bundle.js"></script>
+    <!-- Core Bundle (CM6 + Yjs) -->
+    <script charset="utf-8" src="lib/core.bundle.js"></script>
 
     <!-- Paper.js (Boolean Operations) -->
     <script charset="utf-8" src="lib/paper-full.min.js"></script>
@@ -1506,8 +1506,7 @@ The above copyright notice and this permission notice shall be included in all c
     <script charset="utf-8" src="js/annotation/annotation_layer.js"></script>
     <script charset="utf-8" src="js/annotation/annotation_comment_panel.js"></script>
     <!-- [NEW] 共同編集モジュール -->
-    <!-- Yjs バンドル: CM6 初期化後・collab モジュールより前に読み込む必要がある -->
-    <script charset="utf-8" src="lib/yjs/yjs.bundle.js"></script>
+    <!-- Yjs バンドル: core.bundle.js に統合されたため個別の読み込みは不要 -->
     <script charset="utf-8" src="js/collab/collab_core.js"></script>
     <script charset="utf-8" src="js/collab/collab_ui.js"></script>
     <script charset="utf-8" src="js/app.js"></script>

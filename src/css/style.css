@@ -2864,6 +2864,7 @@ html body .svg-select-group-canvas .svg_select_handle_point_l {
     display: block !important;
     visibility: visible !important;
     opacity: 1 !important;
+    pointer-events: all !important;
 }
 
 /* Force markers to be visible even if tiny in coordinates */
@@ -4157,7 +4158,9 @@ html body .svg-select-group-canvas [class*="-handle-b"] {
     outline-offset: 2px;
     background: rgba(3, 102, 214, 0.05);
     border-radius: 4px;
-    caret-color: var(--primary);
+    padding-left: 6px;
+    padding-right: 6px;
+    caret-color: var(--fg, currentColor);
     /* block user-select none if any */
     user-select: text;
 }
@@ -4245,16 +4248,16 @@ body.dark-theme .drag-handle:hover {
 
 /* contenteditable時の枠が左マーカーと密着しないように少しオフセットを設ける */
 .preview-focused {
-    outline: 2px dashed var(--primary) !important;
-    outline-offset: 4px;
+    outline: 1.5px dashed var(--primary) !important;
+    outline-offset: -1px;
     border-radius: 4px;
     background-color: rgba(3, 102, 214, 0.05); /* 非 li 要素はここで背景色も適用 */
 }
 
 /* 複数選択されている要素（メインのフォーカス以外）のスタイル */
 .preview-selected-element {
-    outline: 2px solid var(--primary) !important;
-    outline-offset: 4px;
+    outline: 1.5px solid var(--primary) !important;
+    outline-offset: -1px;
     border-radius: 4px;
     background-color: rgba(3, 102, 214, 0.1);
 }
@@ -4265,7 +4268,7 @@ li.preview-focused,
 li.preview-selected-element,
 .li-text-wrapper.preview-selected-element {
     background-color: transparent !important;
-    outline-offset: 2px; /* 密集した li 行でも見やすいようタイトに */
+    outline-offset: -1px; /* 密集した li 行でも重ならないように内側に設定 */
 }
 
 /* ラッパー要素を横幅いっぱいに広げる */
@@ -4291,12 +4294,12 @@ li.task-list-item > span.li-text-wrapper {
 }
 
 body.dark-theme .preview-focused {
-    outline: 2px dashed rgba(86, 156, 214, 0.6) !important;
+    outline: 1.5px dashed rgba(86, 156, 214, 0.6) !important;
     background-color: rgba(86, 156, 214, 0.1);
 }
 
 body.dark-theme .preview-selected-element {
-    outline: 2px solid rgba(86, 156, 214, 0.6) !important;
+    outline: 1.5px solid rgba(86, 156, 214, 0.6) !important;
     background-color: rgba(86, 156, 214, 0.2);
 }
 
@@ -4312,7 +4315,7 @@ body.dark-theme .preview-focused-parent {
 }
 
 [contenteditable="true"].inline-editing-active {
-    outline-offset: 4px;
+    outline-offset: -1px;
     border-radius: 2px;
 }
 
@@ -4604,3 +4607,20 @@ body.dark-theme .mermaid-subgraph-drop-target rect:first-of-type {
     stroke: #d97706 !important;
     fill: rgba(217, 119, 6, 0.15) !important;
 }
+
+/* ==========================================================================
+   印刷 / PDFエクスポート用スタイル調整
+   ========================================================================== */
+body.printing-mode .preview-focused,
+body.printing-mode .preview-selected-element,
+body.printing-mode .preview-focused-parent {
+    outline: none !important;
+    background-color: transparent !important;
+}
+
+/* [NEW] shape-text-group 内のテキスト要素がリサイズハンドルなどをクリックするのを妨害しないようにする */
+g[data-tool-id="shape-text-group"] text,
+g[data-tool-id="shape-text-group"] text tspan {
+    pointer-events: none !important;
+}
+
