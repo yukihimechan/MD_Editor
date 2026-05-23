@@ -7,7 +7,9 @@ const PreviewInlineEdit = {
     selectedElement: null,
     editTargetElement: null,
     isEditing: false,
+    isTransitioning: false, // 行遷移中のフォーカス消失を防ぐフラグ
     originalDisplay: '',
+    pendingFocusNextLine: null, // [NEW] 分割後にフォーカスを移す対象の行番号
     
     isFocused: false,
     focusedElement: null,
@@ -17,6 +19,9 @@ const PreviewInlineEdit = {
     // [NEW] 複数選択関連
     selectedElements: new Set(),
     selectionAnchorElement: null,
+    // [NEW] ドラッグ複数選択関連
+    isDragSelecting: false,
+    dragStartElement: null,
 
     init() {
         if (!DOM.preview) {
@@ -70,6 +75,18 @@ const PreviewInlineEdit = {
 
             const target = this.getSelectableTarget(e.target);
             if (target) {
+                // [NEW] ドラッグ選択の開始準備
+                this.isDragSelecting = true;
+                this.dragStartElement = target;
+
+                // マウスを離した際にドラッグ選択状態を解除する
+                const onMouseUp = () => {
+                    this.isDragSelecting = false;
+                    this.dragStartElement = null;
+                    document.removeEventListener('mouseup', onMouseUp);
+                };
+                document.addEventListener('mouseup', onMouseUp);
+
                 const isMediaBlock = target.classList && (target.classList.contains('svg-external-container') || target.classList.contains('raster-external-container'));
                 
                 // [NEW] 複数選択の制御（ShiftとCtrl/Cmd）
@@ -95,6 +112,26 @@ const PreviewInlineEdit = {
             } else if (this.isEditing) {
                 // 明示的な外部クリック時はフォーカスを外れたとみなして保存を実行
                 this.saveEditing();
+            }
+        });
+
+        // [NEW] ドラッグ中の要素選択（左ドラッグによる範囲選択）
+        preview.addEventListener('mousemove', (e) => {
+            if (!this.isDragSelecting || this.isEditing) return;
+
+            // 左ボタンが押されていない状態になっていたらドラッグ選択を終了
+            if (e.buttons !== 1) {
+                this.isDragSelecting = false;
+                this.dragStartElement = null;
+                return;
+            }
+
+            const target = this.getSelectableTarget(e.target);
+            if (target && target !== this.focusedElement) {
+                // テキストの反転選択をクリアしてチラつきを防ぐ
+                window.getSelection().removeAllRanges();
+                // 開始位置から現在位置までの範囲を選択
+                this.selectRange(this.dragStartElement, target);
             }
         });
 
@@ -623,7 +660,8 @@ const PreviewInlineEdit = {
     moveFocus(direction, headingsOnly = false, expandSelection = false) {
         if (!this.focusedElement) return;
         
-        const allElements = this.getFocusableElements(headingsOnly);
+        // 常にすべての要素を取得して、現在のフォーカス位置のインデックスを特定する
+        const allElements = this.getFocusableElements(false);
         
         let currentFocusMatch = this.focusedElement;
         if (this.focusedElement && this.focusedElement.classList && this.focusedElement.classList.contains('li-text-wrapper')) {
@@ -636,7 +674,7 @@ const PreviewInlineEdit = {
         let nextIndex = currentIndex + direction;
         while (nextIndex >= 0 && nextIndex < allElements.length) {
             const el = allElements[nextIndex];
-            if (!headingsOnly || el.tagName.match(/^H[1-6]$/i)) {
+            if (!headingsOnly || (el.tagName && el.tagName.match(/^H[1-6]$/i))) {
                 // If it's an LI, target the wrapper
                 let target = el;
                 if (el.tagName === 'LI') {
@@ -1231,6 +1269,12 @@ const PreviewInlineEdit = {
     },
 
     handleBlur(e) {
+        // 遷移中（新しい行へのフォーカス設定など）は blur による自動保存をスキップしてフォーカス消失を防ぐ
+        if (this.isTransitioning) {
+            console.log('[PreviewEdit][Debug] handleBlur ignored during transition');
+            return;
+        }
+
         // ミニツールバーのクリック等によるblurだった場合はキャンセルしない
         if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.mini-format-toolbar')) {
             return;
@@ -1276,10 +1320,10 @@ const PreviewInlineEdit = {
         // これまで見えない改行(\n)を全て削除していたため、既存のテキスト内の改行が保存時に消滅していました。
         let text = htmlContent.replace(/\r/g, "");
         
-        // [FIX] ゼロ幅スペースを早期に除去する。
+        // [FIX] ゼロ幅スペースや不可視制御文字、HTML実体参照を早期に除去する。
         // これにより、ゼロ幅スペースの後ろに自動生成された <br> や <div> が先頭とみなされず
         // 余分な改行として残ってしまうバグを防ぐ。
-        text = text.replace(/\u200B/g, "");
+        text = text.replace(/[\u200B\u200C\u200D\uFEFF]/g, "").replace(/&#8203;/g, "");
 
         // drag-handle (D&D用マーカー) が混入した場合は消去する
         text = text.replace(/<div(?:[^>]*\s+)?class="[^"]*drag-handle[^"]*"[^>]*>.*?<\/div>/gi, "");
@@ -1318,6 +1362,12 @@ const PreviewInlineEdit = {
         if (this.isSaving) return;
         this.isSaving = true;
 
+        // Enterキーによる分割遷移が発生する場合は遷移中フラグを立てる
+        if (this.enterAction === 'split') {
+            this.isTransitioning = true;
+            console.log('[PreviewEdit][Debug] isTransitioning set to true (split enter)');
+        }
+
         const previewPane = DOM.previewPane || document.getElementById('preview-pane');
         const savedPreviewScrollTop = previewPane ? previewPane.scrollTop : 0;
 
@@ -1350,7 +1400,7 @@ const PreviewInlineEdit = {
             });
         }
 
-        let newText = this.convertHtmlToMarkdown(rawHtml).replace(/\u200B/g, '');
+        let newText = this.convertHtmlToMarkdown(rawHtml).replace(/[\u200B\u200C\u200D\uFEFF]/g, '').replace(/&#8203;/g, '');
 
         // --- [NEW] Enterキーによるキャレット位置でのテキスト分割処理 ---
         let isSplit = false;
@@ -1451,6 +1501,7 @@ const PreviewInlineEdit = {
         }
         
         let fullText = AppState.text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        const originalLineNum = sourceInfo ? sourceInfo.startLineDebug : null;
 
         // --- [FIX] タグの種類に応じたMarkdownプレフィックスの復元と、分割アクション ---
         if (tagName.match(/^H[1-6]$/)) {
@@ -1458,8 +1509,9 @@ const PreviewInlineEdit = {
             if (match) textBefore = match[1] + textBefore;
             if (isSplit) {
                 // 新規段落(P)に引き継ぐ
-                newText = textBefore + '\n\n\u200B' + textAfter;
+                newText = textBefore + '\n\n' + textAfter;
                 this.pendingFocusNext = true;
+                this.pendingFocusNextLine = originalLineNum !== null ? originalLineNum + 2 : null;
             } else {
                 newText = textBefore;
             }
@@ -1471,21 +1523,24 @@ const PreviewInlineEdit = {
                 const isContentEmpty = (textBefore.trim() === '' && textAfter.trim() === '');
                 if (isContentEmpty) {
                     // 空行の場合は引用から離脱して完全な新規段落へ（プレフィックス無し）
-                    newText = "\n\n\u200B";
+                    newText = "\n\n";
                     this.pendingFocusNext = true;
+                    this.pendingFocusNextLine = originalLineNum !== null ? originalLineNum + 2 : null;
                 } else {
                     textBefore = quotePrefix + textBefore;
                     // 新しい引用行(>)の中にゼロ幅スペースを仕込み、段落を分ける
-                    newText = textBefore + '\n' + quotePrefix.trimEnd() + ' \u200B' + textAfter;
+                    newText = textBefore + '\n' + quotePrefix.trimEnd() + ' ' + textAfter;
                     this.pendingFocusNext = true;
+                    this.pendingFocusNextLine = originalLineNum !== null ? originalLineNum + 1 : null;
                 }
             } else {
                 if (bqMatch) newText = bqMatch[0] + newText;
             }
         } else if (tagName === 'P') {
             if (isSplit) {
-                newText = textBefore + '\n\n\u200B' + textAfter;
+                newText = textBefore + '\n\n' + textAfter;
                 this.pendingFocusNext = true;
+                this.pendingFocusNextLine = originalLineNum !== null ? originalLineNum + 2 : null;
             }
         } else if (tagName === 'LI') {
             // [FIX] ハイフンの後にスペースがない空のリスト記号にもマッチさせる
@@ -1497,19 +1552,13 @@ const PreviewInlineEdit = {
                 prefix = match[1] + match[2] + space;
             }
             if (isSplit) {
-                const isContentEmpty = (textBefore.trim() === '' && textAfter.trim() === '');
-                if (isContentEmpty) {
-                    // 空行の場合はリストから離脱して新規段落へ
-                    newText = "\n\n\u200B";
-                    this.pendingFocusNext = true;
-                } else {
-                    let nextPrefix = prefix || '- ';
-                    // 次の行のタスクリストは未完了状態([ ])で引き継ぐ
-                    nextPrefix = nextPrefix.replace(/\[x\]/i, '[ ]');
-                    textBefore = prefix + textBefore;
-                    newText = textBefore + '\n' + nextPrefix + '\u200B' + textAfter;
-                    this.pendingFocusNext = true;
-                }
+                let nextPrefix = prefix || '- ';
+                // 次の行のタスクリストは未完了状態([ ])で引き継ぐ
+                nextPrefix = nextPrefix.replace(/\[x\]/i, '[ ]');
+                textBefore = prefix + textBefore;
+                newText = textBefore + '\n' + nextPrefix + textAfter;
+                this.pendingFocusNext = true;
+                this.pendingFocusNextLine = originalLineNum !== null ? originalLineNum + 1 : null;
             } else {
                 newText = prefix + newText;
             }
@@ -1522,10 +1571,11 @@ const PreviewInlineEdit = {
         }
 
         // [FIX] 新しく作られた空段落が、後続の `-` や `=` と結合してSetext見出しの誤爆を引き起こすのを防ぐ
-        if (this.enterAction === 'split') {
+        // リスト（LI）の分割時には発火しないようにする（リストは - で始まるのが正常）
+        if (this.enterAction === 'split' && tagName !== 'LI') {
             const afterDoc = fullText.substring(sourceInfo.end);
             if (afterDoc.match(/^[\s]*[-=]/)) {
-                if (newText.includes('\u200B') && textAfter.trim() === '') {
+                if (textAfter.trim() === '') {
                     newText += '\n'; // 余分に改行を挟んでSetext化を阻止
                 }
             }
@@ -1568,18 +1618,39 @@ const PreviewInlineEdit = {
 
         await render();
 
-        // エディタ（左側）のテキスト更新に伴う二重レンダリングが終わるまで十分待機する
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // エディタ（左側）のテキスト更新に伴う二重レンダリング（通常ガードされるが安全のため短時間待機）
+        await new Promise(resolve => setTimeout(resolve, 30));
 
-        // --- [FIX] 分割・追加後のフォーカス復帰と自動編集の開始処理 ---
-        if (this.pendingFocusNext) {
+        // --- [FIX] 分割・追加後のフォーカス復帰と自動編集 of 開始処理 ---
+        if (this.pendingFocusNextLine !== null && this.pendingFocusNextLine !== undefined) {
+            const targetLine = this.pendingFocusNextLine;
+            this.pendingFocusNextLine = null;
             this.pendingFocusNext = false;
             
             const focusableSelectors = 'p, li, h1, h2, h3, h4, h5, h6, blockquote'.split(',').map(s => s.trim());
             const elements = Array.from(DOM.preview.querySelectorAll(focusableSelectors.join(', ')));
             
-            // 挿入しておいたゼロ幅スペース（\u200B）を持つ要素をドキュメントの最後尾から探す
-            let targetEl = elements.reverse().find(el => el.textContent.includes('\u200B'));
+            // data-line が targetLine に一致する要素を探す
+            let targetEl = elements.find(el => {
+                const dataLineTarget = el.hasAttribute('data-line') ? el : el.closest('[data-line]');
+                if (!dataLineTarget) return false;
+                const dl = parseInt(dataLineTarget.getAttribute('data-line'), 10);
+                return dl === targetLine;
+            });
+
+            if (!targetEl) {
+                // フォールバック: targetLine 以上の最小の要素を探す
+                let minDistance = Infinity;
+                elements.forEach(el => {
+                    const dataLineTarget = el.hasAttribute('data-line') ? el : el.closest('[data-line]');
+                    if (!dataLineTarget) return;
+                    const dl = parseInt(dataLineTarget.getAttribute('data-line'), 10);
+                    if (dl >= targetLine && (dl - targetLine) < minDistance) {
+                        minDistance = dl - targetLine;
+                        targetEl = el;
+                    }
+                });
+            }
             
             if (targetEl) {
                 let editTarget = targetEl;
@@ -1591,25 +1662,25 @@ const PreviewInlineEdit = {
                 this.startFocus(editTarget, false);
                 this.startEditing(editTarget);
                 
-                // startEditing が完了した直後に \u200B を削除し、キャレットをテキスト先頭に合わせる
+                // startEditing が完了した直後にキャレットをテキスト先頭に合わせる
                 setTimeout(() => {
                     if (this.editTargetElement) {
-                        const html = this.editTargetElement.innerHTML;
-                        if (html.includes('\u200B')) {
-                            this.editTargetElement.innerHTML = html.replace(/\u200B/g, '');
-                            const sel = window.getSelection();
-                            const range = document.createRange();
-                            range.selectNodeContents(this.editTargetElement);
-                            range.collapse(true);
-                            sel.removeAllRanges();
-                            sel.addRange(range);
-                        }
+                        const sel = window.getSelection();
+                        const range = document.createRange();
+                        range.selectNodeContents(this.editTargetElement);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
                     }
-                }, 50);
+                    this.isTransitioning = false; // 遷移処理完了
+                    console.log('[PreviewEdit][Debug] isTransitioning set to false (focus target found by line)');
+                }, 20);
             } else {
                 if (typeof this.restoreFocusLine === 'number') {
                     this.restoreFocusIfNeeded();
                 }
+                this.isTransitioning = false; // 遷移処理終了（ターゲット要素なし）
+                console.log('[PreviewEdit][Debug] isTransitioning set to false (no target found by line)');
             }
         } else {
             // 矢印キーやTabキーでのナビゲーション時の次の要素へのフォーカス移行
@@ -1622,6 +1693,7 @@ const PreviewInlineEdit = {
                 this._pendingNextFocusIndex = null;
                 this._pendingNextFocusHeadingsOnly = null;
             }
+            this.isTransitioning = false; // 遷移処理終了（通常保存・ナビゲーション）
         }
         
         this.enterAction = null;
@@ -1631,9 +1703,9 @@ const PreviewInlineEdit = {
         }
 
         setTimeout(() => {
-            // 自動的に次の要素の編集に入っている場合は、
+            // 自動的に次の要素の編集に入っているか、遷移中の場合は、
             // 左側のエディタへの強制同期（フォーカス奪取）を行わないことで、編集状態の解除を防ぐ
-            if (!this.isEditing && typeof syncEditorFromPreview === 'function') {
+            if (!this.isEditing && !this.isTransitioning && typeof syncEditorFromPreview === 'function') {
                 syncEditorFromPreview();
             }
         }, 50);
@@ -2018,53 +2090,50 @@ const PreviewInlineEdit = {
             }
         }
 
-        const confirmMsg = typeof I18n !== 'undefined' ? I18n.translate('dialog.confirmDeleteObject') || 'これらのオブジェクトを削除しますか？' : 'これらのオブジェクトを削除しますか？';
-        if (confirm(confirmMsg)) {
-            // 削除後のフォーカス復元先として、削除対象の中で最も先頭の行番号を記録する
-            let minDeletedLine = null;
-            for (const targetEl of targets) {
-                const dataLineTarget = targetEl.hasAttribute('data-line') ? targetEl : targetEl.closest('[data-line]');
-                if (!dataLineTarget) continue;
-                const lineNum = parseInt(dataLineTarget.getAttribute('data-line'), 10);
-                if (!isNaN(lineNum) && (minDeletedLine === null || lineNum < minDeletedLine)) {
-                    minDeletedLine = lineNum;
-                }
+        // 削除後のフォーカス復元先として、削除対象の中で最も先頭の行番号を記録する
+        let minDeletedLine = null;
+        for (const targetEl of targets) {
+            const dataLineTarget = targetEl.hasAttribute('data-line') ? targetEl : targetEl.closest('[data-line]');
+            if (!dataLineTarget) continue;
+            const lineNum = parseInt(dataLineTarget.getAttribute('data-line'), 10);
+            if (!isNaN(lineNum) && (minDeletedLine === null || lineNum < minDeletedLine)) {
+                minDeletedLine = lineNum;
             }
-
-            // Delete from end to start to properly maintain string indices
-            mergedRanges.sort((a, b) => b.start - a.start);
-            
-            let newText = fullText;
-            for (const range of mergedRanges) {
-                newText = newText.substring(0, range.start) + newText.substring(range.end);
-            }
-            
-            // エディタの該当範囲を置換
-            if (typeof window.updateEditorRange === 'function' && mergedRanges.length === 1) {
-                window.updateEditorRange(mergedRanges[0].start, mergedRanges[0].end, '');
-            } else {
-                if (typeof setEditorText === 'function') {
-                    setEditorText(newText);
-                }
-            }
-
-            // 削除後フォーカス先を予約（render後にrestoreFocusIfNeededが同行付近へフォーカスを移す）
-            if (minDeletedLine !== null) {
-                this.restoreFocusLine = minDeletedLine;
-            }
-
-            // Clear selection after deletion
-            this.clearSelection();
-
-            // 更新と再描画
-            AppState.isModified = true;
-            AppState.hasUnsavedChanges = true;
-            if (typeof render === 'function') {
-                await render();
-            }
-
-            if (typeof showToast === 'function') showToast(t('toast.deleted'));
         }
+
+        // Delete from end to start to properly maintain string indices
+        mergedRanges.sort((a, b) => b.start - a.start);
+        
+        let newText = fullText;
+        for (const range of mergedRanges) {
+            newText = newText.substring(0, range.start) + newText.substring(range.end);
+        }
+        
+        // エディタの該当範囲を置換
+        if (typeof window.updateEditorRange === 'function' && mergedRanges.length === 1) {
+            window.updateEditorRange(mergedRanges[0].start, mergedRanges[0].end, '');
+        } else {
+            if (typeof setEditorText === 'function') {
+                setEditorText(newText);
+            }
+        }
+
+        // 削除後フォーカス先を予約（render後にrestoreFocusIfNeededが同行付近へフォーカスを移す）
+        if (minDeletedLine !== null) {
+            this.restoreFocusLine = minDeletedLine;
+        }
+
+        // Clear selection after deletion
+        this.clearSelection();
+
+        // 更新と再描画
+        AppState.isModified = true;
+        AppState.hasUnsavedChanges = true;
+        if (typeof render === 'function') {
+            await render();
+        }
+
+        if (typeof showToast === 'function') showToast(t('toast.deleted'));
     },
 
     // [NEW] 選択されたブロックのソースコードをコピーする
@@ -2297,6 +2366,7 @@ const PreviewInlineEdit = {
         this.editTargetElement = null;
         this.isEditing = false;
         this.isSaving = false; // 処理中フラグをリセット
+        this.isTransitioning = false; // 遷移中フラグも確実にリセット
         this.originalDisplay = '';
         
         // [FIX] enterAction や listAction はレンダリング後の自動フォーカスに使うためここでは消去しない
@@ -2949,7 +3019,11 @@ window.isInlineEditing = function () {
     // 2. コードブロックのインライン編集 (InlineCodeEditor)
     const codeEditing = typeof InlineCodeEditor !== 'undefined' && InlineCodeEditor.activeEditorView !== null;
 
-    return textEditing || codeEditing;
+    // 3. SVGのインラインテキスト編集 (SvgTextEditor)
+    const svgEditing = (window.currentEditingSVG && window.currentEditingSVG.isInlineEditing) ||
+                       (window.SvgTextEditor && window.SvgTextEditor.activeEditor !== null);
+
+    return textEditing || codeEditing || svgEditing;
 };
 
 // 外部からアクセスできるようにグローバルオブジェクトに登録

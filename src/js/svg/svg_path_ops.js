@@ -28,14 +28,34 @@ const SVGPathOps = {
     bakeTransform(el) {
         const matrix = el.matrix();
         // SVG.js v3 matrix has direct properties: a, b, c, d, e, f
-        if (matrix.a === 1 && matrix.b === 0 && matrix.c === 0 && matrix.d === 1 && matrix.e === 0 && matrix.f === 0) return;
-        const type = el.type; if (type !== 'path' && type !== 'polyline' && type !== 'polygon' && type !== 'line') return;
-        const pArray = el.array(), transformed = this._transformArray(pArray, matrix);
-        el.plot(transformed); el.untransform();
+        if (Math.abs(matrix.a - 1) < 1e-6 && Math.abs(matrix.b) < 1e-6 && Math.abs(matrix.c) < 1e-6 && 
+            Math.abs(matrix.d - 1) < 1e-6 && Math.abs(matrix.e) < 1e-6 && Math.abs(matrix.f) < 1e-6) return;
+
+        const type = el.type;
+        if (type === 'path') {
+            const pArray = el.array(), transformed = this._transformArray(pArray, matrix);
+            el.plot(transformed);
+        } else if (['polyline', 'polygon', 'line'].includes(type)) {
+            // コマンドを持たない純粋な座標配列を変換
+            const points = el.array().valueOf();
+            const transformed = points.map(p => {
+                const pt = new SVG.Point(p[0], p[1]).transform(matrix);
+                return [pt.x, pt.y];
+            });
+            el.plot(transformed);
+        } else {
+            return;
+        }
+
+        // v3仕様に対応するため untransform() の代わりに属性でリセット
+        el.attr('transform', null);
     },
 
     // Cache for loaded fonts during the session
     _cachedFonts: {},
+
+    // Cache for Paper.js path items during scissor mode to avoid freezes
+    _cutCache: null,
 
     /**
      * Prompts the user to select a font file using standard browser input
@@ -490,7 +510,8 @@ const SVGPathOps = {
                         } catch (e) { console.error("[Outline] Extraction failed:", e); }
 
                         // Insert new path
-                        topEl.before(newPath);
+                        el.before(newPath);
+                        el.remove();
                         results.push(newPath);
                         convertedCount++;
                         if (window.makeInteractive) window.makeInteractive(newPath);
@@ -505,9 +526,11 @@ const SVGPathOps = {
             if (window.deselectElement) {
                 window.deselectElement(topEl);
             }
-            if (convertedCount > 0) {
+            if (topEl.type === 'g' && topEl.children().length === 0) {
                 topEl.remove();
-            } else {
+            } else if (topEl.type !== 'g' && convertedCount > 0) {
+                // すでに el.remove() で削除済みのため何もしない
+            } else if (convertedCount === 0) {
                 console.warn(`[Outline] No elements converted in ${topEl.id()}. Keeping original node.`);
             }
         }
@@ -546,7 +569,13 @@ const SVGPathOps = {
             return;
         }
 
-        const sorted = [...elements].sort((a, b) => Array.from(a.node.parentNode.children).indexOf(a.node) - Array.from(b.node.parentNode.children).indexOf(b.node));
+        const sorted = [...elements].sort((a, b) => {
+            if (a.node === b.node) return 0;
+            const pos = a.node.compareDocumentPosition(b.node);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1; // aが奥
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;  // aが手前
+            return 0;
+        });
         const first = sorted[0], draw = first.root(), finalD = this._performBoolean(sorted, 'union');
         if (!finalD) return;
         const newPath = draw.path(finalD);
@@ -583,7 +612,13 @@ const SVGPathOps = {
             return;
         }
 
-        const sorted = [...elements].sort((a, b) => Array.from(a.node.parentNode.children).indexOf(a.node) - Array.from(b.node.parentNode.children).indexOf(b.node));
+        const sorted = [...elements].sort((a, b) => {
+            if (a.node === b.node) return 0;
+            const pos = a.node.compareDocumentPosition(b.node);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1; // aが奥
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;  // aが手前
+            return 0;
+        });
         const bottom = sorted[0], draw = bottom.root(), finalD = this._performBoolean(sorted, 'subtract');
         if (!finalD) return;
         const newPath = draw.path(finalD);
@@ -622,12 +657,55 @@ const SVGPathOps = {
             return;
         }
 
-        const sorted = [...elements].sort((a, b) => Array.from(a.node.parentNode.children).indexOf(a.node) - Array.from(b.node.parentNode.children).indexOf(b.node));
+        const sorted = [...elements].sort((a, b) => {
+            if (a.node === b.node) return 0;
+            const pos = a.node.compareDocumentPosition(b.node);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1; // aが奥
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;  // aが手前
+            return 0;
+        });
         const bottom = sorted[0], draw = bottom.root(), finalD = this._performBoolean(sorted, 'intersect');
         if (!finalD) return;
         const newPath = draw.path(finalD);
         Array.from(bottom.node.attributes).forEach(attr => { if (!['id', 'd', 'points', 'x', 'y', 'width', 'height', 'cx', 'cy', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'transform'].includes(attr.name)) newPath.attr(attr.name, attr.value); });
         newPath.attr('fill-rule', 'nonzero'); bottom.before(newPath);
+        sorted.forEach(el => { el.remove(); });
+        let minData; try { minData = this._extractMinimalPoints(newPath.array()); } catch (e) { return; }
+        if (minData && minData.points.length > 0) {
+            newPath.attr('data-poly-points', minData.points.map(p => (p[2] ? 'M' : '') + p[0].toFixed(3) + ',' + p[1].toFixed(3)).join(' '));
+            newPath.attr('data-bez-points', JSON.stringify(minData.bezData));
+            newPath.attr('data-tool-id', 'polyline'); newPath.attr('data-poly-closed', 'true');
+        }
+        if (window.makeInteractive) window.makeInteractive(newPath);
+        if (window.selectElement) window.selectElement(newPath);
+    },
+
+    exclude(elements) {
+        console.log("[Exclude] Called with", elements ? elements.length : 0, "elements.");
+        if (!elements || elements.length < 2) return;
+
+        // 画像分岐：画像要素が含まれる場合は非対応
+        const hasImage = elements.some(el => el.type === 'image');
+        if (hasImage) {
+            console.warn('[Exclude] Image elements detected. Exclude is not supported for images.');
+            const msg = '除外（Exclude）は画像要素には対応していません。';
+            if (window.showToast) window.showToast(msg, 'warning');
+            else alert(msg);
+            return;
+        }
+
+        const sorted = [...elements].sort((a, b) => {
+            if (a.node === b.node) return 0;
+            const pos = a.node.compareDocumentPosition(b.node);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1; // aが奥
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;  // aが手前
+            return 0;
+        });
+        const bottom = sorted[0], draw = bottom.root(), finalD = this._performBoolean(sorted, 'exclude');
+        if (!finalD) return;
+        const newPath = draw.path(finalD);
+        Array.from(bottom.node.attributes).forEach(attr => { if (!['id', 'd', 'points', 'x', 'y', 'width', 'height', 'cx', 'cy', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'transform'].includes(attr.name)) newPath.attr(attr.name, attr.value); });
+        newPath.attr('fill-rule', 'evenodd'); bottom.before(newPath);
         sorted.forEach(el => { el.remove(); });
         let minData; try { minData = this._extractMinimalPoints(newPath.array()); } catch (e) { return; }
         if (minData && minData.points.length > 0) {
@@ -653,22 +731,30 @@ const SVGPathOps = {
             return;
         }
 
-        const sorted = [...elements].sort((a, b) => Array.from(a.node.parentNode.children).indexOf(a.node) - Array.from(b.node.parentNode.children).indexOf(b.node));
+        const sorted = [...elements].sort((a, b) => {
+            if (a.node === b.node) return 0;
+            const pos = a.node.compareDocumentPosition(b.node);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1; // aが奥
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;  // aが手前
+            return 0;
+        });
         const bottom = sorted[0], draw = bottom.root();
 
-        const pathDataArray = this._performBooleanDivide(sorted);
-        if (!pathDataArray || pathDataArray.length === 0) return;
+        const resultInfoArray = this._performBooleanDivide(sorted);
+        if (!resultInfoArray || resultInfoArray.length === 0) return;
 
         const newPaths = [];
-        pathDataArray.forEach((d, idx) => {
+        resultInfoArray.forEach(({ pathData: d, sourceIdx }, idx) => {
             if (!d.trim()) return;
             const newPath = draw.path(d);
 
-            // Generate a unique ID if the original had one
-            const baseId = bottom.attr('id') ? (bottom.attr('id').replace(/_div\d+_[0-9]+$/, '') + `_div${Date.now()}_${idx}`) : null;
+            const sourceEl = sorted[sourceIdx] || bottom;
+
+            // Generate a unique ID if the source had one
+            const baseId = sourceEl.attr('id') ? (sourceEl.attr('id').replace(/_div\d+_[0-9]+$/, '') + `_div${Date.now()}_${idx}`) : null;
             if (baseId) newPath.attr('id', baseId);
 
-            Array.from(bottom.node.attributes).forEach(attr => {
+            Array.from(sourceEl.node.attributes).forEach(attr => {
                 if (!['id', 'd', 'points', 'x', 'y', 'width', 'height', 'cx', 'cy', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'transform'].includes(attr.name)) {
                     newPath.attr(attr.name, attr.value);
                 }
@@ -716,7 +802,7 @@ const SVGPathOps = {
         // 既存の clip-path があれば古い <clipPath> 要素を削除
         const existingClipAttr = imageEl.attr('clip-path');
         if (existingClipAttr) {
-            const oldIdMatch = existingClipAttr.match(/url\(#(.+?)\)/);
+            const oldIdMatch = existingClipAttr.match(/url\(['"]?#([^'")]+)['"]?\)/);
             if (oldIdMatch) {
                 const oldEl = svgNode.querySelector(`#${CSS.escape(oldIdMatch[1])}`);
                 if (oldEl) oldEl.remove();
@@ -800,11 +886,6 @@ const SVGPathOps = {
             let result = imgItem;
 
             for (const el of vectorEls) {
-                const d = this.convertToPathData(el, new SVG.Matrix()); // ローカル座標
-                if (!d) continue;
-                const vItem = paper.project.importSVG(`<path d="${d}" />`);
-                if (!vItem) continue;
-
                 let vRelMatrix;
                 try {
                     const vParent = el.parent();
@@ -818,10 +899,11 @@ const SVGPathOps = {
                 }
                 console.log(`[ClipPath] vec(${el.type}) relMat e=${vRelMatrix.e.toFixed(2)},f=${vRelMatrix.f.toFixed(2)}`);
 
-                vItem.matrix.set(
-                    vRelMatrix.a, vRelMatrix.b, vRelMatrix.c,
-                    vRelMatrix.d, vRelMatrix.e, vRelMatrix.f
-                );
+                const d = this.convertToPathData(el, vRelMatrix); // 累積変換行列を適用した座標
+                if (!d) continue;
+                const vItem = paper.project.importSVG(`<path d="${d}" />`);
+                if (!vItem) continue;
+
                 const temp = result.subtract(vItem);
                 vItem.remove();
                 if (temp) {
@@ -923,27 +1005,22 @@ const SVGPathOps = {
         const paperPaths = elements.map((el, i) => {
             try {
                 const type = el.type, id = el.id();
-                // Get transform from element space to target parent space
+                // 要素空間からターゲット親空間への変換行列を取得
                 const ectm = el.ctm();
                 if (!ectm) {
                     console.warn(`[Boolean] Element ${id} has no CTM.`);
                     return null;
                 }
                 const relMatrix = targetCTMInv.multiply(ectm);
-                const m = relMatrix;
 
-                // Get RAW path data in element local space (No baked matrix)
-                // Use a fresh matrix to ensure local coordinates
-                const d = this.convertToPathData(el, new SVG.Matrix());
+                // 累積変換行列を適用したパスデータを取得
+                const d = this.convertToPathData(el, relMatrix);
                 if (!d) return null;
 
-                // Import into Paper.js
+                // Paper.js にインポート（座標はすでに親空間に変形済み）
                 const item = paper.project.importSVG(`<path d="${d}" />`);
 
-                if (item) {
-                    // Apply SVG matrix directly and bake it into coordinates
-                    item.matrix.set(m.a, m.b, m.c, m.d, m.e, m.f);
-                } else {
+                if (!item) {
                     console.warn(`[Boolean] Failed to import element ${i} into Paper.js`);
                 }
 
@@ -971,6 +1048,8 @@ const SVGPathOps = {
                     temp = result.subtract(next);
                 } else if (op === 'intersect') {
                     temp = result.intersect(next);
+                } else if (op === 'exclude') {
+                    temp = result.exclude(next);
                 }
 
                 if (temp) {
@@ -1028,17 +1107,16 @@ const SVGPathOps = {
                 const ectm = el.ctm();
                 if (!ectm) return null;
                 const relMatrix = targetCTMInv.multiply(ectm);
-                const m = relMatrix;
 
-                const d = this.convertToPathData(el, new SVG.Matrix());
+                // 累積変換行列を適用したパスデータを取得
+                const d = this.convertToPathData(el, relMatrix);
                 if (!d) return null;
 
+                // Paper.js にインポート（座標はすでに変形済み）
                 const item = paper.project.importSVG(`<path d="${d}" />`);
-                if (item) {
-                    item.matrix.set(m.a, m.b, m.c, m.d, m.e, m.f);
-                }
                 return item;
             } catch (err) {
+                console.error(`[DEBUG ERROR] importSVG failed for item ${i}:`, err);
                 return null;
             }
         }).filter(p => p !== null);
@@ -1052,10 +1130,14 @@ const SVGPathOps = {
             if (!paperItem) return;
             if (paperItem.children && paperItem.children.length > 0) {
                 paperItem.children.forEach(c => {
-                    if (c.pathData && c.pathData.trim().length > 0) arr.push(c.clone());
+                    if (c.pathData && c.pathData.trim().length > 0) {
+                        const newP = new paper.Path(c.pathData);
+                        arr.push(newP);
+                    }
                 });
             } else if (paperItem.pathData && paperItem.pathData.trim().length > 0) {
-                arr.push(paperItem.clone());
+                const newP = new paper.Path(paperItem.pathData);
+                arr.push(newP);
             }
         };
 
@@ -1064,7 +1146,12 @@ const SVGPathOps = {
 
         try {
             for (let i = 1; i < paperPaths.length; i++) {
-                let next = paperPaths[i].clone();
+                let next;
+                if (paperPaths[i].className === 'CompoundPath') {
+                    next = new paper.CompoundPath(paperPaths[i].pathData);
+                } else {
+                    next = new paper.Path(paperPaths[i].pathData);
+                }
                 let nextRegions = [];
                 let currentNext = next;
 
@@ -1085,8 +1172,10 @@ const SVGPathOps = {
                     if (diffR && interR) {
                         extractPaths(diffR, nextRegions);
                         extractPaths(interR, nextRegions);
+                        diffR.remove();
+                        interR.remove();
                     } else {
-                        nextRegions.push(r.clone());
+                        nextRegions.push(new paper.Path(r.pathData));
                     }
 
                     if (currentNext) {
@@ -1096,10 +1185,11 @@ const SVGPathOps = {
                                 currentNext = null;
                                 // If currentNext is fully consumed, pass all remaining regions unchanged
                                 for (let k = j + 1; k < regions.length; k++) {
-                                    if (regions[k]) nextRegions.push(regions[k].clone());
+                                    if (regions[k]) nextRegions.push(new paper.Path(regions[k].pathData));
                                 }
                                 break;
                             } else {
+                                if (currentNext !== next) currentNext.remove();
                                 currentNext = nextSub;
                             }
                         } catch (ex) {
@@ -1110,24 +1200,65 @@ const SVGPathOps = {
 
                 if (currentNext) {
                     extractPaths(currentNext, nextRegions);
+                    if (currentNext !== next) currentNext.remove();
                 }
 
+                next.remove();
+
+                regions.forEach(r => { if (r && r.remove) r.remove(); });
                 regions = nextRegions;
             }
         } catch (e) {
             console.error("[Boolean Divide] Paper.js operation failed:", e);
         }
 
-        const pathDataArray = [];
+        const resultInfo = [];
         regions.forEach(r => {
-            if (r && r.pathData && r.pathData.trim().length > 0) {
-                pathDataArray.push(r.pathData);
+            if (!r || !r.pathData || r.pathData.trim().length === 0) return;
+
+            let sourceIdx = 0; // デフォルトは背面
+            let maxOverlapRatio = 0;
+            const rArea = Math.abs(r.area);
+
+            if (rArea > 0.0001) {
+                // 前面優先のため、逆順で走査
+                for (let k = paperPaths.length - 1; k >= 0; k--) {
+                    const orig = paperPaths[k];
+                    try {
+                        const inter = r.intersect(orig);
+                        if (inter && !inter.isEmpty()) {
+                            const interArea = Math.abs(inter.area);
+                            const ratio = interArea / rArea;
+                            if (ratio > 0.95) {
+                                sourceIdx = k;
+                                inter.remove();
+                                break;
+                            }
+                            if (ratio > maxOverlapRatio) {
+                                maxOverlapRatio = ratio;
+                                sourceIdx = k;
+                            }
+                        }
+                        if (inter) inter.remove();
+                    } catch (e) {
+                        // エラー時はスキップ
+                    }
+                }
             }
+
+            resultInfo.push({
+                pathData: r.pathData,
+                sourceIdx: sourceIdx
+            });
         });
 
+        // 解放処理
+        regions.forEach(r => { if (r && r.remove) r.remove(); });
+        paperPaths.forEach(p => { if (p && p.remove) p.remove(); });
         try { paper.project.clear(); } catch (ex) { }
-        console.log(`[Boolean Divide] Paper.js completed. Produced ${pathDataArray.length} paths.`);
-        return pathDataArray;
+
+        console.log(`[Boolean Divide] Paper.js completed. Produced ${resultInfo.length} paths.`);
+        return resultInfo;
     },
 
     _initPaper() {
@@ -1175,10 +1306,18 @@ const SVGPathOps = {
         } else if (type === 'path') d = el.attr('d');
         else if (type === 'rect') {
             const w = parseFloat(el.attr('width')) || 0, h = parseFloat(el.attr('height')) || 0, x = parseFloat(el.attr('x')) || 0, y = parseFloat(el.attr('y')) || 0;
-            const rx = parseFloat(el.attr('rx')) || 0, ry = parseFloat(el.attr('ry')) || 0;
+            const rxAttr = el.attr('rx'), ryAttr = el.attr('ry');
+            let rx = parseFloat(rxAttr) || 0;
+            let ry = parseFloat(ryAttr) || 0;
+            if (rxAttr !== null && rxAttr !== undefined && (ryAttr === null || ryAttr === undefined)) {
+                ry = rx;
+            } else if ((rxAttr === null || rxAttr === undefined) && ryAttr !== null && ryAttr !== undefined) {
+                rx = ry;
+            }
+
             if (rx > 0 || ry > 0) {
-                const r = Math.min(rx || ry, w / 2, h / 2);
-                d = `M${x + r},${y} h${w - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${h - 2 * r} a${r},${r} 0 0 1 -${r},${r} h-${w - 2 * r} a${r},${r} 0 0 1 -${r},-${r} v-${h - 2 * r} a${r},${r} 0 0 1 ${r},-${r} Z`;
+                const effRx = Math.min(rx, w / 2), effRy = Math.min(ry, h / 2);
+                d = `M${x + effRx},${y} h${w - 2 * effRx} a${effRx},${effRy} 0 0 1 ${effRx},${effRy} v${h - 2 * effRy} a${effRx},${effRy} 0 0 1 -${effRx},${effRy} h-${w - 2 * effRx} a${effRx},${effRy} 0 0 1 -${effRx},-${effRy} v-${h - 2 * effRy} a${effRx},${effRy} 0 0 1 ${effRx},-${effRy} Z`;
             } else d = `M${x},${y} L${x + w},${y} L${x + w},${y + h} L${x},${y + h} Z`;
         } else if (type === 'circle' || type === 'ellipse') {
             const rx = parseFloat(type === 'circle' ? el.attr('r') : el.attr('rx')) || 0;
@@ -1250,10 +1389,14 @@ const SVGPathOps = {
                 lastX = x; lastY = y;
             } else if (cmd === 'A') {
                 const sX = Math.sqrt(matrix.a * matrix.a + matrix.b * matrix.b), sY = Math.sqrt(matrix.c * matrix.c + matrix.d * matrix.d);
-                const rx = args[0] * sX, ry = args[1] * sY, rot = args[2];
+                const det = matrix.a * matrix.d - matrix.b * matrix.c;
+                const rx = args[0] * sX, ry = args[1] * sY;
+                const rot = det < 0 ? -args[2] : args[2];
+                const largeArc = args[3];
+                const sweep = det < 0 ? (1 - args[4]) : args[4];
                 const x = isRel ? lastX + args[5] : args[5], y = isRel ? lastY + args[6] : args[6];
                 const p = tr(x, y);
-                res.push(rx, ry, rot, args[3], args[4], p[0], p[1]);
+                res.push(rx, ry, rot, largeArc, sweep, p[0], p[1]);
                 lastX = x; lastY = y;
             } else if (cmd === 'Z') {
                 lastX = startX; lastY = startY;
@@ -1273,7 +1416,7 @@ const SVGPathOps = {
         // Normalized dot product should be negative (opposite directions)
         const cross = (dx1 * dy2 - dy1 * dx2) / (mag1 * mag2);
         const dot = (dx1 * dx2 + dy1 * dy2) / (mag1 * mag2);
-        return Math.abs(cross) < 0.02 && dot < -0.8;
+        return Math.abs(cross) < 0.02 && dot < -0.98;
     },
 
     _extractMinimalPoints(pathArray) {
@@ -1499,6 +1642,39 @@ const SVGPathOps = {
             return;
         }
 
+        // モード開始時に1度だけ Paper.js アイテム化してキャッシュ
+        try {
+            if (!this._paperInitialized) this._initPaper();
+        } catch (ex) {
+            this.stopPathCutMode();
+            return;
+        }
+        paper.project.clear();
+        this._cutCache = [];
+        draw.find('path, polyline, line, polygon, rect, circle, ellipse').forEach(el => {
+            if (el.hasClass('svg-canvas-proxy') || el.hasClass('svg_select_shape') ||
+                el.hasClass('svg-grid-line') || el.hasClass('svg-grid-lines') ||
+                el.hasClass('svg-grid-rect') || el.hasClass('svg-ruler') ||
+                el.hasClass('svg-interaction-hitarea') || el.hasClass('svg-connector-overlay') ||
+                el.attr('data-internal') === 'true' || el.attr('id') === 'document-background') {
+                return;
+            }
+
+            const ectm = el.ctm();
+            const d = this.convertToPathData(el, ectm);
+            if (d) {
+                try {
+                    const item = new paper.Path(d);
+                    item.strokeColor = 'black'; // hitTest に必要
+                    item.strokeWidth = 2;
+                    item.fillColor = null;
+                    this._cutCache.push({ element: el, paperItem: item });
+                } catch(e) {
+                    console.error(`[PathCut] Failed to parse path data for cache:`, e);
+                }
+            }
+        });
+
         // マーカーの準備
         this._cutMarker = draw.circle(12).fill('rgba(255, 0, 0, 0.8)').stroke({ color: '#fff', width: 2 }).hide();
         this._cutMarker.attr('pointer-events', 'none'); // イベントブロック防止
@@ -1532,15 +1708,23 @@ const SVGPathOps = {
             draw.node.removeEventListener('click', this._boundCutClick, true);
         }
 
+        // キャッシュされたアイテムを Paper.js から削除
+        if (this._cutCache) {
+            this._cutCache.forEach(cache => {
+                if (cache.paperItem) cache.paperItem.remove();
+            });
+            this._cutCache = null;
+        }
+
         if (this._currentHit && this._currentHit.paperItem) {
-            this._currentHit.paperItem.remove();
+            try { this._currentHit.paperItem.remove(); } catch(e) {}
         }
         this._currentHit = null;
         try { paper.project.clear(); } catch (e) { }
     },
 
     _onCutMouseMove(e) {
-        if (!this._isPathCutMode) return;
+        if (!this._isPathCutMode || !this._cutCache) return;
 
         let bestHit = null;
         let minDistance = 20;
@@ -1549,65 +1733,23 @@ const SVGPathOps = {
         if (!draw) return;
 
         const pt = draw.point(e.clientX, e.clientY);
+        const paperPt = new paper.Point(pt.x, pt.y);
 
-        try {
-            if (!this._paperInitialized) this._initPaper();
-        } catch (ex) { return; }
-
-        // Find all standard elements that can be converted to paths for cutting
-        const candidates = draw.find('path, polyline, line, polygon, rect, circle, ellipse');
-
-        paper.project.clear();
-
-        candidates.forEach(el => {
-            if (el.hasClass('svg-canvas-proxy') || el.hasClass('svg_select_shape') ||
-                el.hasClass('svg-grid-line') || el.hasClass('svg-grid-lines') ||
-                el.hasClass('svg-grid-rect') || el.hasClass('svg-ruler') ||
-                el.hasClass('svg-interaction-hitarea') || el.hasClass('svg-connector-overlay') ||
-                el.attr('data-internal') === 'true' || el.attr('id') === 'document-background') {
-                return;
-            }
-
-            const ectm = el.ctm();
-            const d = this.convertToPathData(el, ectm);
-            if (!d) return;
-
-            // [FIX] Avoid importSVG Group bounding boxes which cause infinite hits. Directly instantiate Path.
-            let item;
-            try {
-                item = new paper.Path(d);
-                item.strokeColor = 'black';
-                item.strokeWidth = 2;
-                item.fillColor = null;
-            } catch (err) {
-                console.error(`[PathCut] Failed to parse path data for hitTest:`, err);
-                return;
-            }
-
-            const paperPt = new paper.Point(pt.x, pt.y);
-            const hit = item.hitTest(paperPt, { stroke: true, segments: true, tolerance: minDistance });
-
+        this._cutCache.forEach(cache => {
+            const hit = cache.paperItem.hitTest(paperPt, { stroke: true, segments: true, tolerance: minDistance });
             if (hit && hit.location) {
-                if (hit.point.getDistance(paperPt) < minDistance) {
-                    minDistance = hit.point.getDistance(paperPt);
-                    if (bestHit && bestHit.paperItem) bestHit.paperItem.remove();
-                    bestHit = { point: hit.point, location: hit.location, element: el, paperItem: item };
-                } else {
-                    item.remove();
+                const dist = hit.point.getDistance(paperPt);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestHit = { point: hit.point, location: hit.location, element: cache.element, paperItem: cache.paperItem };
                 }
-            } else {
-                item.remove();
             }
         });
 
-        if (this._currentHit && this._currentHit.paperItem && (!bestHit || bestHit.paperItem !== this._currentHit.paperItem)) {
-            this._currentHit.paperItem.remove();
-        }
         this._currentHit = bestHit;
 
         if (this._currentHit) {
             const cp = this._currentHit.point;
-            // console.log(`[PathCut] MouseMove HIT on ${this._currentHit.element.type} at ${cp.x.toFixed(1)}, ${cp.y.toFixed(1)}`);
             this._cutMarker.attr({ cx: cp.x, cy: cp.y }).show();
             this._cutMarker.front();
         } else {
@@ -1809,13 +1951,22 @@ class SVGPathOpToolbar extends SVGToolbarBase {
             if (window.syncChanges) window.syncChanges();
         }));
 
+        // 除外 (Exclude): 重なり合う部分をくり抜いて削除する
+        const iconExclude = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path fill-rule="evenodd" d="M 3,12 a 6,6 0 1,0 12,0 a 6,6 0 1,0 -12,0 M 9,12 a 6,6 0 1,0 12,0 a 6,6 0 1,0 -12,0" /></svg>';
+        contentArea.appendChild(this.createPathOpButton(iconExclude, '除外 (Exclude)', () => {
+            if (window.SVGPathOps) window.SVGPathOps.exclude(this.getSelected());
+            if (window.syncChanges) window.syncChanges();
+        }));
+
         const cutBtn = this.createPathOpButton('✂️', 'パス切断 (Cut)', () => {
             if (window.SVGPathOps) window.SVGPathOps.togglePathCutMode(cutBtn);
         });
         contentArea.appendChild(cutBtn);
 
-        contentArea.appendChild(this.createPathOpButton('🔤', 'アウトライン化', () => {
-            if (window.SVGPathOps) window.SVGPathOps.convertToOutline(this.getSelected());
+        contentArea.appendChild(this.createPathOpButton('🔤', 'アウトライン化', async () => {
+            if (window.SVGPathOps) {
+                await window.SVGPathOps.convertToOutline(this.getSelected());
+            }
             if (window.syncChanges) window.syncChanges();
         }));
     }

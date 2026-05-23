@@ -116,6 +116,8 @@ I18n.register('ja', '日本語', {
         "imageSaveLocation": "取込み画像保存先:",
         "imageSaveDocument": "文書内 (Base64埋込)",
         "imageSaveLocal": "別ファイル (imageフォルダ保存)",
+        "compressStandaloneImage": "単独編集時の画像圧縮",
+        "compressStandaloneImageDesc": "ONにすると、ペーストした大きな画像を自動的に圧縮・WebP化してMarkdownファイルの肥大化を防ぎます。",
         "showPageBreaks": "改ページ位置を表示（スライド基準）",
         "showPageBreaksDesc": "スライド表示と同じ改ページ位置をプレビューに表示します",
         "previewPastePosition": "プレビューでの貼り付け位置:",

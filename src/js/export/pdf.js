@@ -136,6 +136,18 @@ async function exportPDFAsImage(orientation = 'portrait') {
         status = "Splitting pages...";
         const clonedPreview = element.cloneNode(true);
 
+        // [NEW] PDF出力に含めないプレースホルダー（ダミーブロック）を削除
+        clonedPreview.querySelectorAll('.dummy-tail-block').forEach(el => el.remove());
+
+        // [NEW] PDF出力に含めない選択枠・選択ハイライトクラスを除去（ルート要素と子孫要素の両方）
+        const selectClasses = ['preview-focused', 'preview-selected-element', 'preview-focused-parent'];
+        if (selectClasses.some(cls => clonedPreview.classList.contains(cls))) {
+            clonedPreview.classList.remove(...selectClasses);
+        }
+        clonedPreview.querySelectorAll('.preview-focused, .preview-selected-element, .preview-focused-parent').forEach(el => {
+            el.classList.remove(...selectClasses);
+        });
+
         // [NEW] 内部用データ属性 (data-paper-*) を削除して出力をクリーンにする
         const paperAttributes = ['data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y'];
         clonedPreview.querySelectorAll('svg').forEach(svg => {

@@ -403,6 +403,7 @@ async function insertImageAsBase64(file, clientX, clientY, target) {
         // 別ファイル（ローカル）保存
         if (saveLocation === 'local') {
             const isTauriEnv = AppState.tauri || window.__TAURI__;
+            let targetName = file.name;
 
             if (!isTauriEnv) {
                 // ===== ブラウザ版 =====
@@ -509,7 +510,27 @@ async function insertImageAsBase64(file, clientX, clientY, target) {
 
                         // 画像を image/ フォルダに保存
                         const imgDirHandle  = await dirHandle.getDirectoryHandle('image', { create: true });
-                        const imgFileHandle = await imgDirHandle.getFileHandle(file.name, { create: true });
+                        
+                        // 重複チェックと連番付与
+                        const dotIndex = file.name.lastIndexOf('.');
+                        const baseName = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
+                        const ext = dotIndex !== -1 ? file.name.substring(dotIndex) : '';
+                        
+                        let counter = 1;
+                        let fileExists = true;
+                        while (fileExists) {
+                            try {
+                                await imgDirHandle.getFileHandle(targetName, { create: false });
+                                // ファイルが存在するため連番を付与して再確認
+                                targetName = `${baseName}_${counter}${ext}`;
+                                counter++;
+                            } catch (err) {
+                                // ファイルが存在しない場合はループを抜ける
+                                fileExists = false;
+                            }
+                        }
+
+                        const imgFileHandle = await imgDirHandle.getFileHandle(targetName, { create: true });
                         const writable      = await imgFileHandle.createWritable();
                         await writable.write(file);
                         await writable.close();
@@ -543,11 +564,28 @@ async function insertImageAsBase64(file, clientX, clientY, target) {
 
                 try {
                     const imageDirPath = await path.join(AppState.fileDirectory, 'image');
-                    const imagePath    = await path.join(imageDirPath, file.name);
-
                     const exists = await fs.exists(imageDirPath);
                     if (!exists) await fs.mkdir(imageDirPath, { recursive: true });
 
+                    // 重複チェックと連番付与
+                    const dotIndex = file.name.lastIndexOf('.');
+                    const baseName = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
+                    const ext = dotIndex !== -1 ? file.name.substring(dotIndex) : '';
+
+                    let counter = 1;
+                    let fileExists = true;
+                    while (fileExists) {
+                        const checkPath = await path.join(imageDirPath, targetName);
+                        const hasFile = await fs.exists(checkPath);
+                        if (hasFile) {
+                            targetName = `${baseName}_${counter}${ext}`;
+                            counter++;
+                        } else {
+                            fileExists = false;
+                        }
+                    }
+
+                    const imagePath    = await path.join(imageDirPath, targetName);
                     const buffer = await file.arrayBuffer();
                     await fs.writeFile(imagePath, new Uint8Array(buffer));
                 } catch (e) {
@@ -559,10 +597,10 @@ async function insertImageAsBase64(file, clientX, clientY, target) {
             if (saveLocation === 'local') {
                 // ファイル名にスペースやカッコがある場合、Markdownの URL 部分をエンコードする
                 // 例: transparent (24).png → image/transparent%20(24).png
-                const encodedName = encodeURIComponent(file.name);
+                const encodedName = encodeURIComponent(targetName);
                 const relativeImagePath = `image/${encodedName}`;
                 // altテキストは元のファイル名、URL 部分はエンコード済みを使用
-                content = `\n\n![${file.name}](${relativeImagePath})\n\n`;
+                content = `\n\n![${targetName}](${relativeImagePath})\n\n`;
                 insertToApp(content);
                 return;
             }

@@ -334,7 +334,7 @@ class SVGTextAlignToolbar extends SVGToolbarBase {
             }
         }
 
-        console.log(`[SVG TEXT POS] Target: ${target.id()}, targetX=${targetX}, targetY=${targetY}, sBox=`, sBox);
+        // console.log(`[SVG TEXT POS] Target: ${target.id()}, targetX=${targetX}, targetY=${targetY}, sBox=`, sBox);
 
         const rotation = text.transform().rotate || 0;
         text.attr({ 'x': targetX, 'y': targetY, 'text-anchor': anchor, 'dominant-baseline': baseline, 'transform': rotation ? `rotate(${rotation} ${targetX} ${targetY})` : null });

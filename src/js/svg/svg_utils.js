@@ -745,7 +745,7 @@ const SVGUtils = {
         if (cleanFamily === 'inherit') cleanFamily = 'sans-serif'; // inheritはCanvasでエラーや意図しない動作になる
         ctx.font = `${fontSize}px "${cleanFamily}", sans-serif`;
         
-        console.log(`[WRAP CALC] text: "${text}", W: ${maxWidth}, H: ${maxHeight}, EffectiveW: ${effectiveMaxWidth}, Font: ${ctx.font}`);
+        // console.log(`[WRAP CALC] text: "${text}", W: ${maxWidth}, H: ${maxHeight}, EffectiveW: ${effectiveMaxWidth}, Font: ${ctx.font}`);
         
         const lineHeight = fontSize * lineSpacing;
         const maxLines = Math.floor(effectiveMaxHeight / lineHeight);

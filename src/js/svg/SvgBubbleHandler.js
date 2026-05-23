@@ -314,6 +314,13 @@ class SvgBubbleHandler {
             isDragging = false;
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
+
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = false;
+            }
+            if (window.syncChanges) {
+                window.syncChanges(true, null, true);
+            }
         };
 
         handle.addEventListener('mousedown', (e) => {
@@ -322,6 +329,12 @@ class SvgBubbleHandler {
                 console.warn(`[BUBBLE GUARD] Width drag blocked for ${this.activeNode.id()}`);
                 return;
             }
+
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = true;
+                if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
+            }
+
             e.stopPropagation();
             e.preventDefault();
             isDragging = true;
@@ -385,6 +398,13 @@ class SvgBubbleHandler {
             isDragging = false;
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
+
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = false;
+            }
+            if (window.syncChanges) {
+                window.syncChanges(true, null, true);
+            }
         };
 
         handle.addEventListener('mousedown', (e) => {
@@ -393,6 +413,12 @@ class SvgBubbleHandler {
                 console.warn(`[BUBBLE GUARD] Root drag blocked for ${this.activeNode.id()}`);
                 return;
             }
+
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = true;
+                if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
+            }
+
             e.stopPropagation();
             e.preventDefault();
             isDragging = true;
@@ -433,6 +459,13 @@ class SvgBubbleHandler {
             isDragging = false;
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
+
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = false;
+            }
+            if (window.syncChanges) {
+                window.syncChanges(true, null, true);
+            }
         };
 
         handle.addEventListener('mousedown', (e) => {
@@ -441,6 +474,12 @@ class SvgBubbleHandler {
                 console.warn(`[BUBBLE GUARD] End drag blocked for ${this.activeNode.id()}`);
                 return;
             }
+
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = true;
+                if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
+            }
+
             e.stopPropagation();
             e.preventDefault();
             isDragging = true;

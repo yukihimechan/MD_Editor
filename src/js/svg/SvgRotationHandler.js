@@ -194,6 +194,11 @@ class SvgRotationHandler {
 
         if (!this.activeElement) return;
 
+        if (window.currentEditingSVG) {
+            window.currentEditingSVG._isOperationInProgress = true;
+            if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
+        }
+
         // [GUARD] Double check if it's canvas or locked
         const isCanvas = this.activeElement.getAttribute('data-is-canvas') === 'true' ||
             this.activeElement.classList.contains('svg-canvas-proxy');
@@ -229,6 +234,13 @@ class SvgRotationHandler {
             x: localCx * ctm.a + localCy * ctm.c + ctm.e,
             y: localCx * ctm.b + localCy * ctm.d + ctm.f
         };
+
+        // [FIX] 行列式の符号をチェックして反転状態（奇数回反転）を検出
+        this.isFlipped = false;
+        if (ctm) {
+            const det = ctm.a * ctm.d - ctm.b * ctm.c;
+            this.isFlipped = det < 0;
+        }
 
         // [FIX] Relative Rotation: Capture initial angles at the moment of grab
         const dx = e.clientX - this.centerPoint.x;
@@ -284,6 +296,11 @@ class SvgRotationHandler {
         // Normalize delta to -180...180 range to handle PI boundary crossings smoothly
         if (deltaDeg > 180) deltaDeg -= 360;
         else if (deltaDeg < -180) deltaDeg += 360;
+
+        // [FIX] 反転している場合はドラッグ角度変化の方向を反転させる
+        if (this.isFlipped) {
+            deltaDeg = -deltaDeg;
+        }
 
         let angleDeg = this.startElementRotation + deltaDeg;
 
@@ -391,6 +408,10 @@ class SvgRotationHandler {
         if (this.angleDisplay) {
             this.angleDisplay.remove();
             this.angleDisplay = null;
+        }
+
+        if (window.currentEditingSVG) {
+            window.currentEditingSVG._isOperationInProgress = false;
         }
 
         // Sync to editor

@@ -20,6 +20,19 @@ function makeInteractive(el) {
     const tagName = el.node.tagName.toLowerCase();
     if (['tspan', 'textpath'].includes(tagName)) return;
 
+    // [NEW] もし el (子要素の rect や text) の親が shape-text-group であれば、親の g 要素をインタラクティブ化する
+    if (el.node.parentNode && el.node.parentNode.nodeType === 1) {
+        const pTagName = el.node.parentNode.tagName.toLowerCase();
+        const pToolId = el.node.parentNode.getAttribute('data-tool-id');
+        if (pTagName === 'g' && pToolId === 'shape-text-group') {
+            const parentEl = el.parent();
+            if (parentEl && typeof makeInteractive === 'function') {
+                makeInteractive(parentEl);
+                return;
+            }
+        }
+    }
+
     // Avoid re-initializing internal tools
     const toolClasses = [
         'svg_select_shape', 'svg-select-shape',
@@ -105,16 +118,22 @@ function selectElement(el, isMulti, silent = false) {
         }
     }
 
-    // [FIX] Prevent selection of hidden elements
-    if (!el.visible()) {
+    // [FIX] Ensure element is connected to the DOM before querying visibility or selecting
+    if (el && el.node && !el.node.isConnected) {
         return;
+    }
+
+    // [FIX] Prevent selection of hidden elements
+    try {
+        if (!el.visible()) {
+            return;
+        }
+    } catch (e) {
+        console.warn('[selectElement] Error checking visibility:', e);
     }
 
     // [FIX] Ensure element has root before proceeding with selection/resize
     if (!el.root() && window.currentEditingSVG.draw) {
-        if (el.node && !el.node.isConnected) {
-            return;
-        }
         if (el.node) delete el.node.instance; // Clear stale instance
         el = SVG(el.node || el); // Re-adopt/Link to root AND update reference
     }

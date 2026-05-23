@@ -1675,8 +1675,31 @@ function processSVGBlocks(root) {
             if (svgContainer) {
                 const svgElement = svgContainer.querySelector('svg');
                 if (svgElement) {
-                    const paperH = parseFloat(svgElement.getAttribute('data-paper-height')) || parseFloat(svgElement.getAttribute('height'));
-                    const paperW = parseFloat(svgElement.getAttribute('data-paper-width')) || parseFloat(svgElement.getAttribute('width'));
+                    const origWAttr = svgElement.getAttribute('width');
+                    const origHAttr = svgElement.getAttribute('height');
+                    const hasVb = svgElement.hasAttribute('viewBox');
+
+                    const paperH = parseFloat(svgElement.getAttribute('data-paper-height')) || parseFloat(origHAttr);
+                    const paperW = parseFloat(svgElement.getAttribute('data-paper-width')) || parseFloat(origWAttr);
+
+                    // もし data-paper-width がなく、元の width/height がある場合は、それを論理サイズとして設定
+                    if (!svgElement.hasAttribute('data-paper-width') && paperW > 0) {
+                        svgElement.setAttribute('data-paper-width', String(paperW));
+                    }
+                    if (!svgElement.hasAttribute('data-paper-height') && paperH > 0) {
+                        svgElement.setAttribute('data-paper-height', String(paperH));
+                    }
+                    if (!svgElement.hasAttribute('data-paper-x')) {
+                        svgElement.setAttribute('data-paper-x', '0');
+                    }
+                    if (!svgElement.hasAttribute('data-paper-y')) {
+                        svgElement.setAttribute('data-paper-y', '0');
+                    }
+
+                    // もし viewBox がなく、元の width/height がある場合は viewBox を設定して座標系を保証する
+                    if (!hasVb && paperW > 0 && paperH > 0) {
+                        svgElement.setAttribute('viewBox', `0 0 ${paperW} ${paperH}`);
+                    }
 
                     if (targetWidth) {
                         if (paperH > 0 && paperW > 0) {

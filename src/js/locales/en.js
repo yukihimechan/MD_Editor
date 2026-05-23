@@ -116,6 +116,8 @@ I18n.register('en', 'English', {
         "imageSaveLocation": "Save Image To:",
         "imageSaveDocument": "Document (Base64)",
         "imageSaveLocal": "Local File (image/ folder)",
+        "compressStandaloneImage": "Compress Standalone Image",
+        "compressStandaloneImageDesc": "When enabled, automatically compresses and converts pasted large images to WebP format to prevent Markdown file bloating.",
         "showPageBreaks": "Show Page Breaks (Slide Basis)",
         "showPageBreaksDesc": "Shows page breaks in the preview matching the slide view layout",
         "previewPastePosition": "Preview Paste Position: ",

@@ -134,6 +134,11 @@ class SvgRadiusHandler {
 
         if (!this.activeElement) return;
 
+        if (window.currentEditingSVG) {
+            window.currentEditingSVG._isOperationInProgress = true;
+            if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
+        }
+
         // [LOCK GUARD]
         if (this.activeElement.getAttribute('data-locked') === 'true' || this.activeElement.getAttribute('data-locked') === true) {
             console.warn(`[RADIUS GUARD] Blocked for ${this.activeElement.id()}`);
@@ -227,6 +232,10 @@ class SvgRadiusHandler {
     onDragEnd(e) {
         if (!this.isDragging) return;
         this.isDragging = false;
+
+        if (window.currentEditingSVG) {
+            window.currentEditingSVG._isOperationInProgress = false;
+        }
 
         document.removeEventListener('pointermove', this.onDragMove);
         document.removeEventListener('pointerup', this.onDragEnd);

@@ -231,14 +231,14 @@ class SVGColorToolbar extends SVGToolbarBase {
     }
 
     updateFromSelection() {
-        console.log('[SVGColorToolbar] updateFromSelection start');
+        // console.log('[SVGColorToolbar] updateFromSelection start');
         if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
         const selected = Array.from(window.currentEditingSVG.selectedElements);
         if (selected.length === 0) return;
 
         const first = selected[0];
         let target = first;
-        console.log('[SVGColorToolbar] selected item:', target.type);
+        // console.log('[SVGColorToolbar] selected item:', target.type);
         if (first.type === 'g') {
             let found = null;
             const children = first.children();
@@ -260,13 +260,13 @@ class SVGColorToolbar extends SVGToolbarBase {
         let strokeColor = target.css('stroke') || target.attr('stroke');
         if (typeof strokeColor === 'object') strokeColor = strokeColor.color || 'none';
         if (!strokeColor) strokeColor = 'none';
-        console.log('[SVGColorToolbar] apply strokeColor to picker:', strokeColor);
+        // console.log('[SVGColorToolbar] apply strokeColor to picker:', strokeColor);
         if (this.lineColorPicker) this.updatePickerUI(this.lineColorPicker, strokeColor, 'stroke');
 
         let fillColor = target.css('fill') || target.attr('fill');
         if (typeof fillColor === 'object') fillColor = fillColor.color || 'none';
         if (!fillColor) fillColor = 'none';
-        console.log('[SVGColorToolbar] apply fillColor to picker:', fillColor);
+        // console.log('[SVGColorToolbar] apply fillColor to picker:', fillColor);
         if (this.fillColorPicker) this.updatePickerUI(this.fillColorPicker, fillColor, 'fill');
     }
 

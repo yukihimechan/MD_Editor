@@ -18,7 +18,7 @@ class SvgShape {
         // [NEW] Control markers for shape manipulation
         this._controlMarkers = [];
 
-        console.log(`[SvgShape] Created instance for ${el.type}#${el.id()}`);
+        // console.log(`[SvgShape] Created instance for ${el.type}#${el.id()}`);
     }
 
     /**
@@ -26,12 +26,62 @@ class SvgShape {
      */
     init() {
         const self = this;
-        console.log(`[SvgShape] Initializing ${this.el.type}#${this.el.id()}`);
+        // console.log(`[SvgShape] Initializing ${this.el.type}#${this.el.id()}`);
+
+        // [NEW] テキスト付き図形 (shape-text-group) の場合、bbox/rbox を背景図形基準にオーバーライドする
+        if (this.el.type === 'g' && this.el.attr('data-tool-id') === 'shape-text-group') {
+            const origBBox = this.el.bbox;
+            const origRBox = this.el.rbox;
+            
+            const getBgShape = () => {
+                let bgShape = null;
+                self.el.children().forEach(ch => {
+                    if (!bgShape) {
+                        const tagName = ch.node ? ch.node.tagName.toLowerCase() : '';
+                        if (tagName !== 'text' && tagName !== 'defs' && tagName !== 'title' && tagName !== 'desc' && !ch.hasClass('svg-interaction-hitarea')) {
+                            bgShape = ch;
+                        }
+                    }
+                });
+                return bgShape;
+            };
+
+            this.el.bbox = function() {
+                const bg = getBgShape();
+                if (bg && typeof bg.bbox === 'function') {
+                    return bg.bbox();
+                }
+                return origBBox.apply(self.el, arguments);
+            };
+
+            this.el.rbox = function() {
+                const bg = getBgShape();
+                if (bg && typeof bg.rbox === 'function') {
+                    return bg.rbox.apply(bg, arguments);
+                }
+                return origRBox.apply(self.el, arguments);
+            };
+        }
 
         // [NEW] 同期のため、子要素のポインターイベントを制御（グループの場合）
         if (this.el.type === 'g') {
             // グループ全体でクリックを受け取るように調整
             this.el.attr('pointer-events', 'all');
+
+            // [NEW] テキスト付き図形の場合、子要素の text / tspan の pointer-events を none に設定して
+            // リサイズハンドルなどのクリックが妨害されないようにする
+            if (this.el.attr('data-tool-id') === 'shape-text-group') {
+                this.el.children().forEach(ch => {
+                    if (ch.type === 'text') {
+                        ch.attr('pointer-events', 'none');
+                        ch.children().forEach(tspan => {
+                            if (tspan.type === 'tspan') {
+                                tspan.attr('pointer-events', 'none');
+                            }
+                        });
+                    }
+                });
+            }
         }
 
         // [FIX] Revert to mousedown to avoid canceling SVGToolbar capture listener (mousedown)
@@ -94,7 +144,7 @@ class SvgShape {
      * Cleanup and destruction
      */
     destroy() {
-        console.log(`[SvgShape] Destroying ${this.el.type}#${this.el.id()}`);
+        // console.log(`[SvgShape] Destroying ${this.el.type}#${this.el.id()}`);
 
         // 1. Remove control markers
         this.clearControlMarkers();
@@ -145,6 +195,7 @@ class SvgShape {
      * Handling selection start
      */
     onMouseDown(e) {
+        console.log(`[SvgShape onMouseDown] element: ${this.el.type}#${this.el.id()}, target: ${e.target.tagName}#${e.target.id}`);
         // [FIX] Ignore events on hidden elements
         if (!this.el.visible()) return;
 
@@ -152,9 +203,31 @@ class SvgShape {
         const now = Date.now();
         if (this._lastMasterMouseDownTime && (now - this._lastMasterMouseDownTime < 500)) {
             this._lastMasterMouseDownTime = 0; // Reset to avoid triple-click registering as 2 dblclicks
+            // [FIX] ダブルクリックの mousedown 時、同一要素上の他のリスナー（特に draggable リスナー）が
+            // 実行されてドラッグが開始されてしまうのを完全に防ぐため、即座にイベント伝播を停止する。
+            if (e && typeof e.stopImmediatePropagation === 'function') {
+                e.stopImmediatePropagation();
+            }
+            if (e && typeof e.stopPropagation === 'function') {
+                e.stopPropagation();
+            }
+            if (e && typeof e.preventDefault === 'function') {
+                e.preventDefault();
+            }
             this.onDoubleClick(e);
+            return; // ダブルクリック時は通常のMouseDown選択処理をスキップ
         } else {
             this._lastMasterMouseDownTime = now;
+            // [NEW] 前回のダブルクリックから 500ms 以上経過している場合（おこぼれクリックの防止）のみ、
+            // 新たなダブルクリックシーケンスの開始とみなして transform を上書き保存する
+            const lastDblTime = this._lastDblClickTime || 0;
+            if (now - lastDblTime > 500) {
+                if (this.el.node) {
+                    const currentTransform = this.el.attr('transform');
+                    this._preDblClickTransform = currentTransform !== undefined ? currentTransform : null;
+                    this.el.node.setAttribute('data-pre-dblclick-transform', currentTransform || '');
+                }
+            }
         }
 
         // [NEW] グループ選択を優先するため、親を遡る
@@ -222,8 +295,88 @@ class SvgShape {
     onDoubleClick(e) {
         e.stopPropagation();
         e.preventDefault();
+        this._lastDblClickTime = Date.now();
 
+        // [NEW] ドラッグプラグインのドラッグ状態を同期的かつ強制的に終了させる
+        const draggable = this.el.remember('_draggable');
+        if (draggable && typeof draggable.endDrag === 'function') {
+            // console.log(`[SvgShape DEBUG] Forcefully ending drag for ${this.el.id()} on double click`);
+            try {
+                const clientX = e ? e.clientX : 0;
+                const clientY = e ? e.clientY : 0;
+                draggable.endDrag({
+                    clientX: clientX,
+                    clientY: clientY,
+                    preventDefault: () => {},
+                    stopPropagation: () => {}
+                });
+            } catch (err) {
+                // console.error('[SvgShape] Failed to force endDrag:', err);
+            }
+        }
+
+        // 1. ドラッグ移動量が0になるよう、現在のmousedownイベントのマウス座標を引き継いでmouseupを同期的に実行
+        const clientX = e ? e.clientX : 0;
+        const clientY = e ? e.clientY : 0;
+        window.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true,
+            clientX: clientX,
+            clientY: clientY
+        }));
+        if (window.PointerEvent) {
+            window.dispatchEvent(new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: clientX,
+                clientY: clientY,
+                pointerId: e ? e.pointerId : 1,
+                pointerType: e ? e.pointerType : 'mouse'
+            }));
+        }
+
+        // イベントオブジェクトの必要なプロパティを退避
+        const savedEvent = {
+            clientX: clientX,
+            clientY: clientY,
+            shiftKey: e ? e.shiftKey : false,
+            ctrlKey: e ? e.ctrlKey : false,
+            altKey: e ? e.altKey : false,
+            metaKey: e ? e.metaKey : false,
+            button: e ? e.button : 0
+        };
+
+        // 2. グループ化やエディタ起動などのDOM操作を1フレーム遅延させて実行する
+        setTimeout(() => {
+            if (!this.el || !this.el.node || !this.el.node.isConnected) return;
+            this._doDoubleClickProcessing(savedEvent);
+        }, 16);
+    }
+
+    /**
+     * ダブルクリック処理の本体（非同期遅延実行用）
+     */
+    _doDoubleClickProcessing(e) {
         let targetTextEl = null;
+
+        // [NEW] ドラッグ状態を強制終了し、1回目のmousedown時点の transform を復元して微小移動を打ち消す
+        if (typeof this.el.draggable === 'function') {
+            try { this.el.draggable(false); } catch(err){}
+        }
+        if (window.currentEditingSVG) {
+            window.currentEditingSVG._isOperationInProgress = false;
+            if (typeof window.currentEditingSVG.hideGuides === 'function') {
+                window.currentEditingSVG.hideGuides();
+            }
+        }
+
+        const savedTransform = this.el.node ? this.el.node.getAttribute('data-pre-dblclick-transform') : this._preDblClickTransform;
+        if (savedTransform !== undefined && savedTransform !== null) {
+            // console.log(`[SvgShape DEBUG] DoubleClick - Restoring transform to: "${savedTransform}"`);
+            if (savedTransform === '') {
+                this.el.node.removeAttribute('transform');
+            } else {
+                this.el.attr('transform', savedTransform);
+            }
+        }
 
         // [NEW] Check if the element itself is text or a group containing text
         if (this.el.type === 'text') {
@@ -249,12 +402,12 @@ class SvgShape {
                 chain.push(info);
                 p = p.parent();
             }
-            console.log(`[SvgShape DEBUG] onDoubleClick in group ${this.el.id()}, Parent Chain: ${chain.reverse().join(' > ')}`);
+            // console.log(`[SvgShape DEBUG] _doDoubleClickProcessing in group ${this.el.id()}, Parent Chain: ${chain.reverse().join(' > ')}`);
             console.log(` - Texts in this group (${texts.length}):`, texts.map(t => ({
                 id: t.id(),
-                text: t.text().substring(0, 20),
-                isConnected: t.node.isConnected,
-                assocShape: t.attr('data-associated-shape-id')
+                text: ((t.text && typeof t.text === 'function' ? t.text() : '') || '').substring(0, 20),
+                isConnected: t.node && t.node.isConnected,
+                assocShape: t.attr ? t.attr('data-associated-shape-id') : null
             })));
 
             if (texts.length > 0) {
@@ -266,7 +419,7 @@ class SvgShape {
                     if (assocId) {
                         const found = texts.find(t => t.id() === assocId);
                         if (found) {
-                            console.log(`[SvgShape DEBUG] Found prioritized text by association: ${assocId}`);
+                            // console.log(`[SvgShape DEBUG] Found prioritized text by association: ${assocId}`);
                             targetTextEl = found;
                             break;
                         }
@@ -278,7 +431,7 @@ class SvgShape {
                     const myId = this.el.id();
                     targetTextEl = texts.find(t => t.attr('data-associated-shape-id') === myId);
                     if (targetTextEl) {
-                        console.log(`[SvgShape DEBUG] Found prioritized text by reverse association: ${targetTextEl.id()}`);
+                        // console.log(`[SvgShape DEBUG] Found prioritized text by reverse association: ${targetTextEl.id()}`);
                     }
                 }
 
@@ -288,7 +441,7 @@ class SvgShape {
                         const t = texts[i];
                         const rect = t.node.getBoundingClientRect();
                         if (e.clientX >= rect.left && e.clientX <= rect.right &&
-                            e.clientY >= rect.top && e.clientY <= rect.bottom) {
+                             e.clientY >= rect.top && e.clientY <= rect.bottom) {
                             targetTextEl = t;
                             break;
                         }
@@ -297,15 +450,18 @@ class SvgShape {
 
                 // 3. Fallback to first non-empty text, then just the topmost/last text
                 if (!targetTextEl) {
-                    targetTextEl = texts.find(t => t.text().trim().length > 0) || texts[texts.length - 1] || texts[0];
+                    targetTextEl = texts.find(t => {
+                        const txt = (t.text && typeof t.text === 'function' ? t.text() : '') || '';
+                        return txt.trim().length > 0;
+                    }) || texts[texts.length - 1] || texts[0];
                 }
 
                 // 4. [NEW] Clean up zombie texts to proactively fix sync bugs
                 if (targetTextEl && texts.length > 1) {
-                    console.log(`[SvgShape DEBUG] Multiple texts found in group. Target selected: ${targetTextEl.id()}. Cleaning up zombies...`);
+                    // console.log(`[SvgShape DEBUG] Multiple texts found in group. Target selected: ${targetTextEl.id()}. Cleaning up zombies...`);
                     texts.forEach(t => {
                         if (t !== targetTextEl && t.node.isConnected) {
-                            console.log(`[SvgShape DEBUG] Removed zombie text element: ${t.id()} with text: "${t.text()}"`);
+                            // console.log(`[SvgShape DEBUG] Removed zombie text element: ${t.id()} with text: "${t.text()}"`);
                             t.remove();
                         }
                     });
@@ -366,7 +522,7 @@ class SvgShape {
                 p1 = p1.parent();
             }
             if (!commonParent) {
-                console.warn(`[SvgShape] Detected cross-group association for ${this.el.id()} -> ${textId}. Healing...`);
+                // console.warn(`[SvgShape] Detected cross-group association for ${this.el.id()} -> ${textId}. Healing...`);
                 isBrokenAssociation = true;
                 textEl = null;
             }
@@ -382,7 +538,7 @@ class SvgShape {
                 if (textsInGroup.length > 0) {
                     // Find the best orphan (one not already pointed to by another shape in the SAME group)
                     textEl = textsInGroup[0]; // For now, just take the first one available in group
-                    console.log(`[SvgShape] Healed association by picking existing text in group: ${textEl.id()}`);
+                    // console.log(`[SvgShape] Healed association by picking existing text in group: ${textEl.id()}`);
 
                     // Update attributes to fix the link
                     this.el.attr('data-associated-text-id', textEl.id());
@@ -419,6 +575,58 @@ class SvgShape {
                            && this.el.attr('data-tool-id') !== 'bubble';
 
             if (!isPath) {
+                // [FIX] グループ化する前に元の要素の選択状態を完全にクリアし、二重の選択解除処理による座標吹き飛びを防ぐ
+                if (window.currentEditingSVG) {
+                    window.currentEditingSVG.selectedElements.delete(this.el);
+                }
+                if (typeof window.deselectAll === 'function') {
+                    try { window.deselectAll(); } catch(err){}
+                }
+                if (typeof this.clearSelectionUI === 'function') {
+                    this.clearSelectionUI();
+                }
+                if (typeof this.el.select === 'function') {
+                    try { this.el.select(false); } catch(err){}
+                }
+                if (typeof this.el.resize === 'function') {
+                    try { this.el.resize(false); } catch(err){}
+                }
+                if (typeof this.el.draggable === 'function') {
+                    try { this.el.draggable(false); } catch(err){}
+                }
+
+                // [NEW] グループ解除(Unwrap)時に復元できるよう、1回目の mousedown 時点の transform を data-original-transform に退避
+                const finalSavedTransform = this.el.node ? this.el.node.getAttribute('data-pre-dblclick-transform') : this._preDblClickTransform;
+                if (finalSavedTransform !== null) {
+                    this.el.attr('data-original-transform', finalSavedTransform);
+                } else {
+                    const currentT = this.el.attr('transform');
+                    this.el.attr('data-original-transform', currentT || '');
+                }
+
+                // [NEW] ここでも double-click 中に付いた matrix transform をリセット
+                if (finalSavedTransform !== null) {
+                    if (finalSavedTransform === '') {
+                        this.el.node.removeAttribute('transform');
+                    } else {
+                        this.el.attr('transform', finalSavedTransform);
+                    }
+                }
+
+                // [NEW] グループ化する前に、ドラッグ・リサイズ等のtransformを幾何属性に焼き込み、transform属性をクリアする
+                if (typeof this.bakeTransformation === 'function') {
+                    try {
+                        this.bakeTransformation(true);
+                    } catch (err) {
+                        console.error('[SvgShape] Failed to bake transform before grouping:', err);
+                    }
+                }
+
+                // [NEW] グループ化する前に、元の要素の SvgShape ラッパーを破棄して
+                // draggable やすべてのイベントリスナーを完全にクリーンアップする
+                const oldShape = this;
+                oldShape.destroy();
+
                 // [NEW] 図形とテキストをグループ化
                 const group = this.el.parent().group();
                 group.attr({
@@ -431,9 +639,23 @@ class SvgShape {
                     group.attr('data-annotation', 'true');
                 }
 
-                // 図形の直前にグループを挿入し、図形とテキストを中に入れる
+                // 図形の直前にグループを挿入する
                 this.el.before(group);
-                group.add(this.el);
+
+                // [NEW] 元の図形要素（this.el）に残っている古いイベントリスナー（draggable等）が、
+                // 後続のダブルクリックのイベントバブリングを阻害するのを防ぐため、要素をクローンして置き換える
+                const rawNode = this.el.node;
+                const clonedNode = rawNode.cloneNode(true);
+                this.el.remove();
+
+                const cleanEl = SVG(clonedNode);
+                console.log('[DEBUG-TRANSFORM] Before group.add:', cleanEl.id(), cleanEl.attr('transform'), cleanEl.node.getAttribute('transform'));
+                group.add(cleanEl);
+                console.log('[DEBUG-TRANSFORM] After group.add:', cleanEl.id(), cleanEl.attr('transform'), cleanEl.node.getAttribute('transform'));
+
+                // 属性の再紐付けや後続処理で this.el を参照するため、this.el も更新しておく
+                this.el = cleanEl;
+
                 group.add(textEl);
 
                 // 属性の紐付け
@@ -443,11 +665,16 @@ class SvgShape {
                 textEl.attr('data-associated-shape-id', this.el.id());
                 textEl.attr('data-tool-id', 'text');
 
-                const oldShape = this;
                 if (window.makeInteractive) {
-                    oldShape.destroy();
                     window.makeInteractive(group);
-                    window.selectElement(group, false);
+                    
+                    // [FIX] インラインエディタが起動される場合は、ここで一時的に選択状態にするのをスキップし、
+                    // 直後の deselectAll による resize(false) での座標崩れを完全に防ぐ。
+                    // 選択状態への遷移は、編集完了時（saveAndClose/cancelAndClose）に行われます。
+                    const willStartEditing = !!window.SvgTextEditor;
+                    if (!willStartEditing) {
+                        window.selectElement(group, false);
+                    }
                     
                     const newShape = group.remember('_shapeInstance');
                     if (newShape && typeof newShape.syncStrokeTextScale === 'function') {
@@ -469,7 +696,12 @@ class SvgShape {
                     window.makeInteractive(textEl);
                 }
             }
-            if (window.syncChanges) window.syncChanges();
+            if (window.syncChanges) {
+                if (window.currentEditingSVG && window.currentEditingSVG.syncQueue) {
+                    window.currentEditingSVG.syncQueue.requiresFullSync = true;
+                }
+                window.syncChanges();
+            }
         } else {
         }
 
@@ -504,7 +736,7 @@ class SvgShape {
         }
 
         if (typeof this.el.select === 'function') {
-            console.log(`[SVG Lib Call] ${this.el.id()}.select(`, options, `)`);
+            // console.log(`[SVG Lib Call] ${this.el.id()}.select(`, options, `)`);
             this.el.select(options);
         }
 
@@ -523,7 +755,7 @@ class SvgShape {
         }
 
         if (typeof this.el.resize === 'function') {
-            console.log(`[SVG Lib Call] ${this.el.id()}.resize()`);
+            // console.log(`[SVG Lib Call] ${this.el.id()}.resize()`);
             this.el.resize();
         }
 
@@ -569,6 +801,10 @@ class StandardShape extends SvgShape {
                 if (e.stopPropagation) e.stopPropagation();
                 return;
             }
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = true;
+                if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
+            }
             this._isResizing = true;
             this.handleResizeStart(e);
         });
@@ -609,6 +845,8 @@ class StandardShape extends SvgShape {
                     e.preventDefault();
                     return;
                 }
+                window.currentEditingSVG._isOperationInProgress = true;
+                if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
 
                 // [LOCK GUARD]
                 const isLocked = el.attr('data-locked') === 'true' || el.attr('data-locked') === true;
@@ -622,6 +860,22 @@ class StandardShape extends SvgShape {
                 if (!ev || typeof ev.clientX === 'undefined') return;
                 startDragX = ev.clientX;
                 startDragY = ev.clientY;
+
+                // [FIX] ドラッグ対象の要素（または所属するグループ）が現在未選択の場合、即座に選択状態にする
+                let selectionTarget = el;
+                let p = el.parent();
+                while (p && p.type === 'g' && !p.hasClass('svg-canvas-proxy') && p.node !== el.root().node) {
+                    if (p.remember('_shapeInstance')) {
+                        selectionTarget = p;
+                    }
+                    p = p.parent();
+                }
+
+                const isSelected = window.currentEditingSVG.selectedElements.has(selectionTarget);
+                if (!isSelected) {
+                    const isMulti = ev.shiftKey || ev.ctrlKey;
+                    selectElement(selectionTarget, isMulti);
+                }
 
                 const isCtrl = (window.currentEditingSVG && window.currentEditingSVG.isCtrlPressed) || ev.ctrlKey;
 
@@ -872,8 +1126,19 @@ class StandardShape extends SvgShape {
 
                         root.children().each(function (child) {
                             // [FIX] Strict Exclusion Logic
-                            // 1. Exclude currently dragging/selected elements
-                            if (selectionStates.has(child.node)) return;
+                            // 1. Exclude currently dragging/selected elements and their descendants/ancestors
+                            let isMovingOrRelated = false;
+                            for (const movingNode of selectionStates.keys()) {
+                                const matchDirect = child.node === movingNode;
+                                const matchContains1 = child.node.contains(movingNode);
+                                const matchContains2 = movingNode.contains(child.node);
+                                if (matchDirect || matchContains1 || matchContains2) {
+                                    isMovingOrRelated = true;
+                                    console.log(`[SNAP-EXCLUDE] Excluded child ${child.id()} (${child.node.tagName}) because of movingNode ${movingNode.id || movingNode.tagName}. matchDirect=${matchDirect}, matchContains1=${matchContains1}, matchContains2=${matchContains2}`);
+                                    break;
+                                }
+                            }
+                            if (isMovingOrRelated) return;
 
                             // [NEW] Exclude lines/arrows connected to the current moving set
                             // (Prevents snapping to objects that are moving with us)
@@ -927,6 +1192,7 @@ class StandardShape extends SvgShape {
                                     const idLabel = child.attr('id') || tagName;
                                     box.label = toolId ? `${toolId}#${idLabel}` : idLabel;
                                     targetBoxes.push(box);
+                                    console.log(`[SNAP-TARGET] Added target box: ${box.label}, x=${box.x}, y=${box.y}, w=${box.width}, h=${box.height}`);
                                 }
                             } catch (err) { }
                         });
@@ -934,7 +1200,7 @@ class StandardShape extends SvgShape {
                         // [NEW] Enabled debug log for verification
                         if (targetBoxes.length > 0) {
                             const targets = targetBoxes.map(b => b.label || 'Canvas');
-                            console.log(`[SNAP] Potential targets (${targetBoxes.length}):`, targets);
+                            // console.log(`[SNAP] Potential targets (${targetBoxes.length}):`, targets);
                         }
 
                         // 3. Find snap
@@ -1040,9 +1306,12 @@ class StandardShape extends SvgShape {
             el.off('dragend');
             el.on('dragend', (e) => {
                 const shape = el.remember('_shapeInstance');
-                if (window.currentEditingSVG) window.currentEditingSVG.hideGuides();
+                if (window.currentEditingSVG) {
+                    window.currentEditingSVG.hideGuides();
+                    window.currentEditingSVG._isOperationInProgress = false;
+                }
                 if (shape && shape._isActuallyMoved) {
-                    syncChanges(true);
+                    syncChanges(true, null, true);
                 }
                 selectionStates.clear();
             });
@@ -1134,7 +1403,7 @@ class StandardShape extends SvgShape {
             return;
         }
 
-        console.log('[RESIZE START] Detail:', e.detail);
+        // console.log('[RESIZE START] Detail:', e.detail);
         const el = this.el;
         const parent = el.parent() || el.root();
 
@@ -1144,7 +1413,15 @@ class StandardShape extends SvgShape {
 
         // [V13] Capture initial state perfectly at the start
         const mStart = el.matrix();
-        const localBBox = el.node.getBBox(); // Untransformed geometry
+        
+        // [FIX] グループ要素(特に shape-text-group)の場合、ネイティブ getBBox() はテキストのはみ出しを含めてしまうため、
+        // オーバーライドされた el.bbox() または背景図形の BBox を優先して使用する
+        let localBBox;
+        if (el.type === 'g' && typeof el.bbox === 'function') {
+            localBBox = el.bbox();
+        } else {
+            localBBox = el.node.getBBox(); // Untransformed geometry
+        }
 
         const { event } = e.detail || {};
         if (!event) return;
@@ -1292,6 +1569,10 @@ class StandardShape extends SvgShape {
             return;
         }
 
+        // [FIX] ベイク処理の前にリサイズ中フラグを降ろすことで、
+        // ベイク内の syncStrokeTextScale() や自動折り返し処理がスキップされずに動作するようにする
+        this._isResizing = false;
+
         try {
             // Bake transformation into geometry attributes
             this.bakeTransformation();
@@ -1324,7 +1605,7 @@ class StandardShape extends SvgShape {
             // グリッドスナップ設定とAltキーの状態でスナップを判定
             const isSnapEnabled = typeof window.SVGUtils !== 'undefined' ? window.SVGUtils.isSnapEnabled(e || window.event) : false;
             
-            console.log('[RESIZE DONE] isSnapEnabled=', isSnapEnabled);
+            // console.log('[RESIZE DONE] isSnapEnabled=', isSnapEnabled);
 
             if (isSnapEnabled && typeof AppState !== 'undefined' && AppState.config && AppState.config.grid) {
                 const elType = this.el.type;
@@ -1426,10 +1707,15 @@ class StandardShape extends SvgShape {
                     snappedX = Math.round(snappedX);
                     snappedY = Math.round(snappedY);
 
-                    console.log('[SNAP DONE] After:', { x: snappedX, y: snappedY, w: snappedW, h: snappedH });
+                    // console.log('[SNAP DONE] After:', { x: snappedX, y: snappedY, w: snappedW, h: snappedH });
+
+                    // 属性を設定する前に、現在の回転角度を取得しておく
+                    const transform = el.transform();
+                    const rotate = transform.rotate || 0;
+                    const isRotated = Math.abs(rotate) > 0.01;
 
                     // 属性を直接設定
-                    console.log('[SNAP] Setting attributes...');
+                    // console.log('[SNAP] Setting attributes...');
                     if (elType === 'g') {
                         // グループの場合は transform scale でスナップを再現（bakeTransformationの前に行うのが理想だが、後ろでも機能する）
                         // 実際には子要素を一括で移動・リサイズする
@@ -1441,6 +1727,13 @@ class StandardShape extends SvgShape {
                             width: snappedW,
                             height: snappedH
                         });
+                        
+                        // [FIX] 回転している場合は、新しい中心座標を基準として回転マトリクスを再構成する
+                        if (isRotated) {
+                            const newCx = snappedX + snappedW / 2;
+                            const newCy = snappedY + snappedH / 2;
+                            el.matrix(new SVG.Matrix().rotate(rotate, newCx, newCy));
+                        }
                     }
 
                     // 設定後の実際の値を確認
@@ -1448,29 +1741,35 @@ class StandardShape extends SvgShape {
                     const actualY = parseFloat(el.attr('y'));
                     const actualW = parseFloat(el.attr('width'));
                     const actualH = parseFloat(el.attr('height'));
-                    console.log('[SNAP] Attributes set to:', { x: actualX, y: actualY, w: actualW, h: actualH });
+                    // console.log('[SNAP] Attributes set to:', { x: actualX, y: actualY, w: actualW, h: actualH });
 
                     // 選択ハンドラを再同期
-                    console.log('[SNAP] Before syncSelectionHandlers...');
+                    // console.log('[SNAP] Before syncSelectionHandlers...');
                     this.syncSelectionHandlers();
-                    console.log('[SNAP] After syncSelectionHandlers, x=', parseFloat(el.attr('x')));
+                    // console.log('[SNAP] After syncSelectionHandlers, x=', parseFloat(el.attr('x')));
                 }
             }
 
             // Sync changes to editor AFTER baking
-            console.log('[SNAP] Before syncChanges, x=', parseFloat(this.el.attr('x')));
-            syncChanges(true);
-            console.log('[SNAP] After syncChanges, x=', parseFloat(this.el.attr('x')));
+            // console.log('[SNAP] Before syncChanges, x=', parseFloat(this.el.attr('x')));
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = false;
+            }
+            syncChanges(true, null, true);
+            // console.log('[SNAP] After syncChanges, x=', parseFloat(this.el.attr('x')));
 
             // Transform Toolbarを更新
             if (window.updateTransformToolbarValues) {
-                console.log('[SNAP] Before updateTransformToolbarValues, x=', parseFloat(this.el.attr('x')));
+                // console.log('[SNAP] Before updateTransformToolbarValues, x=', parseFloat(this.el.attr('x')));
                 window.updateTransformToolbarValues();
-                console.log('[SNAP] After updateTransformToolbarValues, x=', parseFloat(this.el.attr('x')));
+                // console.log('[SNAP] After updateTransformToolbarValues, x=', parseFloat(this.el.attr('x')));
             }
         } catch (err) {
             console.error('[SVG RESIZE DONE] Failed:', err);
         } finally {
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = false;
+            }
             this._resizeState = null;
             this._isResizing = false;
         }
@@ -1719,7 +2018,7 @@ class StandardShape extends SvgShape {
             const side = rs.side;
             let isHOnly = /^(l|r|w|e)$/.test(side);
             let isVOnly = /^(t|b|n|s)$/.test(side);
-            console.log(`[RESIZE START] Side:${side} isHOnly:${isHOnly} isVOnly:${isVOnly}`);
+            // console.log(`[RESIZE START] Side:${side} isHOnly:${isHOnly} isVOnly:${isVOnly}`);
 
             if (!isVOnly) {
                 if (rs.startMouseLocal.x > cx) rs.localPivotX = rs.localBBox.x;
@@ -1750,7 +2049,7 @@ class StandardShape extends SvgShape {
 
         // [DEBUG LOG]
         const currentRBox = el.rbox(el.root());
-        console.log(`[RESIZE DEBUG] Handle:${rs.side || 'corner'} RatioX:${ratioX.toFixed(3)} RatioY:${ratioY.toFixed(3)} Vis:${currentRBox.w.toFixed(0)}x${currentRBox.h.toFixed(0)} Snap:${isSnapEnabled}`);
+        // console.log(`[RESIZE DEBUG] Handle:${rs.side || 'corner'} RatioX:${ratioX.toFixed(3)} RatioY:${ratioY.toFixed(3)} Vis:${currentRBox.w.toFixed(0)}x${currentRBox.h.toFixed(0)} Snap:${isSnapEnabled}`);
 
         // --- 4. Constraints / Shift Key ---
         if (isShift && rs.localPivotX !== undefined && rs.localPivotY !== undefined) {
@@ -1817,6 +2116,13 @@ class StandardShape extends SvgShape {
         // [NEW] 線の太さとテキストのスケール維持を適用
         this.syncStrokeTextScale();
         
+        // リサイズ中の図形座標とマウス座標のログ出力
+        try {
+            const shapeBox = el.bbox().transform(finalMatrix);
+            const mouseCanvas = parent.point(event.clientX, event.clientY);
+            console.log(`[RESIZE LOG] LeftTop: (${shapeBox.x.toFixed(2)}, ${shapeBox.y.toFixed(2)}) | RightBottom: (${shapeBox.x2.toFixed(2)}, ${shapeBox.y2.toFixed(2)}) | Mouse: (${mouseCanvas.x.toFixed(2)}, ${mouseCanvas.y.toFixed(2)})`);
+        } catch (err) {}
+        
         rs.frameCounter++;
     }
 
@@ -1862,20 +2168,24 @@ class StandardShape extends SvgShape {
                 // If rotated, it's safer to keep the rotation in the matrix.
                 // We'll bake Scale and Translation, but keep Rotation.
 
-                // Final visual center
-                const cx = box.cx;
-                const cy = box.cy;
+                // Use local coordinate system center (bbox) to prevent coordinate explosion
+                const localBox = el.bbox();
+                const cx = localBox.cx;
+                const cy = localBox.cy;
 
-                // 1. Temporarily remove rotation from world visualization (mathematically)
-                // [FIX] 親座標系での逆回転を左から乗算することで、正しく平行移動とスケールのみを抽出する
-                const mNoRot = new SVG.Matrix().rotate(-rotate, cx, cy).multiply(matrix);
+                // 1. Temporarily remove rotation in local space (multiply on the right)
+                const mNoRot = matrix.multiply(new SVG.Matrix().rotate(-rotate, cx, cy));
 
                 // 2. Update attributes using the non-rotated matrix (for Scale/Translation)
                 const success = this._updateAttributesUsingMatrix(mNoRot);
 
                 // 3. Re-apply rotation only to matrix if successful
+                // [FIX] 成功した場合、更新後の最新のローカル座標中心を基準として回転行列を再適用
                 if (success) {
-                    el.matrix(new SVG.Matrix().rotate(rotate, cx, cy));
+                    const newLocalBox = el.bbox();
+                    const newCx = newLocalBox.cx;
+                    const newCy = newLocalBox.cy;
+                    el.matrix(new SVG.Matrix().rotate(rotate, newCx, newCy));
                 }
             } else {
                 // Not rotated: Simple bake everything and clear matrix
@@ -1897,8 +2207,39 @@ class StandardShape extends SvgShape {
         this.syncStrokeTextScale();
 
         // [NEW] 焼き込み後、Shape with Text であれば、テキストの自動折り返し処理を再適用
-        if (this.el && this.el.type === 'g' && this.el.attr('data-tool-id') === 'shape-text-group') {
-            this.applyTextWrap();
+        let targetGroup = null;
+        if (this.el) {
+            if (this.el.type === 'g' && this.el.attr('data-tool-id') === 'shape-text-group') {
+                targetGroup = this.el;
+            } else {
+                const parent = this.el.parent();
+                if (parent && parent.type === 'g' && parent.attr('data-tool-id') === 'shape-text-group') {
+                    targetGroup = parent;
+                }
+            }
+        }
+        console.log('[DEBUG bake] targetGroup found:', targetGroup ? targetGroup.id() : 'none');
+        if (targetGroup) {
+            let parentShape = targetGroup.remember('_shapeInstance');
+            console.log('[DEBUG bake] parentShape from remember:', parentShape ? parentShape.el.id() : 'none');
+            if (!parentShape) {
+                // [FIX] フォールバック: 子要素 (rect や text) に紐付いている shapeInstance を探す
+                targetGroup.children().forEach(ch => {
+                    if (!parentShape) {
+                        const inst = ch.remember('_shapeInstance');
+                        console.log('[DEBUG bake] child inst:', ch.id(), inst ? 'yes' : 'no');
+                        if (inst && typeof inst.applyTextWrap === 'function') {
+                            parentShape = inst;
+                        }
+                    }
+                });
+            }
+            if (parentShape && typeof parentShape.applyTextWrap === 'function') {
+                console.log('[DEBUG bake] calling parentShape.applyTextWrap()');
+                parentShape.applyTextWrap();
+            } else {
+                console.log('[DEBUG bake] parentShape not found or applyTextWrap not a function');
+            }
         }
     }
 
@@ -1906,7 +2247,11 @@ class StandardShape extends SvgShape {
      * [NEW] テキストを指定された幅と高さに基づいて折り返し・省略処理した行の配列を強制的に適用します
      */
     applyTextWrap() {
-        if (!this.el || this.el.type !== 'g' || this.el.attr('data-tool-id') !== 'shape-text-group') return;
+        console.log('[DEBUG applyTextWrap] start for', this.el ? this.el.id() : 'null');
+        if (!this.el || this.el.type !== 'g' || this.el.attr('data-tool-id') !== 'shape-text-group') {
+            console.log('[DEBUG applyTextWrap] invalid element type or tool id', this.el ? this.el.type : 'null', this.el ? this.el.attr('data-tool-id') : 'null');
+            return;
+        }
         
         let textEl = null;
         this.el.children().forEach(ch => {
@@ -1925,7 +2270,10 @@ class StandardShape extends SvgShape {
             }
         });
         
-        if (!textEl || !bgShape || typeof window.SVGUtils === 'undefined' || typeof window.SVGUtils.wrapAndTruncateText !== 'function') return;
+        if (!textEl || !bgShape || typeof window.SVGUtils === 'undefined' || typeof window.SVGUtils.wrapAndTruncateText !== 'function') {
+            console.log('[DEBUG applyTextWrap] missing textEl, bgShape or SVGUtils', !!textEl, !!bgShape, typeof window.SVGUtils, typeof (window.SVGUtils ? window.SVGUtils.wrapAndTruncateText : null));
+            return;
+        }
 
         const origAttr = textEl.attr('data-original-text');
         let cleanText = '';
@@ -1940,8 +2288,12 @@ class StandardShape extends SvgShape {
             }
             textEl.attr('data-original-text', cleanText);
         }
+        console.log('[DEBUG applyTextWrap] cleanText:', cleanText);
         
-        if (cleanText.trim() === '') return;
+        if (cleanText.trim() === '') {
+            console.log('[DEBUG applyTextWrap] cleanText is empty');
+            return;
+        }
 
         const rbox = bgShape.bbox();
         // ツールバー等で適用された見た目のスケールと実測を合わせるため、退避した本来の baseFs があれば優先
@@ -1965,6 +2317,8 @@ class StandardShape extends SvgShape {
         // もし wrapAndTruncateText でさらに 1.1 が掛けられると折り返されてしまう。
         let targetW = (!isNaN(rawW) && rawW > 0) ? rawW : rbox.width;
         let targetH = (!isNaN(rawH) && rawH > 0) ? rawH : rbox.height;
+        console.log('[DEBUG applyTextWrap] rawW:', rawW, 'rawH:', rawH, 'rbox.width:', rbox.width, 'rbox.height:', rbox.height);
+        console.log('[DEBUG applyTextWrap] targetW:', targetW, 'targetH:', targetH);
 
         if (bgShape.attr('data-tool-id') === 'bubble') {
             const bw = parseFloat(bgShape.attr('data-width'));
@@ -2006,6 +2360,7 @@ class StandardShape extends SvgShape {
         } else {
             lines = window.SVGUtils.wrapAndTruncateText(cleanText, canvasSafeAreaW, targetH, fontOpts, spacingVal);
         }
+        console.log('[DEBUG applyTextWrap] calculated lines:', lines);
         // ▲ここまで追加・変更
         
         const curX = parseFloat(textEl.attr('x')) || 0;
@@ -2013,6 +2368,7 @@ class StandardShape extends SvgShape {
         const baseline = textEl.css('dominant-baseline') || textEl.attr('dominant-baseline') || 'central';
 
         textEl.clear();
+        textEl.attr('pointer-events', 'none'); // [NEW] text要素自体の pointer-events を none に設定
         textEl.text(add => {
             lines.forEach((line, i) => {
                 const safeLine = line === '' ? '\u200B' : line;
@@ -2023,7 +2379,8 @@ class StandardShape extends SvgShape {
                     // ▼ 相対の dy ではなく、絶対座標の y で指定する
                     'y': (parseFloat(textEl.attr('y')) || 0) + (i * appliedFontSize * spacingVal),
                     'text-anchor': anchor,
-                    'dominant-baseline': baseline
+                    'dominant-baseline': baseline,
+                    'pointer-events': 'none' // [NEW] 各 tspan の pointer-events も none に設定
                 });
             });
         });
@@ -2328,13 +2685,13 @@ class StandardShape extends SvgShape {
 
         // [DEBUG] CSS変数とクラスの適用状況を確認
         const currentZoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
-        console.log(`[SvgShape DEBUG] applySelectionUI for ${this.el.id()}, Current Zoom: ${currentZoom}%`);
+        // console.log(`[SvgShape DEBUG] applySelectionUI for ${this.el.id()}, Current Zoom: ${currentZoom}%`);
 
         if (this.el.root()) {
             const container = this.el.root().node.parentNode;
             if (container) {
-                console.log(`[SvgShape DEBUG] Container classes: ${container.className}`);
-                console.log(`[SvgShape DEBUG] Container --svg-zoom: ${container.style.getPropertyValue('--svg-zoom')}`);
+                // console.log(`[SvgShape DEBUG] Container classes: ${container.className}`);
+                // console.log(`[SvgShape DEBUG] Container --svg-zoom: ${container.style.getPropertyValue('--svg-zoom')}`);
             }
         }
 
@@ -3195,13 +3552,13 @@ class ArrowShape extends StandardShape {
 class PolylineShape extends StandardShape {
     init() {
         super.init();
-        console.log('[PolylineShape] init', this.el.id());
+        // console.log('[PolylineShape] init', this.el.id());
         // 線自体にはコネクタポイントを表示しない
         this.el.attr('data-no-connector', 'true');
     }
 
     applySelectionUI() {
-        console.log('[PolylineShape] applySelectionUI', this.el.id());
+        // console.log('[PolylineShape] applySelectionUI', this.el.id());
         // 1. 標準の選択・リサイズ・回転UIを適用
         super.applySelectionUI();
 
@@ -3226,17 +3583,17 @@ function wrapShape(el) {
         arrowToolId === 'straight_arrow' || arrowToolId === 'curved_arrow' || arrowToolId === 'uturn_arrow' ||
         arrowToolId === 'straight_both_arrow' || arrowToolId === 'curved_both_arrow' || arrowToolId === 'uturn_both_arrow'
     )) {
-        console.log('[wrapShape] Mapping', id, 'to ArrowShape');
+        // console.log('[wrapShape] Mapping', id, 'to ArrowShape');
         return new ArrowShape(el);
     }
 
     // [NEW] Use PolylineShape for line/polyline elements
     if (tagName === 'polyline' || tagName === 'line' || (tagName === 'path' && ['polyline', 'line', 'arrow', 'freehand', 'polyline_arrow'].includes(el.attr('data-tool-id')))) {
-        console.log('[wrapShape] Mapping', id, tagName, 'to PolylineShape');
+        // console.log('[wrapShape] Mapping', id, tagName, 'to PolylineShape');
         return new PolylineShape(el);
     }
 
-    console.log('[wrapShape] Mapping', id, tagName, 'to StandardShape');
+    // console.log('[wrapShape] Mapping', id, tagName, 'to StandardShape');
     return new StandardShape(el);
 }
 

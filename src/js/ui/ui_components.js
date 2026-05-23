@@ -1624,17 +1624,17 @@ function initTaskListToggle() {
 
         // [NEW] Unicode checkbox replacement logic
         if (AppState.config && AppState.config.replaceUnicodeCheckboxes) {
-            console.log('[Unicode Checkbox] Logic triggered. replaceUnicodeCheckboxes is true');
+            // console.log('[Unicode Checkbox] Logic triggered. replaceUnicodeCheckboxes is true');
             let range;
             if (document.caretRangeFromPoint) {
                 range = document.caretRangeFromPoint(e.clientX, e.clientY);
-                console.log('[Unicode Checkbox] caretRangeFromPoint result:', range);
+                // console.log('[Unicode Checkbox] caretRangeFromPoint result:', range);
             }
             if (range && range.startContainer && range.startContainer.nodeType === Node.TEXT_NODE) {
                 const text = range.startContainer.textContent;
                 const offset = range.startOffset;
                 const checkboxes = ['☐', '☑', '☒'];
-                console.log(`[Unicode Checkbox] Clicked text node. text: "${text}", offset: ${offset}`);
+                // console.log(`[Unicode Checkbox] Clicked text node. text: "${text}", offset: ${offset}`);
                 
                 let targetChar = null;
                 let targetOffset = -1;
@@ -1648,11 +1648,11 @@ function initTaskListToggle() {
                     targetOffset = offset - 1;
                 }
                 
-                console.log(`[Unicode Checkbox] Identified character: ${targetChar} at offset: ${targetOffset}`);
+                // console.log(`[Unicode Checkbox] Identified character: ${targetChar} at offset: ${targetOffset}`);
 
                 if (targetChar) {
                     const blockEl = range.startContainer.parentElement.closest('[data-line]');
-                    console.log(`[Unicode Checkbox] Closest data-line element:`, blockEl);
+                    // console.log(`[Unicode Checkbox] Closest data-line element:`, blockEl);
                     if (blockEl) {
                         // Find how many checkbox characters exist before this one in the DOM block
                         let nth = 0;
@@ -1673,13 +1673,13 @@ function initTaskListToggle() {
                             }
                         }
                         
-                        console.log(`[Unicode Checkbox] Character is the ${nth}-th occurrence in block. found: ${found}`);
+                        // console.log(`[Unicode Checkbox] Character is the ${nth}-th occurrence in block. found: ${found}`);
 
                         if (found) {
                             const lineNum = parseInt(blockEl.getAttribute('data-line'), 10);
                             const lineEndAttr = blockEl.getAttribute('data-line-end');
                             const lineEndNum = lineEndAttr ? parseInt(lineEndAttr, 10) : lineNum;
-                            console.log(`[Unicode Checkbox] Target line number: ${lineNum} to ${lineEndNum}`);
+                            // console.log(`[Unicode Checkbox] Target line number: ${lineNum} to ${lineEndNum}`);
                             if (!isNaN(lineNum)) {
                                 let replacement = '';
                                 if (targetChar === '☐') replacement = '☑';
@@ -1745,7 +1745,7 @@ function initTaskListToggle() {
                                         e.stopPropagation();
                                     }
                                 } else {
-                                    console.log(`[Unicode Checkbox] Match not found in markdown source. count=${count}, nth=${nth}`);
+                                    // console.log(`[Unicode Checkbox] Match not found in markdown source. count=${count}, nth=${nth}`);
                                 }
                             }
                         }

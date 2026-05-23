@@ -241,7 +241,7 @@ class SVGLineToolbar extends SVGToolbarBase {
             target = found || first;
         }
 
-        console.log(`[SVGLineToolbar] ----- updateUI called (Target: ${target.type}, ID: ${target.id()}) -----`);
+        // console.log(`[SVGLineToolbar] ----- updateUI called (Target: ${target.type}, ID: ${target.id()}) -----`);
 
         // CSSクラスやインラインスタイルによる指定を漏れなく取得するための関数
         const getEffectiveProp = (propName) => {
@@ -258,7 +258,7 @@ class SVGLineToolbar extends SVGToolbarBase {
                 val = computed.getPropertyValue(propName);
                 source = 'computed style';
             }
-            console.log(`[SVGLineToolbar] EffectiveProp [${propName}]: "${val}" (Source: ${source})`);
+            // console.log(`[SVGLineToolbar] EffectiveProp [${propName}]: "${val}" (Source: ${source})`);
             return val;
         };
 

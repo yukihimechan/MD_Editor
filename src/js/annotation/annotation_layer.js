@@ -113,7 +113,7 @@ window.AnnotationLayer = (function () {
                 if (pane && pane.contains(e.target)) {
                     // SVGレイヤー自身がクリックされていない（素通りしている）ことを確認
                     if (e.target !== _svgEl && !e.target.closest('.annotation-layer')) {
-                        console.log(`[AnnotationLayer Debug] 注釈オフ: クリックがプレビュー画面(${e.target.tagName.toLowerCase()})へ素通りしました`);
+                        // console.log(`[AnnotationLayer Debug] 注釈オフ: クリックがプレビュー画面(${e.target.tagName.toLowerCase()})へ素通りしました`);
                     }
                 }
             }

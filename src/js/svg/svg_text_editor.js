@@ -24,12 +24,21 @@ const SvgTextEditor = {
     },
 
     startEditing: function (el, forceSvgPt) {
+        // [FIX] 高速連打（200ms以内）による重複起動を防ぐガード
+        if (this.lastStartTime && (Date.now() - this.lastStartTime < 200)) {
+            // console.warn('[SvgTextEditor] Double-activation blocked');
+            return;
+        }
+        this.lastStartTime = Date.now();
+
         if (this.activeEditor) {
             this.saveAndClose();
         }
 
+        // [NEW] インラインエディタ起動時のドラッグ状態強制解除
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+
         this.targetElement = el;
-        this.lastStartTime = Date.now(); // [NEW] Track start time to prevent rapid-fire events
 
         // [FIX] Consistently delayed start to allow browser layout to settle.
         // Even with forceSvgPt, a small delay helps stability.
@@ -62,15 +71,15 @@ const SvgTextEditor = {
             }
         }
 
-        console.group(`[SvgTextEditor] Starting edit for element: ${el.id()}`);
-        console.log(`1. SVGエディタ上の構造 (innerHTML):`, el.node.innerHTML);
-        console.log(`2. SVGエディタ上のテキスト (node.textContent):`, el.node.textContent);
-        console.log(`3. SVG.jsの内部キャッシュ (el.text()):`, el.text());
-        console.log(`4. インラインエディタで表示する文字列:\n${textContent}`);
-        if (el.attr('data-original-id') || el.attr('data-associated-text-id')) {
-            console.log(`5. 関連テキストID: data-original-id=${el.attr('data-original-id')}, data-associated-text-id=${el.attr('data-associated-text-id')}`);
-        }
-        console.groupEnd();
+        // console.group(`[SvgTextEditor] Starting edit for element: ${el.id()}`);
+        // console.log(`1. SVGエディタ上の構造 (innerHTML):`, el.node.innerHTML);
+        // console.log(`2. SVGエディタ上のテキスト (node.textContent):`, el.node.textContent);
+        // console.log(`3. SVG.jsの内部キャッシュ (el.text()):`, el.text());
+        // console.log(`4. インラインエディタで表示する文字列:\n${textContent}`);
+        // if (el.attr('data-original-id') || el.attr('data-associated-text-id')) {
+        //     console.log(`5. 関連テキストID: data-original-id=${el.attr('data-original-id')}, data-associated-text-id=${el.attr('data-associated-text-id')}`);
+        // }
+        // console.groupEnd();
 
         const root = el.root();
         const rootCtm = (root && root.node) ? root.node.getScreenCTM() : null;
@@ -134,8 +143,35 @@ const SvgTextEditor = {
         // Hide original element
         el.hide();
 
-        console.log(`[SvgTextEditor] インラインエディタ起動 - SVG要素BBox: `, finalBbox);
-        console.log(`[SvgTextEditor] インラインエディタ起動 - 画面配置座標 (画面左上): x=${screenPt.x}, y=${screenPt.y}, baseFontSize=${baseFontSize}`);
+        // [DEBUG LOG ADDITION] インラインエディタ起動時の背景図形状態をダンプ
+        try {
+            const parent = el.parent();
+            if (parent && parent.attr('data-tool-id') === 'shape-text-group') {
+                parent.children().forEach(ch => {
+                    const tagName = ch.node ? ch.node.tagName.toLowerCase() : '';
+                    if (tagName !== 'text' && !ch.hasClass('svg-interaction-hitarea')) {
+                        console.group(`[SvgTextEditor Debug] Background Shape State during editing: ${ch.id()}`);
+                        console.log('tagName:', tagName);
+                        console.log('attributes:', Array.from(ch.node.attributes).map(a => `${a.name}="${a.value}"`));
+                        if (window.getComputedStyle) {
+                            const cs = window.getComputedStyle(ch.node);
+                            console.log('computedStyle.display:', cs.display);
+                            console.log('computedStyle.visibility:', cs.visibility);
+                            console.log('computedStyle.opacity:', cs.opacity);
+                            console.log('computedStyle.fill:', cs.fill);
+                            console.log('computedStyle.stroke:', cs.stroke);
+                            console.log('computedStyle.strokeWidth:', cs.strokeWidth);
+                        }
+                        console.groupEnd();
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('[SvgTextEditor Debug] Error dumping background shape state:', e);
+        }
+
+        // console.log(`[SvgTextEditor] インラインエディタ起動 - SVG要素BBox: `, finalBbox);
+        // console.log(`[SvgTextEditor] インラインエディタ起動 - 画面配置座標 (画面左上): x=${screenPt.x}, y=${screenPt.y}, baseFontSize=${baseFontSize}`);
 
         const isActuallyEmpty = textContent.trim() === '';
         this._originalText = textContent;
@@ -245,9 +281,16 @@ const SvgTextEditor = {
         }
 
         this.activeEditor = editor;
+        this._isCommittingClick = false; // 確定イベントブロックフラグをリセット
         this.onPointerDown = this.handlePointerDown.bind(this);
+        this.onMouseDown = this.handleMouseDown.bind(this);
+        this.onMouseUp = this.handleMouseUp.bind(this);
+        this.onClick = this.handleClick.bind(this);
         this.onKeyDown = this.handleKeyDown.bind(this);
         document.addEventListener('pointerdown', this.onPointerDown, true);
+        document.addEventListener('mousedown', this.onMouseDown, true);
+        document.addEventListener('mouseup', this.onMouseUp, true);
+        document.addEventListener('click', this.onClick, true);
         editor.addEventListener('keydown', this.onKeyDown);
 
         // [FIX] インライン編集中はSVGキャンバスのズーム/パンを無効化する
@@ -269,29 +312,64 @@ const SvgTextEditor = {
     saveAndClose: function (skipSelect = false) {
         if (!this.activeEditor || !this.targetElement) return;
 
+        // [FIX] 確定操作に伴い発生している可能性があるドラッグ状態を強制終了する
+        // ドラッグ移動量が0になるよう、現在のクリックイベントのマウス座標(clientX/clientY)を引き継ぐ。
+        const ev = window.event;
+        window.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true,
+            clientX: ev ? ev.clientX : 0,
+            clientY: ev ? ev.clientY : 0
+        }));
+
         const newText = this.activeEditor.innerText || '';
+        console.log('[SvgTextEditor] saveAndClose newText:', JSON.stringify(newText));
         let lines = newText.split('\n');
         const isActuallyEmpty = newText.trim() === '';
 
-        console.log('[SvgTextEditor] saveAndClose called', {
-            targetId: this.targetElement.id(),
-            skipSelect: skipSelect,
-            newText: newText
-        });
-
         if (isActuallyEmpty) {
+            // [FIX] グループ解除(Unwrap)や要素削除の前に、すべての選択状態を完全にクリアする。
+            // これにより、親要素の変更時に選択/リサイズプラグインが不正な座標計算(絶対座標の焼き込み)を行うのを完全に防止する。
+            if (window.deselectAll) {
+                try { window.deselectAll(); } catch(err){}
+            }
+
             const target = this.targetElement;
             const parent = target.parent();
             const group = (parent && parent.attr && parent.attr('data-tool-id') === 'shape-text-group') ? parent : null;
 
             if (group) {
                 let shape = null;
-                const childrenList = group.children();
-                for (let i = 0; i < childrenList.length; i++) {
-                    const c = childrenList[i];
-                    if (c.type !== 'text' && !c.hasClass('svg-interaction-hitarea') && !c.hasClass('svg-select-handle')) { shape = c; break; }
+                // 1. 紐付けられたIDから元の図形を直接特定する（最も確実）
+                const assocShapeId = target.attr('data-associated-shape-id');
+                if (assocShapeId) {
+                    shape = group.findOne('#' + assocShapeId);
                 }
+
+                // 2. IDで見つからなかった場合のフォールバック
+                if (!shape) {
+                    const childrenList = group.children();
+                    for (let i = 0; i < childrenList.length; i++) {
+                        const c = childrenList[i];
+                        const toolId = c.attr('data-tool-id');
+                        if (c.type !== 'text' && 
+                            !c.hasClass('svg-interaction-hitarea') && 
+                            !c.hasClass('svg-select-handle') &&
+                            !c.hasClass('svg_select_group') &&
+                            !c.hasClass('svg-select-group') &&
+                            !c.hasClass('svg_select_shape') &&
+                            !c.hasClass('svg-select-shape') &&
+                            toolId !== 'text') { 
+                            shape = c; 
+                            break; 
+                        }
+                    }
+                }
+
                 if (shape) {
+                    shape.node.removeAttribute('transform');
+                    shape.node.removeAttribute('data-original-transform');
+                    shape.node.removeAttribute('data-pre-dblclick-transform');
+
                     group.before(shape);
                     group.remove();
                     if (window.makeInteractive) window.makeInteractive(shape);
@@ -309,6 +387,9 @@ const SvgTextEditor = {
                 window.deselectAll();
             }
             if (window.syncChanges) {
+                if (window.currentEditingSVG && window.currentEditingSVG.syncQueue) {
+                    window.currentEditingSVG.syncQueue.requiresFullSync = true;
+                }
                 window.syncChanges();
             }
             this.cleanup();
@@ -364,7 +445,7 @@ const SvgTextEditor = {
         const anchor = this.targetElement.attr('text-anchor') || 'start';
         const baseline = this.targetElement.attr('dominant-baseline') || 'alphabetic';
 
-        console.log(`[SvgTextEditor] テキスト配置確定 - 座標: x=${curX}, y=${curY}, baseline=${baseline}, fontSize=${finalFontSize}`);
+        // console.log(`[SvgTextEditor] テキスト配置確定 - 座標: x=${curX}, y=${curY}, baseline=${baseline}, fontSize=${finalFontSize}`);
 
         // Apply flattened coordinates and reset transform (keep only rotation)
         this.targetElement.attr({
@@ -413,6 +494,11 @@ const SvgTextEditor = {
                     isAnnotation = true;
                 }
             }
+        }
+
+        if (bgShape && bgShape.node) {
+            bgShape.node.removeAttribute('data-original-transform');
+            bgShape.node.removeAttribute('data-pre-dblclick-transform');
         }
             
         if (bgShape && typeof window.SVGUtils !== 'undefined') {
@@ -542,7 +628,16 @@ const SvgTextEditor = {
 
     cancelAndClose: function () {
         if (!this.activeEditor || !this.targetElement) return;
-        console.log('[SvgTextEditor] cancelAndClose called');
+        // console.log('[SvgTextEditor] cancelAndClose called');
+
+        // [FIX] キャンセル操作に伴い発生している可能性があるドラッグ状態を強制終了する
+        // ドラッグ移動量が0になるよう、現在のクリックイベントのマウス座標(clientX/clientY)を引き継ぐ。
+        const ev = window.event;
+        window.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true,
+            clientX: ev ? ev.clientX : 0,
+            clientY: ev ? ev.clientY : 0
+        }));
 
         if ((this._originalText || '').trim() === '') {
             const target = this.targetElement;
@@ -556,6 +651,10 @@ const SvgTextEditor = {
                     if (c.type !== 'text' && !c.hasClass('svg-interaction-hitarea') && !c.hasClass('svg-select-handle')) { shape = c; break; }
                 }
                 if (shape) {
+                    shape.node.removeAttribute('transform');
+                    shape.node.removeAttribute('data-original-transform');
+                    shape.node.removeAttribute('data-pre-dblclick-transform');
+
                     group.before(shape);
                     group.remove();
                     if (window.makeInteractive) window.makeInteractive(shape);
@@ -567,7 +666,12 @@ const SvgTextEditor = {
                 target.remove();
             }
             if (window.deselectAll && window.currentEditingSVG && !group) window.deselectAll();
-            if (window.syncChanges) window.syncChanges();
+             if (window.syncChanges) {
+                if (window.currentEditingSVG && window.currentEditingSVG.syncQueue) {
+                    window.currentEditingSVG.syncQueue.requiresFullSync = true;
+                }
+                window.syncChanges();
+            }
             if (window.AnnotationCommentPanel && typeof window.AnnotationCommentPanel.refresh === 'function') {
                 window.AnnotationCommentPanel.refresh();
             }
@@ -589,24 +693,47 @@ const SvgTextEditor = {
     },
 
     cleanup: function () {
-        console.log('[SvgTextEditor] cleanup called');
+        // console.log('[SvgTextEditor] cleanup called');
         if (this.activeEditor) {
-            document.removeEventListener('pointerdown', this.onPointerDown, true);
-            this.activeEditor.removeEventListener('keydown', this.onKeyDown);
-            this.activeEditor.remove();
+            const editor = this.activeEditor;
+            const onPointerDown = this.onPointerDown;
+            const onMouseDown = this.onMouseDown;
+            const onMouseUp = this.onMouseUp;
+            const onClick = this.onClick;
+            const onKeyDown = this.onKeyDown;
+            const onWheelBlock = this.onWheelBlock;
+
+            // エディタDOMは即座に削除し、多重確定を防ぐために状態も即座にクリアする
+            editor.removeEventListener('keydown', onKeyDown);
+            editor.remove();
             this.activeEditor = null;
-        }
+            this.targetElement = null;
 
-        // [FIX] インライン編集中に登録したズーム/パンブロックリスナーを解除
-        if (this.onWheelBlock) {
-            document.removeEventListener('wheel', this.onWheelBlock, { capture: true, passive: false });
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG.isInlineEditing = false;
+            }
+
+            // 確定クリックの後続イベント（mousedown, mouseup, click）を確実にブロックし終わるまで、
+            // イベントリスナーの解除を200ms遅延させる
+            setTimeout(() => {
+                document.removeEventListener('pointerdown', onPointerDown, true);
+                document.removeEventListener('mousedown', onMouseDown, true);
+                document.removeEventListener('mouseup', onMouseUp, true);
+                document.removeEventListener('click', onClick, true);
+                if (onWheelBlock) {
+                    document.removeEventListener('wheel', onWheelBlock, { capture: true, passive: false });
+                }
+            }, 200);
+
+            this.onPointerDown = null;
+            this.onMouseDown = null;
+            this.onMouseUp = null;
+            this.onClick = null;
+            this.onKeyDown = null;
             this.onWheelBlock = null;
+        } else {
+            this.targetElement = null;
         }
-
-        if (window.currentEditingSVG) {
-            window.currentEditingSVG.isInlineEditing = false;
-        }
-        this.targetElement = null;
 
         const container = (window.currentEditingSVG && window.currentEditingSVG.container) ? window.currentEditingSVG.container : document.querySelector('.svg-editor-container');
         if (container) {
@@ -617,15 +744,44 @@ const SvgTextEditor = {
         }
     },
 
+    _isCommittingClick: false,
+
     handlePointerDown: function (e) {
         if (this.activeEditor && !this.activeEditor.contains(e.target)) {
             e.stopPropagation();
+            e.preventDefault();
+            this._isCommittingClick = true;
             this.saveAndClose();
         }
     },
 
+    handleMouseDown: function (e) {
+        if (this._isCommittingClick || (this.activeEditor && !this.activeEditor.contains(e.target))) {
+            e.stopPropagation();
+            e.preventDefault();
+            if (!this._isCommittingClick) {
+                this._isCommittingClick = true;
+                this.saveAndClose();
+            }
+        }
+    },
+
+    handleMouseUp: function (e) {
+        if (this._isCommittingClick) {
+            e.stopPropagation();
+            e.preventDefault();
+        }
+    },
+
+    handleClick: function (e) {
+        if (this._isCommittingClick) {
+            e.stopPropagation();
+            e.preventDefault();
+        }
+    },
+
     handleKeyDown: function (e) {
-        console.log(`[SvgTextEditor] handleKeyDown: key=${e.key}, code=${e.code}, ctrl=${e.ctrlKey}, isComposing=${e.isComposing}`);
+        // console.log(`[SvgTextEditor] handleKeyDown: key=${e.key}, code=${e.code}, ctrl=${e.ctrlKey}, isComposing=${e.isComposing}`);
 
         if (e.key === 'Escape') {
             e.preventDefault();
@@ -686,7 +842,7 @@ const SvgTextEditor = {
 };
 
 window.addEventListener('blur', () => {
-    console.log(`[SvgTextEditor FOCUS] Window BLUR! Active element: ${document.activeElement ? document.activeElement.tagName + '#' + document.activeElement.id : 'null'}`);
+    // console.log(`[SvgTextEditor FOCUS] Window BLUR! Active element: ${document.activeElement ? document.activeElement.tagName + '#' + document.activeElement.id : 'null'}`);
 }, true);
 
 window.SvgTextEditor = SvgTextEditor;

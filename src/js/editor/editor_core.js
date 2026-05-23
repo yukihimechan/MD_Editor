@@ -710,7 +710,8 @@ function initEditor() {
             // [NEW] カーソル移動時にプレビューのフォーカス枠を追従させる（エディタ→プレビュー連動）
             // プレビュー側で「インライン編集中」の時はスキップして干渉を防ぐ（青い破線枠だけなら同期可能なのでスキップしない）
             if (update.selectionSet && !window._previewFocusingSuppressed) {
-                const isEditingPreview = typeof PreviewInlineEdit !== 'undefined' && PreviewInlineEdit.isEditing;
+                const isEditingPreview = typeof PreviewInlineEdit !== 'undefined' && 
+                    (PreviewInlineEdit.isEditing || PreviewInlineEdit.isTransitioning);
                 
                 if (!isEditingPreview) {
                     clearTimeout(window._previewFocusFromEditorTimer);
@@ -808,6 +809,10 @@ function initEditor() {
                     if (typeof window.isInlineEditing === 'function' && window.isInlineEditing()) {
                         return;
                     }
+                    // [NEW] プレビューのインラインテキスト編集中の場合もレンダリングをスキップする
+                    if (typeof PreviewInlineEdit !== 'undefined' && PreviewInlineEdit.isEditing) {
+                        return;
+                    }
 
                     // [DISABLED] インラインエディタ編集中のデバウンスチェックを無効化
                     // 貼り付け操作などでスクロールが発生した際に、タイマーが完了する前に
@@ -821,105 +826,6 @@ function initEditor() {
                     await render();
                 }, 120);
 
-                if (typeof updateUndoRedoButtonState === 'function') {
-                    // Use CodeMirror 6 official API if available
-                    if (window.CM6 && typeof window.CM6.undoDepth === 'function' && typeof window.CM6.redoDepth === 'function') {
-                        const uDepth = window.CM6.undoDepth(update.state);
-                        const rDepth = window.CM6.redoDepth(update.state);
-                        const canUndo = uDepth > 0;
-                        const canRedo = rDepth > 0;
-
-                        // console.log(`[UndoRedo] API: Undo=${uDepth}, Redo=${rDepth}`);
-                        updateUndoRedoButtonState(canUndo, canRedo);
-                    } else {
-                        // Fallback: Use heuristic approach
-                        // [Heuristic] Find History State and Determine Undo/Redo Properties
-                        if (!window._historyStateInfo) {
-                            try {
-                                window._historyStateInfo = findHistoryState(update.state);
-                            } catch (e) { console.error('History finding error', e); }
-                        }
-
-                        // Retry if still null
-                        if (!window._historyStateInfo) window._historyStateInfo = findHistoryState(update.state);
-
-                        let canUndo = false;
-                        let canRedo = false;
-
-                        if (window._historyStateInfo) {
-                            const info = window._historyStateInfo;
-                            // Get current object from state using index
-                            const currentObj = update.state.values[info.index];
-
-
-                            if (!currentObj) {
-                                // Invalidated? Reset info
-                                window._historyStateInfo = null;
-                            } else {
-                                // Determine keys if not yet known
-                                if (!info.undoKey) {
-                                    // If counts changed, try to identify
-                                    info.candidates.forEach(k => {
-                                        const len = currentObj[k].length;
-                                        const diff = len - (info.lastCounts[k] || 0);
-                                        info.lastCounts[k] = len;
-
-                                        // If doc changed and NOT undo/redo event, the growing stack is UNDO.
-                                        // But here we rely on basic assumption: usually first array is done(undo), second is undone(redo)?
-                                        // Or just check: if one is growing and we are typing, that's undo.
-                                        if (update.docChanged && !update.transactions.some(tr => tr.isUserEvent('undo') || tr.isUserEvent('redo'))) {
-                                            if (diff > 0) {
-                                                info.undoKey = k;
-                                                // The other is redo
-                                                info.redoKey = info.candidates.find(ck => ck !== k);
-                                            }
-                                        }
-                                    });
-
-                                    // Fallback 2: Check standard property names if not minified
-                                    if (!info.undoKey) {
-                                        if (currentObj.done) { info.undoKey = 'done'; info.redoKey = 'undone'; }
-                                    }
-                                }
-
-                                if (info.undoKey && info.redoKey) {
-                                    // Subtract baseline
-                                    const currentUndoLen = currentObj[info.undoKey].length;
-                                    // Force base to 0 if it was somehow lost but don't reset it from currentUndoLen here
-                                    const base = (info.baseUndoCount !== undefined) ? info.baseUndoCount : 0;
-
-                                    // Reset baseline only if stack becomes completely empty (to recover from errors)
-                                    if (currentUndoLen === 0) info.baseUndoCount = 0;
-
-                                    const undoLen = currentUndoLen - (info.baseUndoCount || 0);
-                                    const redoLen = currentObj[info.redoKey].length;
-                                    canUndo = undoLen > 0;
-                                    canRedo = redoLen > 0;
-
-                                    // console.log(`[UndoRedo] Determine: Undo=${undoLen} (Raw=${currentUndoLen}, Base=${info.baseUndoCount}), Redo=${redoLen}`);
-                                } else {
-                                    // Still learning
-                                    const c1 = currentObj[info.candidates[0]].length;
-                                    const c2 = currentObj[info.candidates[1]].length;
-                                    if (c1 === 0 && c2 === 0) {
-                                        canUndo = false; canRedo = false;
-                                    } else {
-                                        // Ambiguous state
-                                        canUndo = true; canRedo = true;
-                                    }
-                                }
-                            }
-                        } else {
-                            // Fallback if state finding failed
-                            canUndo = true; canRedo = true;
-                            console.warn('[UndoRedo] History State NOT FOUND in this update');
-                        }
-
-                        // console.log(`[UndoRedo] Update Button Request: Undo=${canUndo}, Redo=${canRedo}`);
-                        updateUndoRedoButtonState(canUndo, canRedo);
-                    }
-                }
-
                 // [NEW] Update search results if active
                 if (AppState.searchState && AppState.searchState.query && typeof performSearch === 'function') {
                     // Debounced search update
@@ -927,6 +833,104 @@ function initEditor() {
                     window.searchDebounceTimer = setTimeout(() => {
                         performSearch(true);
                     }, 300);
+                }
+            }
+
+            if (typeof updateUndoRedoButtonState === 'function') {
+                // Use CodeMirror 6 official API if available
+                if (window.CM6 && typeof window.CM6.undoDepth === 'function' && typeof window.CM6.redoDepth === 'function') {
+                    const uDepth = window.CM6.undoDepth(update.state);
+                    const rDepth = window.CM6.redoDepth(update.state);
+                    const canUndo = uDepth > 0;
+                    const canRedo = rDepth > 0;
+
+                    // console.log(`[UndoRedo] API: Undo=${uDepth}, Redo=${rDepth}`);
+                    updateUndoRedoButtonState(canUndo, canRedo);
+                } else {
+                    // Fallback: Use heuristic approach
+                    // [Heuristic] Find History State and Determine Undo/Redo Properties
+                    if (!window._historyStateInfo) {
+                        try {
+                            window._historyStateInfo = findHistoryState(update.state);
+                        } catch (e) { console.error('History finding error', e); }
+                    }
+
+                    // Retry if still null
+                    if (!window._historyStateInfo) window._historyStateInfo = findHistoryState(update.state);
+
+                    let canUndo = false;
+                    let canRedo = false;
+
+                    if (window._historyStateInfo) {
+                        const info = window._historyStateInfo;
+                        // Get current object from state using index
+                        const currentObj = update.state.values[info.index];
+
+                        if (!currentObj) {
+                            // Invalidated? Reset info
+                            window._historyStateInfo = null;
+                        } else {
+                            // Determine keys if not yet known
+                            if (!info.undoKey) {
+                                // If counts changed, try to identify
+                                info.candidates.forEach(k => {
+                                    const len = currentObj[k].length;
+                                    const diff = len - (info.lastCounts[k] || 0);
+                                    info.lastCounts[k] = len;
+
+                                    // If doc changed and NOT undo/redo event, the growing stack is UNDO.
+                                    // But here we rely on basic assumption: usually first array is done(undo), second is undone(redo)?
+                                    // Or just check: if one is growing and we are typing, that's undo.
+                                    if (update.docChanged && !update.transactions.some(tr => tr.isUserEvent('undo') || tr.isUserEvent('redo'))) {
+                                        if (diff > 0) {
+                                            info.undoKey = k;
+                                            // The other is redo
+                                            info.redoKey = info.candidates.find(ck => ck !== k);
+                                        }
+                                    }
+                                });
+
+                                // Fallback 2: Check standard property names if not minified
+                                if (!info.undoKey) {
+                                    if (currentObj.done) { info.undoKey = 'done'; info.redoKey = 'undone'; }
+                                }
+                            }
+
+                            if (info.undoKey && info.redoKey) {
+                                // Subtract baseline
+                                const currentUndoLen = currentObj[info.undoKey].length;
+                                // Force base to 0 if it was somehow lost but don't reset it from currentUndoLen here
+                                const base = (info.baseUndoCount !== undefined) ? info.baseUndoCount : 0;
+
+                                // Reset baseline only if stack becomes completely empty (to recover from errors)
+                                if (currentUndoLen === 0) info.baseUndoCount = 0;
+
+                                const undoLen = currentUndoLen - (info.baseUndoCount || 0);
+                                const redoLen = currentObj[info.redoKey].length;
+                                canUndo = undoLen > 0;
+                                canRedo = redoLen > 0;
+
+                                // console.log(`[UndoRedo] Determine: Undo=${undoLen} (Raw=${currentUndoLen}, Base=${info.baseUndoCount}), Redo=${redoLen}`);
+                            } else {
+                                // Still learning
+                                const c1 = currentObj[info.candidates[0]].length;
+                                const c2 = currentObj[info.candidates[1]].length;
+                                if (c1 === 0 && c2 === 0) {
+                                    canUndo = false; canRedo = false;
+                                } else {
+                                    // Ambiguous state
+                                    canUndo = true; canRedo = true;
+                                }
+                            }
+                        }
+                    } else {
+                        // Fallback if state finding failed
+                        canUndo = true; canRedo = true;
+                        console.warn('[UndoRedo] History State NOT FOUND in this update');
+                    }
+
+                    // console.log(`[UndoRedo] Update Button Request: Undo=${canUndo}, Redo=${canRedo}`);
+                    updateUndoRedoButtonState(canUndo, canRedo);
                 }
             }
 
@@ -1159,11 +1163,11 @@ function initEditor() {
             }
 
             if (startLine === -1 || endLine === -1) {
-                console.warn(`[setSVGSourceHighlights] Block for index ${svgIndex} NOT found.`);
+                // console.warn(`[setSVGSourceHighlights] Block for index ${svgIndex} NOT found.`);
                 return;
             }
 
-            console.log(`[setSVGSourceHighlights] Block Range: Line ${startLine} to ${endLine}`);
+            // console.log(`[setSVGSourceHighlights] Block Range: Line ${startLine} to ${endLine}`);
 
             // Handle empty SVG block (e.g., ```svg immediately followed by ```)
             if (startLine + 1 >= endLine) {
@@ -1264,7 +1268,7 @@ function initEditor() {
                                 // parseError または IDなしの場合は finalPos = tagEnd + 1 のまま（安全フォールバック）
                             } catch (e) {
                                 // 例外時はフォールバック（開きタグのみハイライト）
-                                console.warn('[setSVGSourceHighlights] DOMParser failed, falling back to open-tag-only highlight.', e);
+                                // console.warn('[setSVGSourceHighlights] DOMParser failed, falling back to open-tag-only highlight.', e);
                             }
                         }
                         if (tagStart !== -1 && tagEnd !== -1) {

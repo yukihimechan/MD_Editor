@@ -9,11 +9,22 @@ window._svgListCollapsedState = window._svgListCollapsedState || {};
 // Helper to get element details (handles both SVG.js objects and raw DOM nodes)
 function getSvgListElDetails(el) {
     if (el.node) { // SVG.js object
+        let isVisible = false;
+        if (el.node.isConnected) {
+            try {
+                isVisible = el.visible();
+            } catch (e) {
+                isVisible = el.node.getAttribute('display') !== 'none' && (!el.node.style || el.node.style.display !== 'none');
+            }
+        } else {
+            isVisible = el.node.getAttribute('display') !== 'none' && (!el.node.style || el.node.style.display !== 'none');
+        }
+
         return {
             id: el.id(),
             type: el.type,
             label: el.attr('data-label') || '',
-            visible: el.visible(),
+            visible: isVisible,
             locked: el.attr('data-locked') === 'true',
             hasClass: (c) => el.hasClass(c),
             getAttr: (n) => el.attr(n),
@@ -94,21 +105,19 @@ function isSvgElementSkipped(d) {
 window.buildSvgList = function () {
     if (!DOM.svgListContent) return;
 
-    // Find all SVG blocks in the document
     const svgWrappers = document.querySelectorAll('.svg-view-wrapper');
     if (svgWrappers.length === 0) {
         DOM.svgListContent.innerHTML = `<div class="outline-item" style="opacity:0.5; font-style:italic;" data-i18n="svgList.empty">${I18n.translate('svgList.empty')}</div>`;
         return;
     }
 
-    // [NEW] Reset the global cache for $O(1)$ lookups
     window._svgListElementCache = new Map();
-
-    const itemsHTML = [];
+    const fragment = document.createDocumentFragment();
+    let hasItems = false;
+    
     const activeEditingIndex = (window.currentEditingSVG && window.currentEditingSVG.container) ?
         window.currentEditingSVG.container.getAttribute('data-svg-index') : null;
 
-    // Recursive function to build tree items
     function traverse(el, level = 0, isParentCollapsed = false, svgIndex, state) {
         const details = getSvgListElDetails(el);
         const type = details.type;
@@ -116,10 +125,7 @@ window.buildSvgList = function () {
 
         if (isSvgElementSkipped(details)) return;
 
-        // Increment tree index for this valid element
         const treeIndex = state.counter++;
-
-        // [NEW] Store in cache for $O(1)$ lookup later
         if (window._svgListElementCache) {
             window._svgListElementCache.set(`${svgIndex}-${treeIndex}`, el);
         }
@@ -130,13 +136,10 @@ window.buildSvgList = function () {
         const children = details.children().filter(c => !isSvgElementSkipped(getSvgListElDetails(c)));
         const hasChildren = children.length > 0;
 
-        // [FIX] Skip empty groups with no meaningful attributes (Ghost library groups)
-        const hasSomeMetadata = details.label ||
-            (details.getAttr && (details.getAttr('data-tool-id') || details.getAttr('data-label') || details.getAttr('data-type') || details.getAttr('data-original-id')));
-        if (type === 'g' && !hasChildren && !hasSomeMetadata && (!id || id.startsWith('Svgjs'))) {
-            return;
-        }
+        const hasSomeMetadata = details.label || (details.getAttr && (details.getAttr('data-tool-id') || details.getAttr('data-label') || details.getAttr('data-type') || details.getAttr('data-original-id')));
+        if (type === 'g' && !hasChildren && !hasSomeMetadata && (!id || id.startsWith('Svgjs'))) return;
 
+        hasItems = true;
         const isCollapsed = !!window._svgListCollapsedState[id || `svg-${svgIndex}-${level}`];
 
         let iconHref = '#sym-shape';
@@ -149,106 +152,98 @@ window.buildSvgList = function () {
         const canEditFields = isEditingThis && !isLocked;
 
         const itemClass = `svg-list-item level-${level} ${selectedIds.has(id) ? 'selected' : ''} ${isLocked ? 'item-locked' : ''}`;
-        const displayStyle = isParentCollapsed ? 'display: none;' : '';
+        
+        const itemDiv = document.createElement('div');
+        itemDiv.className = itemClass;
+        
+        // --- 改善案3: 仮想スクロール (CSSネイティブ) ---
+        itemDiv.style.contentVisibility = 'auto';
+        itemDiv.style.containIntrinsicSize = '30px'; 
 
-        itemsHTML.push(`
-            <div class="${itemClass}" 
-                 style="${displayStyle}"
-                 data-element-id="${id}"
-                 data-svg-index="${svgIndex}"
-                 data-tree-index="${treeIndex}"
-                 data-type="${type}"
-                 data-visible="${isVisible}">
-                <div class="expand-toggle" data-action="toggle-collapse" data-id="${id || `svg-${svgIndex}-${level}`}">
-                    ${hasChildren ? `<svg width="12" height="12"><use href="${isCollapsed ? '#sym-chevron-right' : '#sym-chevron-down'}" /></svg>` : ''}
-                </div>
-                <div class="type-icon">
-                    <svg width="18" height="18"><use href="${iconHref}" /></svg>
-                </div>
-                <input type="text" class="name-field" value="${label}" placeholder="${type}" data-action="edit-label" spellcheck="false" ${!canEditFields ? 'readonly' : ''}>
-                
-                <span class="id-label">ID</span>
-                <input type="text" class="id-field" value="${id || ''}" data-action="edit-id" spellcheck="false" ${!canEditFields ? 'readonly' : ''}>
+        if (isParentCollapsed) itemDiv.style.display = 'none';
+        
+        itemDiv.dataset.elementId = id;
+        itemDiv.dataset.svgIndex = svgIndex;
+        itemDiv.dataset.treeIndex = treeIndex;
+        itemDiv.dataset.type = type;
+        itemDiv.dataset.visible = isVisible;
 
-                <div class="item-actions">
-                    <div class="action-icon" data-action="toggle-visibility" title="${I18n.translate(isVisible ? 'svgList.hide' : 'svgList.show')}">
-                        <svg width="18" height="18"><use href="${isVisible ? '#sym-eye' : '#sym-eye-off'}" /></svg>
-                    </div>
-                    <div class="action-icon" data-action="toggle-lock" title="${I18n.translate(isLocked ? 'svgList.unlock' : 'svgList.lock')}">
-                        <svg width="18" height="18"><use href="${isLocked ? '#sym-lock' : '#sym-lock-open'}" /></svg>
-                    </div>
+        itemDiv.innerHTML = `
+            <div class="expand-toggle" data-action="toggle-collapse" data-id="${id || `svg-${svgIndex}-${level}`}">
+                ${hasChildren ? `<svg width="12" height="12"><use href="${isCollapsed ? '#sym-chevron-right' : '#sym-chevron-down'}" /></svg>` : ''}
+            </div>
+            <div class="type-icon">
+                <svg width="18" height="18"><use href="${iconHref}" /></svg>
+            </div>
+            <input type="text" class="name-field" value="${label}" placeholder="${type}" data-action="edit-label" spellcheck="false" ${!canEditFields ? 'readonly' : ''}>
+            <span class="id-label">ID</span>
+            <input type="text" class="id-field" value="${id || ''}" data-action="edit-id" spellcheck="false" ${!canEditFields ? 'readonly' : ''}>
+            <div class="item-actions">
+                <div class="action-icon" data-action="toggle-visibility" title="${I18n.translate(isVisible ? 'svgList.hide' : 'svgList.show')}">
+                    <svg width="18" height="18"><use href="${isVisible ? '#sym-eye' : '#sym-eye-off'}" /></svg>
+                </div>
+                <div class="action-icon" data-action="toggle-lock" title="${I18n.translate(isLocked ? 'svgList.unlock' : 'svgList.lock')}">
+                    <svg width="18" height="18"><use href="${isLocked ? '#sym-lock' : '#sym-lock-open'}" /></svg>
                 </div>
             </div>
-        `);
+        `;
+
+        fragment.appendChild(itemDiv);
 
         if (hasChildren) {
             children.forEach(child => traverse(child, level + 1, isParentCollapsed || isCollapsed, svgIndex, state));
         }
     }
 
-    // Process each SVG block found in the preview
-    svgWrappers.forEach((wrapper, index) => {
+    svgWrappers.forEach((wrapper) => {
         const idx = wrapper.getAttribute('data-svg-index');
         const isEditingNow = (activeEditingIndex === String(idx));
         const state = { counter: 0 };
 
-        if (isEditingNow && window.currentEditingSVG.draw) {
-            // Use real-time SVG.js instance
+        if (isEditingNow && window.currentEditingSVG && window.currentEditingSVG.draw) {
             traverse(window.currentEditingSVG.draw, 0, false, idx, state);
         } else {
-            // Use native DOM from preview (only the top <svg> element)
             const svgEl = wrapper.querySelector('svg');
-            if (svgEl) {
-                traverse(svgEl, 0, false, idx, state);
-            }
+            if (svgEl) traverse(svgEl, 0, false, idx, state);
         }
     });
 
-    DOM.svgListContent.innerHTML = itemsHTML.length > 0 ? itemsHTML.join('') : `<div class="outline-item" style="opacity:0.5; font-style:italic;" data-i18n="svgList.empty">${I18n.translate('svgList.empty')}</div>`;
+    DOM.svgListContent.innerHTML = '';
+    if (hasItems) {
+        DOM.svgListContent.appendChild(fragment);
+    } else {
+        DOM.svgListContent.innerHTML = `<div class="outline-item" style="opacity:0.5; font-style:italic;" data-i18n="svgList.empty">${I18n.translate('svgList.empty')}</div>`;
+    }
 
     attachSvgListItemEvents();
 };
 
-function attachSvgListItemEvents() {
-    // Helper to find original element by index (Duplicate ID proof)
-    const findElementByIndex = (sIdx, tIdx) => {
-        const isEditingCurrent = (window.currentEditingSVG && window.currentEditingSVG.container && window.currentEditingSVG.container.getAttribute('data-svg-index') === sIdx);
-        if (!isEditingCurrent) return null;
+window.findElementByIndex = function(sIdx, tIdx) {
+    const isEditingCurrent = (window.currentEditingSVG && window.currentEditingSVG.container && window.currentEditingSVG.container.getAttribute('data-svg-index') === sIdx);
+    if (!isEditingCurrent) return null;
 
-        // [NEW] Use cache for $O(1)$ lookup instead of full tree traversal
-        const cacheKey = `${sIdx}-${tIdx}`;
-        if (window._svgListElementCache && window._svgListElementCache.has(cacheKey)) {
-            return window._svgListElementCache.get(cacheKey);
-        }
-
-        const draw = window.currentEditingSVG.draw;
-        let found = null;
-        let counter = 0;
-
-        // Same logic as traverse to ensure consistency
-        const searchRecursive = (el) => {
-            if (found) return;
-
-            // Re-fetch details with shared logic
-            const details = getSvgListElDetails(el);
-
-            if (isSvgElementSkipped(details)) return;
-
-            if (counter === parseInt(tIdx)) {
-                found = el;
-                return;
-            }
-            counter++;
-
-            if (el.children) {
-                el.children().forEach(child => searchRecursive(child));
-            }
-        };
-
-        searchRecursive(draw);
-        return found;
+    const cacheKey = `${sIdx}-${tIdx}`;
+    if (window._svgListElementCache && window._svgListElementCache.has(cacheKey)) {
+        return window._svgListElementCache.get(cacheKey);
+    }
+    
+    const draw = window.currentEditingSVG.draw;
+    let found = null, counter = 0;
+    const searchRecursive = (el) => {
+        if (found) return;
+        const details = getSvgListElDetails(el);
+        if (isSvgElementSkipped(details)) return;
+        if (counter === parseInt(tIdx)) { found = el; return; }
+        counter++;
+        if (el.children) el.children().forEach(child => searchRecursive(child));
     };
+    searchRecursive(draw);
+    return found;
+};
 
+window._isSvgListEventDelegated = false;
+
+function attachSvgListItemEvents() {
     if (window.svgListDragManager) {
         window.svgListDragManager.destroy();
         window.svgListDragManager = null;
@@ -258,15 +253,12 @@ function attachSvgListItemEvents() {
         window.svgListDragManager = new PointerDragManager({
             container: DOM.svgListContent,
             itemSelector: '.svg-list-item',
-            handleSelector: '.type-icon', // アイコン部分をドラッグハンドルとする
+            handleSelector: '.type-icon',
             draggingClass: 'dragging',
             onDragStart: (item, e) => {
                 const svgIndex = item.dataset.svgIndex;
                 const isEditingCurrent = (window.currentEditingSVG && window.currentEditingSVG.container && window.currentEditingSVG.container.getAttribute('data-svg-index') === svgIndex);
-                // ロックされている等、ドラッグ不可の条件
-                if (!isEditingCurrent || item.classList.contains('item-locked')) {
-                    return null; // ※完全に止める仕様ではないが、Drop側でガードする
-                }
+                if (!isEditingCurrent || item.classList.contains('item-locked')) return null;
 
                 return {
                     id: item.dataset.elementId,
@@ -276,17 +268,15 @@ function attachSvgListItemEvents() {
                 };
             },
             onDragMove: (data, e, info) => {
-                if (!data) return; // ignore invalid drag start
-                
+                if (!data) return; 
                 const items = DOM.svgListContent.querySelectorAll('.svg-list-item');
                 items.forEach(i => i.classList.remove('drag-over', 'drag-over-inside'));
 
                 if (!info.target) {
-                    data.currentTargetInfo = null;
-                    return;
+                    data.currentTargetInfo = null; return;
                 }
 
-                const targetEl = findElementByIndex(info.target.dataset.svgIndex, info.target.dataset.treeIndex);
+                const targetEl = window.findElementByIndex(info.target.dataset.svgIndex, info.target.dataset.treeIndex);
                 if (!targetEl) return;
 
                 const rect = info.target.getBoundingClientRect();
@@ -299,14 +289,10 @@ function attachSvgListItemEvents() {
                     info.target.classList.add('drag-over-inside');
                     isInside = true;
                 } else {
-                    info.target.classList.add('drag-over'); // defaults to above conceptually? wait, actually 'drag-over' means sibling drop.
+                    info.target.classList.add('drag-over'); 
                 }
 
-                data.currentTargetInfo = {
-                    element: info.target,
-                    targetEl: targetEl,
-                    isInside: isInside
-                };
+                data.currentTargetInfo = { element: info.target, targetEl: targetEl, isInside: isInside };
             },
             onDragEnd: (data, e) => {
                 const items = DOM.svgListContent.querySelectorAll('.svg-list-item');
@@ -325,14 +311,11 @@ function attachSvgListItemEvents() {
 
                 if (sourceSvgIndex !== targetSvgIndex || !targetEl) return;
 
-                const sourceEl = findElementByIndex(sourceSvgIndex, sourceTreeIndex);
+                const sourceEl = window.findElementByIndex(sourceSvgIndex, sourceTreeIndex);
                 if (!sourceEl || sourceEl === targetEl) return;
 
-                if (isInside) {
-                    targetEl.add(sourceEl);
-                } else {
-                    sourceEl.insertBefore(targetEl);
-                }
+                if (isInside) targetEl.add(sourceEl);
+                else sourceEl.insertBefore(targetEl);
 
                 buildSvgList();
                 if (typeof syncChanges === 'function') syncChanges();
@@ -340,17 +323,59 @@ function attachSvgListItemEvents() {
         });
     }
 
-    const items = DOM.svgListContent.querySelectorAll('.svg-list-item');
-    items.forEach(item => {
-        const id = item.dataset.elementId;
-        const svgIndex = item.dataset.svgIndex;
-        const treeIndex = item.dataset.treeIndex;
-        const isEditingCurrent = (window.currentEditingSVG && window.currentEditingSVG.container && window.currentEditingSVG.container.getAttribute('data-svg-index') === svgIndex);
+    if (!window._isSvgListEventDelegated && DOM.svgListContent) {
+        window._isSvgListEventDelegated = true;
 
-        const getEl = () => isEditingCurrent ? findElementByIndex(svgIndex, treeIndex) : null;
+        DOM.svgListContent.addEventListener('click', (e) => {
+            const item = e.target.closest('.svg-list-item');
+            if (!item) return;
 
-        // Click to select or start editing
-        item.onclick = (e) => {
+            const svgIndex = item.dataset.svgIndex;
+            const treeIndex = item.dataset.treeIndex;
+            const isEditingCurrent = (window.currentEditingSVG && window.currentEditingSVG.container && window.currentEditingSVG.container.getAttribute('data-svg-index') === svgIndex);
+            const getEl = () => isEditingCurrent ? window.findElementByIndex(svgIndex, treeIndex) : null;
+
+            const expandBtn = e.target.closest('.expand-toggle');
+            if (expandBtn) {
+                e.stopPropagation();
+                const collapseId = expandBtn.dataset.id;
+                window._svgListCollapsedState[collapseId] = !window._svgListCollapsedState[collapseId];
+                buildSvgList();
+                return;
+            }
+
+            const visBtn = e.target.closest('[data-action="toggle-visibility"]');
+            if (visBtn) {
+                e.stopPropagation();
+                if (isEditingCurrent) {
+                    const el = getEl();
+                    if (!el) return;
+                    if (el.visible()) {
+                        el.hide();
+                        if (typeof window.deselectElement === 'function') window.deselectElement(el);
+                    } else {
+                        el.show();
+                    }
+                    buildSvgList();
+                    if (typeof syncChanges === 'function') syncChanges();
+                }
+                return;
+            }
+
+            const lockBtn = e.target.closest('[data-action="toggle-lock"]');
+            if (lockBtn) {
+                e.stopPropagation();
+                if (isEditingCurrent) {
+                    const el = getEl();
+                    if (!el) return;
+                    const locked = el.attr('data-locked') === 'true';
+                    el.attr('data-locked', !locked);
+                    buildSvgList();
+                    if (typeof syncChanges === 'function') syncChanges();
+                }
+                return;
+            }
+
             if (e.target.tagName === 'INPUT' || e.target.closest('.action-icon') || e.target.closest('.expand-toggle')) return;
 
             if (isEditingCurrent) {
@@ -364,118 +389,85 @@ function attachSvgListItemEvents() {
                     }
                 }
             } else {
-                // Focus and start editing that SVG block
                 const container = document.querySelector(`.svg-view-wrapper[data-svg-index="${svgIndex}"]`);
                 if (container && typeof startSVGEdit === 'function') {
                     startSVGEdit(container, parseInt(svgIndex));
                 }
             }
-        };
+        });
 
-        // Hover highlight (Only if editing)
-        if (isEditingCurrent) {
-            item.onmouseenter = () => {
+        DOM.svgListContent.addEventListener('mouseover', (e) => {
+            if (!window.currentEditingSVG) return;
+            const item = e.target.closest('.svg-list-item');
+            if (!item) return;
+
+            const svgIndex = item.dataset.svgIndex;
+            const treeIndex = item.dataset.treeIndex;
+            const isEditingCurrent = (window.currentEditingSVG.container && window.currentEditingSVG.container.getAttribute('data-svg-index') === svgIndex);
+            if (!isEditingCurrent) return;
+
+            const el = window.findElementByIndex(svgIndex, treeIndex);
+            if (!el) return;
+
+            if (window._hoveredSvgElement && window._hoveredSvgElement !== el) {
+                window._hoveredSvgElement.removeClass('svg-list-hover-highlight');
+            }
+            el.addClass('svg-list-hover-highlight');
+            window._hoveredSvgElement = el;
+        });
+
+        DOM.svgListContent.addEventListener('mouseout', (e) => {
+            const item = e.target.closest('.svg-list-item');
+            if (!item) return;
+
+            if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.svg-list-item') === item) return;
+
+            if (window._hoveredSvgElement) {
+                window._hoveredSvgElement.removeClass('svg-list-hover-highlight');
+                window._hoveredSvgElement = null;
+            }
+        });
+
+        DOM.svgListContent.addEventListener('change', (e) => {
+            const item = e.target.closest('.svg-list-item');
+            if (!item) return;
+
+            const svgIndex = item.dataset.svgIndex;
+            const treeIndex = item.dataset.treeIndex;
+            const id = item.dataset.elementId;
+            const isEditingCurrent = (window.currentEditingSVG && window.currentEditingSVG.container && window.currentEditingSVG.container.getAttribute('data-svg-index') === svgIndex);
+            if (!isEditingCurrent) return;
+
+            const getEl = () => window.findElementByIndex(svgIndex, treeIndex);
+
+            if (e.target.classList.contains('name-field')) {
                 const el = getEl();
                 if (!el) return;
-                if (window._hoveredSvgElement) window._hoveredSvgElement.removeClass('svg-list-hover-highlight');
-                el.addClass('svg-list-hover-highlight');
-                window._hoveredSvgElement = el;
-            };
-            item.onmouseleave = () => {
+                el.attr('data-label', e.target.value);
+                if (typeof syncChanges === 'function') syncChanges();
+            } else if (e.target.classList.contains('id-field')) {
                 const el = getEl();
-                if (el) el.removeClass('svg-list-hover-highlight');
-                window._hoveredSvgElement = null;
-            };
-        }
-
-        // Collapse toggle
-        const expandBtn = item.querySelector('.expand-toggle');
-        if (expandBtn) {
-            expandBtn.onclick = (e) => {
-                e.stopPropagation();
-                const collapseId = expandBtn.dataset.id;
-                window._svgListCollapsedState[collapseId] = !window._svgListCollapsedState[collapseId];
-                buildSvgList();
-            };
-        }
-
-        // Editing actions only if active
-        if (isEditingCurrent) {
-            // Label Edit
-            const nameInput = item.querySelector('.name-field');
-            if (nameInput) {
-                nameInput.onchange = () => {
-                    const el = getEl();
-                    if (!el) return;
-                    el.attr('data-label', nameInput.value);
-                    if (typeof syncChanges === 'function') syncChanges();
-                };
-                nameInput.onkeydown = (e) => { if (e.key === 'Enter') nameInput.blur(); };
-            }
-
-            // ID Edit
-            const idInput = item.querySelector('.id-field');
-            if (idInput) {
-                idInput.onchange = () => {
-                    const el = getEl();
-                    if (!el) return;
-                    const newId = idInput.value.trim();
-                    if (newId && newId !== id) {
-                        try {
-                            el.id(newId);
-                            buildSvgList();
-                            if (typeof syncChanges === 'function') syncChanges();
-                        } catch (err) {
-                            idInput.value = id;
-                            console.error('Failed to change ID:', err);
-                        }
+                if (!el) return;
+                const oldId = id;
+                const newId = e.target.value.trim();
+                if (newId && newId !== oldId) {
+                    try {
+                        el.id(newId);
+                        buildSvgList();
+                        if (typeof syncChanges === 'function') syncChanges();
+                    } catch (err) {
+                        e.target.value = oldId;
                     }
-                };
-                idInput.onkeydown = (e) => { if (e.key === 'Enter') idInput.blur(); };
+                }
             }
+        });
 
-            // Visibility Toggle
-            const visBtn = item.querySelector('[data-action="toggle-visibility"]');
-            if (visBtn) {
-                visBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    const el = getEl();
-                    if (!el) return;
-                    console.log(`[SVG List] Toggle visibility for #${el.id()}, currentVis=${el.visible()}`);
-                    if (el.visible()) {
-                        el.hide();
-                        console.log(`[SVG List] After hide(): #${el.id()}, visible=${el.visible()}, style.display=${el.node.style.display}`);
-                        // [NEW] Deselect if hidden
-                        if (typeof window.deselectElement === 'function') {
-                            window.deselectElement(el);
-                        }
-                    } else {
-                        el.show();
-                    }
-                    buildSvgList();
-                    if (typeof syncChanges === 'function') {
-                        syncChanges();
-                        console.log(`[SVG List] After syncChanges(): #${el.id()}, visible=${el.visible()}, style.display=${el.node.style.display}`);
-                    }
-                };
+        DOM.svgListContent.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+                e.target.blur();
             }
-
-            // Lock Toggle
-            const lockBtn = item.querySelector('[data-action="toggle-lock"]');
-            if (lockBtn) {
-                lockBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    const el = getEl();
-                    if (!el) return;
-                    const locked = el.attr('data-locked') === 'true';
-                    el.attr('data-locked', !locked);
-                    buildSvgList();
-                    if (typeof syncChanges === 'function') syncChanges();
-                };
-            }
-
-        }
-    });
+        });
+    }
 }
 
 // Global Toolbar Commands

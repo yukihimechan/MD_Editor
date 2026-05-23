@@ -26,7 +26,11 @@ class BaseTool {
     finalize() {
         if (!this.activeElement) return;
         const box = this.activeElement.bbox();
-        if (box.width < 2 && box.height < 2 && this.toolbar.currentTool !== 'freehand') {
+        
+        // ドラッグ移動距離がしきい値未満でクリック配置された場合は、削除対象としない
+        const isClickPlacement = this.isDragging === false;
+        
+        if (!isClickPlacement && box.width < 2 && box.height < 2 && this.toolbar.currentTool !== 'freehand') {
             this.activeElement.remove();
         } else {
             // [NEW] メタデータの付与
@@ -66,16 +70,16 @@ class ShapeTool extends BaseTool {
                 el = this.draw.rect(0, 0).move(pt.x, pt.y);
                 break;
             case 'circle':
-                console.log(`[SVG Lib Call] draw.ellipse(0, 0).move(${pt.x}, ${pt.y})`);
+                // console.log(`[SVG Lib Call] draw.ellipse(0, 0).move(${pt.x}, ${pt.y})`);
                 el = this.draw.ellipse(0, 0).move(pt.x, pt.y);
                 break;
             case 'rounded':
                 const r = this.getProp('radius', 10);
-                console.log(`[SVG Lib Call] draw.rect(0, 0).radius(${r}).move(${pt.x}, ${pt.y})`);
+                // console.log(`[SVG Lib Call] draw.rect(0, 0).radius(${r}).move(${pt.x}, ${pt.y})`);
                 el = this.draw.rect(0, 0).radius(r).move(pt.x, pt.y);
                 break;
             case 'capsule':
-                console.log(`[SVG Lib Call] draw.rect(0, 0).radius(0).move(${pt.x}, ${pt.y})`);
+                // console.log(`[SVG Lib Call] draw.rect(0, 0).radius(0).move(${pt.x}, ${pt.y})`);
                 el = this.draw.rect(0, 0).radius(0).move(pt.x, pt.y);
                 break;
         }
@@ -83,7 +87,14 @@ class ShapeTool extends BaseTool {
     }
     mousemove(e, pt) {
         if (!this.activeElement) return;
-        this.isDragging = true;
+        
+        // わずかな手ぶれをクリックとみなすため、移動距離のしきい値（3px）を設ける
+        const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
+        if (dist > 3) {
+            this.isDragging = true;
+        }
+        if (!this.isDragging) return;
+        
         const isAlt = SVGUtils.isSnapEnabled(e);
         let targetPt = pt;
         if (isAlt && typeof AppState !== 'undefined' && AppState.config.grid) {
@@ -120,7 +131,7 @@ class ShapeTool extends BaseTool {
             const defaults = this.toolbar.defaultSizes[this.toolbar.currentTool] || { w: 100, h: 100 };
             const x = this.startPoint.x - defaults.w / 2;
             const y = this.startPoint.y - defaults.h / 2;
-            console.log(`[SVG Lib Call] ${this.activeElement.id()}.move(${x}, ${y}).size(${defaults.w}, ${defaults.h})`);
+            // console.log(`[SVG Lib Call] ${this.activeElement.id()}.move(${x}, ${y}).size(${defaults.w}, ${defaults.h})`);
             
             if (this.toolbar.currentTool === 'capsule') {
                 const minR = Math.min(defaults.w, defaults.h) / 2;
@@ -153,11 +164,11 @@ class PolyTool extends BaseTool {
                 el = this.draw.polygon([[0, 0], [0, 0], [0, 0]]).move(pt.x, pt.y);
                 break;
             case 'star':
-                console.log(`[SVG Lib Call] draw.polygon([[0,0]]).move(${pt.x}, ${pt.y})`);
+                // console.log(`[SVG Lib Call] draw.polygon([[0,0]]).move(${pt.x}, ${pt.y})`);
                 el = this.draw.polygon([[0, 0]]).move(pt.x, pt.y);
                 break;
             case 'polygon':
-                console.log(`[SVG Lib Call] draw.polygon([[0,0]]).move(${pt.x}, ${pt.y})`);
+                // console.log(`[SVG Lib Call] draw.polygon([[0,0]]).move(${pt.x}, ${pt.y})`);
                 el = this.draw.polygon([[0, 0]]).move(pt.x, pt.y);
                 break;
         }
@@ -165,7 +176,14 @@ class PolyTool extends BaseTool {
     }
     mousemove(e, pt) {
         if (!this.activeElement) return;
-        this.isDragging = true;
+        
+        // わずかな手ぶれをクリックとみなすため、移動距離のしきい値（3px）を設ける
+        const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
+        if (dist > 3) {
+            this.isDragging = true;
+        }
+        if (!this.isDragging) return;
+        
         const dx = pt.x - this.startPoint.x;
         const dy = pt.y - this.startPoint.y;
         const w = Math.abs(dx);
@@ -177,7 +195,7 @@ class PolyTool extends BaseTool {
         if (this.toolbar.currentTool === 'triangle') {
             points = [[w / 2, 0], [0, h], [w, h]];
             if (this.activeElement.plot) {
-                console.log(`[SVG Lib Call] ${this.activeElement.id()}.plot(`, points, `).move(${x}, ${y})`);
+                // console.log(`[SVG Lib Call] ${this.activeElement.id()}.plot(`, points, `).move(${x}, ${y})`);
                 this.activeElement.plot(points);
             }
             this.activeElement.move(x, y);
@@ -291,15 +309,12 @@ class LineTool extends BaseTool {
     mousemove(e, pt) {
         if (!this.activeElement) return;
 
-        // [NEW] 実際に動かし始めたタイミングでコネクタを表示
-        if (!this.isDragging && window.SVGConnectorManager) {
-            const isAlt = SVGUtils.isSnapEnabled(e);
-            if (!isAlt) {
-                window.SVGConnectorManager.showAllConnectors(this.draw, this.activeElement);
-            }
+        // わずかな手ぶれをクリックとみなすため、移動距離のしきい値（3px）を設ける
+        const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
+        if (dist > 3) {
+            this.isDragging = true;
         }
-
-        this.isDragging = true;
+        if (!this.isDragging) return;
 
         const isAlt = SVGUtils.isSnapEnabled(e);
         let targetPt = pt;
@@ -657,7 +672,14 @@ class BubbleTool extends BaseTool {
     }
     mousemove(e, pt) {
         if (!this.activeElement) return;
-        this.isDragging = true;
+        
+        // わずかな手ぶれをクリックとみなすため、移動距離のしきい値（3px）を設ける
+        const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
+        if (dist > 3) {
+            this.isDragging = true;
+        }
+        if (!this.isDragging) return;
+        
         const dx = pt.x - this.startPoint.x;
         const dy = pt.y - this.startPoint.y;
         const w = Math.max(70, Math.abs(dx));
