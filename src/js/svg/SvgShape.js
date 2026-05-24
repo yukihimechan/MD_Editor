@@ -4,6 +4,19 @@
  */
 
 /**
+ * [NEW] Helper function to clear SVG.js bbox caches recursively.
+ */
+function clearBoxCache(el) {
+    if (!el) return;
+    el._box = null;
+    if (typeof el.children === 'function') {
+        el.children().forEach(child => {
+            clearBoxCache(child);
+        });
+    }
+}
+
+/**
  * Base SvgShape Class
  */
 class SvgShape {
@@ -28,10 +41,11 @@ class SvgShape {
         const self = this;
         // console.log(`[SvgShape] Initializing ${this.el.type}#${this.el.id()}`);
 
-        // [NEW] テキスト付き図形 (shape-text-group) の場合、bbox/rbox を背景図形基準にオーバーライドする
+        // [NEW] テキスト付き図形 (shape-text-group) の場合、bbox/rbox/getBBox を背景図形基準にオーバーライドする
         if (this.el.type === 'g' && this.el.attr('data-tool-id') === 'shape-text-group') {
             const origBBox = this.el.bbox;
             const origRBox = this.el.rbox;
+            const origGetBBox = this.el.node.getBBox;
             
             const getBgShape = () => {
                 let bgShape = null;
@@ -60,6 +74,15 @@ class SvgShape {
                     return bg.rbox.apply(bg, arguments);
                 }
                 return origRBox.apply(self.el, arguments);
+            };
+
+            // ライブラリ (svg.select.jsなど) からネイティブの getBBox が呼ばれた際にも背景図形を基準にする
+            this.el.node.getBBox = function() {
+                const bg = getBgShape();
+                if (bg && bg.node && typeof bg.node.getBBox === 'function') {
+                    return bg.node.getBBox();
+                }
+                return origGetBBox.apply(this, arguments);
             };
         }
 
@@ -90,6 +113,32 @@ class SvgShape {
         this.el.on('mousedown.svg_interaction', (e) => {
             self.onMouseDown(e);
         });
+
+        // [NEW] キャプチャフェーズで mousedown を監視し、draggable などのプラグインが
+        // transform を書き換える前に、安定状態の transform を確実に保存する
+        if (this._nativeMouseDownHandler) {
+            this.el.node.removeEventListener('mousedown', this._nativeMouseDownHandler, true);
+        }
+        this._nativeMouseDownHandler = (e) => {
+            const now = Date.now();
+            const lastDblTime = self._lastDblClickTime || 0;
+            const lastMouseDownTime = self._lastMouseDownTimeForDbl || 0;
+            if (now - lastDblTime > 500 && now - lastMouseDownTime > 500) {
+                if (self.el && self.el.node) {
+                    const currentTransform = self.el.attr('transform');
+                    self._preDblClickTransform = currentTransform !== undefined ? currentTransform : null;
+                    self.el.node.setAttribute('data-pre-dblclick-transform', currentTransform || '');
+                    
+                    // 1回目の mousedown 時点でのすべての属性を退避
+                    self._preDblClickAttributes = {};
+                    for (const attr of self.el.node.attributes) {
+                        self._preDblClickAttributes[attr.name] = attr.value;
+                    }
+                }
+            }
+            self._lastMouseDownTimeForDbl = now;
+        };
+        this.el.node.addEventListener('mousedown', this._nativeMouseDownHandler, true);
 
         // [FIX] Removed native dblclick.svg_interaction listener here.
         // We now rely on robust manual double-click detection inside onMouseDown to bypass 
@@ -138,6 +187,11 @@ class SvgShape {
                 }
             });
         }
+
+        // [NEW] 初期化時にも線幅・フォントサイズの維持設定を同期する
+        if (typeof this.syncStrokeTextScale === 'function') {
+            this.syncStrokeTextScale();
+        }
     }
 
     /**
@@ -160,6 +214,10 @@ class SvgShape {
         this.el.off('.svg_interaction');
         if (this._rotateMoveHandler) {
             this.el.node.removeEventListener('rotatemove', this._rotateMoveHandler);
+        }
+        if (this._nativeMouseDownHandler) {
+            this.el.node.removeEventListener('mousedown', this._nativeMouseDownHandler, true);
+            this._nativeMouseDownHandler = null;
         }
 
         // [FIX] draggable 状態も明示的に解除
@@ -192,6 +250,11 @@ class SvgShape {
     updateHitArea() { }
 
     /**
+     * [NEW] 拡大縮小時の線幅・フォントサイズ維持を適用 (派生クラスで実装)
+     */
+    syncStrokeTextScale() { }
+
+    /**
      * Handling selection start
      */
     onMouseDown(e) {
@@ -218,16 +281,6 @@ class SvgShape {
             return; // ダブルクリック時は通常のMouseDown選択処理をスキップ
         } else {
             this._lastMasterMouseDownTime = now;
-            // [NEW] 前回のダブルクリックから 500ms 以上経過している場合（おこぼれクリックの防止）のみ、
-            // 新たなダブルクリックシーケンスの開始とみなして transform を上書き保存する
-            const lastDblTime = this._lastDblClickTime || 0;
-            if (now - lastDblTime > 500) {
-                if (this.el.node) {
-                    const currentTransform = this.el.attr('transform');
-                    this._preDblClickTransform = currentTransform !== undefined ? currentTransform : null;
-                    this.el.node.setAttribute('data-pre-dblclick-transform', currentTransform || '');
-                }
-            }
         }
 
         // [NEW] グループ選択を優先するため、親を遡る
@@ -368,13 +421,32 @@ class SvgShape {
             }
         }
 
-        const savedTransform = this.el.node ? this.el.node.getAttribute('data-pre-dblclick-transform') : this._preDblClickTransform;
-        if (savedTransform !== undefined && savedTransform !== null) {
-            // console.log(`[SvgShape DEBUG] DoubleClick - Restoring transform to: "${savedTransform}"`);
-            if (savedTransform === '') {
-                this.el.node.removeAttribute('transform');
-            } else {
-                this.el.attr('transform', savedTransform);
+        const savedAttrs = this._preDblClickAttributes;
+        if (savedAttrs) {
+            const node = this.el.node;
+            // 現在の属性のうち、保存されたものにないものを削除（idは除外）
+            for (const attr of Array.from(node.attributes)) {
+                if (attr.name !== 'id' && !(attr.name in savedAttrs)) {
+                    node.removeAttribute(attr.name);
+                }
+            }
+            // 保存された属性を設定（idは除外）
+            for (const [name, value] of Object.entries(savedAttrs)) {
+                if (name !== 'id') {
+                    node.setAttribute(name, value);
+                }
+            }
+            if (typeof clearBoxCache === 'function') {
+                clearBoxCache(this.el);
+            }
+        } else {
+            const savedTransform = this.el.node ? this.el.node.getAttribute('data-pre-dblclick-transform') : this._preDblClickTransform;
+            if (savedTransform !== undefined && savedTransform !== null) {
+                if (savedTransform === '') {
+                    this.el.node.removeAttribute('transform');
+                } else {
+                    this.el.attr('transform', savedTransform);
+                }
             }
         }
 
@@ -817,6 +889,7 @@ class StandardShape extends SvgShape {
 
             this.updateHitArea();
             this.syncSelectionHandlers();
+            this.syncStrokeTextScale();
 
             if (window.updateTransformToolbarValues) window.updateTransformToolbarValues();
         });
@@ -834,170 +907,214 @@ class StandardShape extends SvgShape {
         if (typeof el.draggable === 'function') {
             el.draggable();
 
-            // Store initial states for group dragging
             let selectionStates = new Map();
             let startDragX = 0;
             let startDragY = 0;
+            let isSnapCacheBuilt = false;
+            let snapTargetsCache = null; // [PERF] スナップ探索のキャッシュ
+
+            // [PERF] スナップキャッシュの構築を遅延評価（ドラッグ中、実際に必要になった時だけ実行）
+            el.node._buildSnapCache = () => {
+                if (isSnapCacheBuilt) return;
+                isSnapCacheBuilt = true;
+                snapTargetsCache = [];
+                const root = el.root();
+                if (!root) return;
+
+                const movingIds = new Set();
+                selectionStates.forEach((state, node) => { if (node.id) movingIds.add(node.id); });
+                const movingNodesSet = new Set(selectionStates.keys());
+
+                const svgEdit = window.currentEditingSVG;
+                if (svgEdit && !isNaN(svgEdit.baseWidth)) {
+                    snapTargetsCache.push({
+                        x: svgEdit.baseX, y: svgEdit.baseY, width: svgEdit.baseWidth, height: svgEdit.baseHeight,
+                        x2: svgEdit.baseX + svgEdit.baseWidth, y2: svgEdit.baseY + svgEdit.baseHeight,
+                        cx: svgEdit.baseX + svgEdit.baseWidth / 2, cy: svgEdit.baseY + svgEdit.baseHeight / 2
+                    });
+                }
+
+                root.children().each(function (child) {
+                    let isMovingOrRelated = false;
+                    if (movingNodesSet.has(child.node)) {
+                        isMovingOrRelated = true;
+                    } else {
+                        // 簡易的な包含チェックのみで処理を高速化
+                        for (const movingNode of movingNodesSet) {
+                            if (child.node.contains(movingNode) || movingNode.contains(child.node)) {
+                                isMovingOrRelated = true; break;
+                            }
+                        }
+                    }
+                    if (isMovingOrRelated) return;
+
+                    const tagName = child.node.tagName.toLowerCase();
+                    if (['polyline', 'line', 'path'].includes(tagName)) {
+                        const connStr = child.attr('data-connections');
+                        if (connStr) {
+                            try {
+                                const conns = JSON.parse(connStr);
+                                if (conns.some(c => movingIds.has(c.targetId))) return;
+                            } catch (e) { }
+                        }
+                    }
+
+                    const toolId = child.attr('data-tool-id');
+                    if (child.attr('data-internal') === 'true' || (!toolId && tagName !== 'canvas')) return;
+
+                    const classes = child.attr('class') || '';
+                    if (classes.includes('svg_select') || classes.includes('svg-canvas-proxy') || classes.includes('svg-snap-guides') || classes.includes('svg-control-marker') || classes.includes('handle-group') || classes.includes('hitarea') || classes.includes('svg-grid')) return;
+                    if (['defs', 'style', 'marker', 'symbol', 'metadata', 'script'].includes(tagName)) return;
+                    if (tagName === 'g' && !child.hasClass('radius-handle-group') && child.children().length === 0) return;
+
+                    try {
+                        // [PERF] rbox()はリフローを起こすため bbox() + matrix() で代用して高速化
+                        const box = child.bbox().transform(child.matrix());
+                        if (box.width > 0 || box.height > 0) snapTargetsCache.push(box);
+                    } catch (err) { }
+                });
+            };
+            el.node._getSnapCache = () => snapTargetsCache;
 
             el.on('beforedrag', (e) => {
-                // 注釈モード無効時などでエディタコンテキストが無い場合はドラッグを無効化
-                if (!window.currentEditingSVG) {
-                    e.preventDefault();
-                    return;
-                }
+                if (!window.currentEditingSVG) { e.preventDefault(); return; }
                 window.currentEditingSVG._isOperationInProgress = true;
                 if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
 
-                // [LOCK GUARD]
                 const isLocked = el.attr('data-locked') === 'true' || el.attr('data-locked') === true;
-                if (isLocked) {
-                    console.warn(`[LOCK GUARD] Drag blocked for ${el.id()}`);
-                    e.preventDefault();
-                    return;
-                }
+                if (isLocked) { e.preventDefault(); return; }
 
                 const ev = e.detail ? (e.detail.event || e) : e;
                 if (!ev || typeof ev.clientX === 'undefined') return;
                 startDragX = ev.clientX;
                 startDragY = ev.clientY;
 
-                // [FIX] ドラッグ対象の要素（または所属するグループ）が現在未選択の場合、即座に選択状態にする
                 let selectionTarget = el;
                 let p = el.parent();
                 while (p && p.type === 'g' && !p.hasClass('svg-canvas-proxy') && p.node !== el.root().node) {
-                    if (p.remember('_shapeInstance')) {
-                        selectionTarget = p;
-                    }
+                    if (p.remember('_shapeInstance')) selectionTarget = p;
                     p = p.parent();
                 }
 
-                const isSelected = window.currentEditingSVG.selectedElements.has(selectionTarget);
-                if (!isSelected) {
-                    const isMulti = ev.shiftKey || ev.ctrlKey;
-                    selectElement(selectionTarget, isMulti);
+                if (!window.currentEditingSVG.selectedElements.has(selectionTarget)) {
+                    selectElement(selectionTarget, ev.shiftKey || ev.ctrlKey);
                 }
 
-                const isCtrl = (window.currentEditingSVG && window.currentEditingSVG.isCtrlPressed) || ev.ctrlKey;
+                // [NEW] ドラッグ対象の全要素にドラッグ中フラグを設定（ドラッグ移動中のハンドル原点ズレ防止）
+                window.currentEditingSVG.selectedElements.forEach(item => {
+                    const s = item.remember('_shapeInstance');
+                    if (s) s._isDragging = true;
+                });
 
+                const isCtrl = (window.currentEditingSVG && window.currentEditingSVG.isCtrlPressed) || ev.ctrlKey;
                 selectionStates.clear();
 
-                // [NEW] Ctrl複製: ドラッグ開始時にCtrlが押されていれば複製を作成して選択する
                 if (isCtrl) {
-                    // [FIX] Zオーダー（DOM上の順序）でソートしてから複製することで、複製後の前後関係を維持する
+                    const parentChildrenMap = new Map();
+                    const getIndex = (node) => {
+                        const parent = node.parentNode;
+                        if (!parent) return 0;
+                        if (!parentChildrenMap.has(parent)) {
+                            const children = Array.from(parent.children);
+                            const indexMap = new Map();
+                            for (let i = 0; i < children.length; i++) indexMap.set(children[i], i);
+                            parentChildrenMap.set(parent, indexMap);
+                        }
+                        return parentChildrenMap.get(parent).get(node) || 0;
+                    };
+
                     const originalElements = Array.from(window.currentEditingSVG.selectedElements)
                         .filter(item => !item.hasClass('svg-canvas-proxy') && item.node && item.node.isConnected)
-                        .sort((a, b) => {
-                            if (a.node.parentNode !== b.node.parentNode) return 0;
-                            const indexA = Array.from(a.node.parentNode.children).indexOf(a.node);
-                            const indexB = Array.from(b.node.parentNode.children).indexOf(b.node);
-                            return indexA - indexB;
-                        });
+                        .sort((a, b) => (a.node.parentNode !== b.node.parentNode) ? 0 : getIndex(a.node) - getIndex(b.node));
 
                     if (originalElements.length > 0) {
                         const clones = [];
-                        const svg = window.currentEditingSVG.draw;
-
-                        // 全選択を解除してから複製を選択し直す
                         deselectAll();
-
                         originalElements.forEach(item => {
-                            // SVGノードを複製して同じ親に追加
                             const cloneNode = item.node.cloneNode(true);
-                            // 新しいIDを付与してIDの重複を防ぐ
                             const newId = 'SvgjsClone' + Date.now() + Math.floor(Math.random() * 10000);
                             cloneNode.setAttribute('id', newId);
-                            // 複製されたIDも一意にする（子要素も含む）
-                            cloneNode.querySelectorAll('[id]').forEach(child => {
-                                child.setAttribute('id', child.getAttribute('id') + '_c' + Math.floor(Math.random() * 10000));
-                            });
+                            cloneNode.querySelectorAll('[id]').forEach(child => child.setAttribute('id', child.getAttribute('id') + '_c' + Math.floor(Math.random() * 10000)));
 
-                            // [FIX] insertBefore ではなく appendChild (または parentNode.add) で最前面に追加する
-                            // ただし、グループ内での複製ならそのグループの末尾へ
                             item.node.parentNode.appendChild(cloneNode);
                             const cloneEl = SVG(cloneNode);
-
-                            // [FIX] 確実に最前面へ
                             cloneEl.front();
-
-                            // インタラクティブにして選択する
-                            makeInteractive(cloneEl);
+                            if (typeof makeInteractive === 'function') makeInteractive(cloneEl);
                             selectElement(cloneEl, clones.length > 0);
                             clones.push(cloneEl);
                         });
 
-                        // 複製した要素の状態を selectionStates に登録
                         window.currentEditingSVG.selectedElements.forEach(item => {
-                            if (item.hasClass('svg-canvas-proxy')) return;
-                            // [FIX] 接続チェック
-                            if (!item.node || !item.node.isConnected) return;
-
+                            if (item.hasClass('svg-canvas-proxy') || !item.node || !item.node.isConnected) return;
+                            const shapeInst = item.remember('_shapeInstance');
                             selectionStates.set(item.node, {
-                                matrix: new SVG.Matrix(item),
-                                x: item.x(),
-                                y: item.y(),
-                                rbox: item.rbox(item.root())
+                                element: item, // [PERF] キャッシュ化で毎フレームのSVG()呼び出しを防ぐ
+                                matrix: new SVG.Matrix(item), x: item.x(), y: item.y(), rbox: item.rbox(item.root()),
+                                cleanBBox: (shapeInst && typeof shapeInst.getCleanBBox === 'function') ? shapeInst.getCleanBBox() : item.bbox()
                             });
                         });
                     }
                 } else {
-                    // 通常: 選択要素の初期状態を記録
                     window.currentEditingSVG.selectedElements.forEach(item => {
-                        if (item.hasClass('svg-canvas-proxy')) return;
-                        // [FIX] DOMに接続されていない要素（削除済みなど）はスキップする
-                        if (!item.node || !item.node.isConnected) return;
+                        if (item.hasClass('svg-canvas-proxy') || !item.node || !item.node.isConnected) return;
 
-                        // [NEW] Capture textPath offset state if this is text on a path
                         let startOffsetAttr = null;
+                        let textPathNode = null;
+                        let textPathLength = 1000;
                         if (item.type === 'text') {
                             const tp = item.node.querySelector('textPath');
-                            if (tp) startOffsetAttr = tp.getAttribute('startOffset') || '0%';
+                            if (tp) {
+                                startOffsetAttr = tp.getAttribute('startOffset') || '0%';
+                                const pathHref = tp.getAttribute('href') || tp.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+                                if (pathHref) {
+                                    textPathNode = document.querySelector(pathHref);
+                                    if (textPathNode && typeof textPathNode.getTotalLength === 'function') {
+                                        try { textPathLength = textPathNode.getTotalLength() || 1000; } catch(e){}
+                                    }
+                                }
+                            }
                         }
 
+                        const shapeInst = item.remember('_shapeInstance');
                         selectionStates.set(item.node, {
-                            matrix: new SVG.Matrix(item),
-                            x: item.x(),
-                            y: item.y(),
-                            rbox: item.rbox(item.root()),
-                            startOffsetAttr: startOffsetAttr,
-                            startOffset: parseFloat(startOffsetAttr) || 0
+                            element: item, // [PERF] キャッシュ化
+                            matrix: new SVG.Matrix(item), x: item.x(), y: item.y(), rbox: item.rbox(item.root()),
+                            cleanBBox: (shapeInst && typeof shapeInst.getCleanBBox === 'function') ? shapeInst.getCleanBBox() : item.bbox(),
+                            startOffsetAttr, startOffset: parseFloat(startOffsetAttr) || 0, textPathNode, textPathLength
                         });
 
-                        // [NEW] Text -> Shape sync: capture associated shape state if only text is selected
                         const shapeId = item.attr('data-associated-shape-id');
                         const assocShape = shapeId ? SVG('#' + shapeId) : null;
-                        if (assocShape && assocShape.node && assocShape.node.isConnected) {
-                            if (!selectionStates.has(assocShape.node)) {
-                                selectionStates.set(assocShape.node, {
-                                    matrix: new SVG.Matrix(assocShape),
-                                    x: assocShape.x(),
-                                    y: assocShape.y(),
-                                    rbox: assocShape.rbox(assocShape.root())
-                                });
-                            }
+                        if (assocShape && assocShape.node && assocShape.node.isConnected && !selectionStates.has(assocShape.node)) {
+                            const assocInst = assocShape.remember('_shapeInstance');
+                            selectionStates.set(assocShape.node, {
+                                element: assocShape, // [PERF] キャッシュ化
+                                matrix: new SVG.Matrix(assocShape), x: assocShape.x(), y: assocShape.y(), rbox: assocShape.rbox(assocShape.root()),
+                                cleanBBox: (assocInst && typeof assocInst.getCleanBBox === 'function') ? assocInst.getCleanBBox() : assocShape.bbox()
+                            });
                         }
 
-                        // [NEW] Shape -> Text sync: capture associated text state
                         const textId = item.attr('data-associated-text-id');
                         const assocText = textId ? SVG('#' + textId) : null;
-                        if (assocText && assocText.node && assocText.node.isConnected) {
-                            if (!selectionStates.has(assocText.node)) {
-                                selectionStates.set(assocText.node, {
-                                    matrix: new SVG.Matrix(assocText),
-                                    x: assocText.x(),
-                                    y: assocText.y(),
-                                    rbox: assocText.rbox(assocText.root())
-                                });
-                            }
+                        if (assocText && assocText.node && assocText.node.isConnected && !selectionStates.has(assocText.node)) {
+                            const textInst = assocText.remember('_shapeInstance');
+                            selectionStates.set(assocText.node, {
+                                element: assocText, // [PERF] キャッシュ化
+                                matrix: new SVG.Matrix(assocText), x: assocText.x(), y: assocText.y(), rbox: assocText.rbox(assocText.root()),
+                                cleanBBox: (textInst && typeof textInst.getCleanBBox === 'function') ? textInst.getCleanBBox() : assocText.bbox()
+                            });
                         }
                     });
                 }
 
-                // Reset axis lock
+                isSnapCacheBuilt = false;
+                snapTargetsCache = null;
+
                 const shape = el.remember('_shapeInstance');
                 if (shape) {
                     shape._dragLockAxis = null;
                     shape._dragLockAxisFinalized = false;
-                    shape._isActuallyMoved = false; // [NEW] Reset move flag
+                    shape._isActuallyMoved = false; 
                 }
             });
 
@@ -1011,45 +1128,24 @@ class StandardShape extends SvgShape {
                 const sp = svg.point(startDragX, startDragY);
                 const shape = this.remember('_shapeInstance');
 
-                const scale = window.SVGUtils && window.SVGUtils.getTransformScale ? window.SVGUtils.getTransformScale(svg.node) : 1;
                 const screenDist = Math.sqrt((event.clientX - startDragX) ** 2 + (event.clientY - startDragY) ** 2);
+                let dx = p.x - sp.x; let dy = p.y - sp.y;
+                let isActuallyMoving = screenDist >= 3;
 
-                let dx = p.x - sp.x;
-                let dy = p.y - sp.y;
-
-                // [NEW] Drag Threshold (Dead Zone): Ignore movements less than 3 screen pixels
-                const deadZone = 3;
-                let isActuallyMoving = screenDist >= deadZone;
-
-                if (!isActuallyMoving) {
-                    dx = 0;
-                    dy = 0;
-                } else if (shape) {
-                    shape._isActuallyMoved = true; // [NEW] Mark as moved
-                }
+                if (!isActuallyMoving) { dx = 0; dy = 0; } 
+                else if (shape) shape._isActuallyMoved = true;
 
                 const isShift = (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed) || event.shiftKey;
                 const isSnapEnabled = typeof window.SVGUtils !== 'undefined' ? window.SVGUtils.isSnapEnabled(event) : ((window.currentEditingSVG && window.currentEditingSVG.isAltPressed) || event.altKey);
 
-                // Shift押下時: 水平・垂直移動の制限 (座標比較スナップ方式)
                 if (isShift && shape && isActuallyMoving) {
-                    const lockThreshold = 15; // 固定エリアの境界
-                    // screenDist は既に計算済み
-                    if (screenDist < lockThreshold) {
-                        // 【再判定・スナップエリア】マウス座標を比較し、変位の大きい方に「即座に」スナップ
-                        // このエリア内では finalize しないため、マウスを振るだけで軸が入れ替わる
+                    if (screenDist < 15) {
                         shape._dragLockAxis = (Math.abs(dx) >= Math.abs(dy)) ? 'h' : 'v';
                         shape._dragLockAxisFinalized = false;
-                    } else {
-                        // 【ロックエリア】境界を超えた瞬間の dx, dy で軸を最終固定
-                        if (!shape._dragLockAxisFinalized) {
-                            shape._dragLockAxis = (Math.abs(dx) >= Math.abs(dy)) ? 'h' : 'v';
-                            shape._dragLockAxisFinalized = true;
-                            console.log(`[SHIFT DRAG] Axis Fixed to ${shape._dragLockAxis} at dist ${screenDist.toFixed(1)}px`);
-                        }
+                    } else if (!shape._dragLockAxisFinalized) {
+                        shape._dragLockAxis = (Math.abs(dx) >= Math.abs(dy)) ? 'h' : 'v';
+                        shape._dragLockAxisFinalized = true;
                     }
-
-                    // 決定された軸に基づいて移動を強制（バイナリスナップ）
                     if (shape._dragLockAxis === 'h') dy = 0;
                     else if (shape._dragLockAxis === 'v') dx = 0;
                 } else if (shape) {
@@ -1060,154 +1156,36 @@ class StandardShape extends SvgShape {
                 const gridConfig = (typeof AppState !== 'undefined' && AppState.config.grid) || { size: 15 };
                 const snapSize = gridConfig.size || 15;
 
-                // Alt押下時: スナップ座標の計算
+                // [PERF] スナップやスマートガイドが必要になった瞬間だけキャッシュを構築
+                if ((isSnapEnabled || window.currentEditingSVG) && isActuallyMoving) {
+                    if (el.node._buildSnapCache) el.node._buildSnapCache();
+                }
+                const currentSnapCache = el.node._getSnapCache ? el.node._getSnapCache() : null;
+
                 if (isSnapEnabled && snapSize > 0 && isActuallyMoving) {
                     let mainState = selectionStates.get(el.node);
-
-                    // [FIX] Ctrl+Drag (複製)時は元の要素(el)が選択解除されているため、最初の選択状態にフォールバックする
-                    if (!mainState && selectionStates.size > 0) {
-                        mainState = selectionStates.values().next().value;
-                    }
-
+                    if (!mainState && selectionStates.size > 0) mainState = selectionStates.values().next().value;
                     if (mainState && mainState.rbox) {
-                        const predictedX = mainState.rbox.x + dx;
-                        const predictedY = mainState.rbox.y + dy;
-                        const snappedX = Math.round(predictedX / snapSize) * snapSize;
-                        const snappedY = Math.round(predictedY / snapSize) * snapSize;
-                        dx = snappedX - mainState.rbox.x;
-                        dy = snappedY - mainState.rbox.y;
+                        dx = Math.round((mainState.rbox.x + dx) / snapSize) * snapSize - mainState.rbox.x;
+                        dy = Math.round((mainState.rbox.y + dy) / snapSize) * snapSize - mainState.rbox.y;
                     }
                 }
 
-                // [NEW] Smart Snapping (Object-to-Object)
-                if (window.currentEditingSVG && !isSnapEnabled && isActuallyMoving) {
+                if (window.currentEditingSVG && !isSnapEnabled && isActuallyMoving && currentSnapCache) {
                     let mainState = selectionStates.get(el.node);
-                    if (!mainState && selectionStates.size > 0) {
-                        mainState = selectionStates.values().next().value;
-                    }
+                    if (!mainState && selectionStates.size > 0) mainState = selectionStates.values().next().value;
 
                     if (mainState && mainState.rbox) {
-                        // 1. Calculate moving box after initial DX/DY (Shift alignment)
                         const movingRBox = {
-                            x: mainState.rbox.x + dx,
-                            y: mainState.rbox.y + dy,
-                            width: mainState.rbox.width,
-                            height: mainState.rbox.height,
-                            x2: mainState.rbox.x + dx + mainState.rbox.width,
-                            y2: mainState.rbox.y + dy + mainState.rbox.height,
-                            cx: mainState.rbox.x + dx + mainState.rbox.width / 2,
-                            cy: mainState.rbox.y + dy + mainState.rbox.height / 2
+                            x: mainState.rbox.x + dx, y: mainState.rbox.y + dy,
+                            width: mainState.rbox.width, height: mainState.rbox.height,
+                            x2: mainState.rbox.x + dx + mainState.rbox.width, y2: mainState.rbox.y + dy + mainState.rbox.height,
+                            cx: mainState.rbox.x + dx + mainState.rbox.width / 2, cy: mainState.rbox.y + dy + mainState.rbox.height / 2
                         };
 
-                        // 2. Identify target elements (all interactive elements except selected ones)
-                        const targetBoxes = [];
-                        const root = this.root();
-
-                        // [NEW] Identify IDs of elements currently being moved to exclude connected lines
-                        const movingIds = new Set();
-                        selectionStates.forEach((state, node) => {
-                            if (node.id) movingIds.add(node.id);
-                        });
-
-                        // [NEW] Add Canvas (Paper) edges and center as snap targets
-                        const svgEdit = window.currentEditingSVG;
-                        if (svgEdit && !isNaN(svgEdit.baseWidth)) {
-                            targetBoxes.push({
-                                x: svgEdit.baseX,
-                                y: svgEdit.baseY,
-                                width: svgEdit.baseWidth,
-                                height: svgEdit.baseHeight,
-                                x2: svgEdit.baseX + svgEdit.baseWidth,
-                                y2: svgEdit.baseY + svgEdit.baseHeight,
-                                cx: svgEdit.baseX + svgEdit.baseWidth / 2,
-                                cy: svgEdit.baseY + svgEdit.baseHeight / 2
-                            });
-                        }
-
-                        root.children().each(function (child) {
-                            // [FIX] Strict Exclusion Logic
-                            // 1. Exclude currently dragging/selected elements and their descendants/ancestors
-                            let isMovingOrRelated = false;
-                            for (const movingNode of selectionStates.keys()) {
-                                const matchDirect = child.node === movingNode;
-                                const matchContains1 = child.node.contains(movingNode);
-                                const matchContains2 = movingNode.contains(child.node);
-                                if (matchDirect || matchContains1 || matchContains2) {
-                                    isMovingOrRelated = true;
-                                    console.log(`[SNAP-EXCLUDE] Excluded child ${child.id()} (${child.node.tagName}) because of movingNode ${movingNode.id || movingNode.tagName}. matchDirect=${matchDirect}, matchContains1=${matchContains1}, matchContains2=${matchContains2}`);
-                                    break;
-                                }
-                            }
-                            if (isMovingOrRelated) return;
-
-                            // [NEW] Exclude lines/arrows connected to the current moving set
-                            // (Prevents snapping to objects that are moving with us)
-                            const tagName = child.node.tagName.toLowerCase();
-                            if (['polyline', 'line', 'path'].includes(tagName)) {
-                                const connStr = child.attr('data-connections');
-                                if (connStr) {
-                                    try {
-                                        const conns = JSON.parse(connStr);
-                                        if (conns.some(c => movingIds.has(c.targetId))) {
-                                            // This line is connected to a moving element, skip it
-                                            return;
-                                        }
-                                    } catch (e) { }
-                                }
-                            }
-
-                            // 2. Exclude elements marked as internal or components lacking tool ID
-                            // [FIX] Any element without 'data-tool-id' is likely an internal editor component
-                            // (Grid lines, Guides, Selection UI, orphaned groups, etc.) and should NOT be snappable.
-                            const toolId = child.attr('data-tool-id');
-                            const isInternal = child.attr('data-internal') === 'true';
-
-                            if (isInternal || (!toolId && tagName !== 'canvas')) {
-                                return;
-                            }
-
-                            // 3. Exclude all tool-related components by class
-                            const classes = child.attr('class') || '';
-                            const isTool = classes.includes('svg_select') ||
-                                classes.includes('svg-select') ||
-                                classes.includes('svg_interaction') ||
-                                classes.includes('svg-canvas-proxy') ||
-                                classes.includes('svg-snap-guides') ||
-                                classes.includes('svg-control-marker') ||
-                                classes.includes('handle-group') ||
-                                classes.includes('hitarea') ||
-                                classes.includes('svg-grid');
-
-                            if (isTool) return;
-
-                            // 4. Skip strictly internal or empty groups
-                            if (['defs', 'style', 'marker', 'symbol', 'metadata', 'script'].includes(tagName)) return;
-                            if (tagName === 'g' && !child.hasClass('radius-handle-group') && child.children().length === 0) return;
-
-                            // 5. Validate physical presence and size
-                            try {
-                                const box = child.rbox(root);
-                                if (box.width > 0 || box.height > 0) {
-                                    // [NEW] Add label for easier logging
-                                    const idLabel = child.attr('id') || tagName;
-                                    box.label = toolId ? `${toolId}#${idLabel}` : idLabel;
-                                    targetBoxes.push(box);
-                                    console.log(`[SNAP-TARGET] Added target box: ${box.label}, x=${box.x}, y=${box.y}, w=${box.width}, h=${box.height}`);
-                                }
-                            } catch (err) { }
-                        });
-
-                        // [NEW] Enabled debug log for verification
-                        if (targetBoxes.length > 0) {
-                            const targets = targetBoxes.map(b => b.label || 'Canvas');
-                            // console.log(`[SNAP] Potential targets (${targetBoxes.length}):`, targets);
-                        }
-
-                        // 3. Find snap
-                        const snap = window.SVGUtils.findSmartSnap(movingRBox, targetBoxes, 8);
+                        const snap = window.SVGUtils.findSmartSnap(movingRBox, currentSnapCache, 8);
                         if (snap) {
-                            dx += snap.dx;
-                            dy += snap.dy;
+                            dx += snap.dx; dy += snap.dy;
                             window.currentEditingSVG.showGuides(snap.guidesV, snap.guidesH);
                         } else {
                             window.currentEditingSVG.hideGuides();
@@ -1217,53 +1195,33 @@ class StandardShape extends SvgShape {
                     window.currentEditingSVG.hideGuides();
                 }
 
-                // 1. 全ての選択要素の移動（トランスフォーム適用）を優先
                 selectionStates.forEach((state, node) => {
-                    const item = SVG(node);
+                    const item = state.element; // [PERF] キャッシュから取得し無駄なadoptを回避
                     if (!item) return;
 
                     let isTextPathSlide = false;
-                    if (item.type === 'text') {
+                    if (item.type === 'text' && state.textPathNode) {
                         const tp = item.node.querySelector('textPath');
                         if (tp) {
-                            const pathHref = tp.getAttribute('href') || tp.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
-                            let targetShapeNode = null;
-                            let pathLen = 1000;
+                            const targetShapeNode = state.textPathNode;
+                            const pathLen = state.textPathLength;
 
-                            if (pathHref) {
-                                targetShapeNode = document.querySelector(pathHref);
-                                if (targetShapeNode && typeof targetShapeNode.getTotalLength === 'function') {
-                                    try {
-                                        pathLen = targetShapeNode.getTotalLength() || 1000;
-                                    } catch (e) {
-                                        console.warn("[TextPath] getTotalLength failed:", e);
-                                    }
-                                }
-                            }
-
-                            // [FIX] Ensure the base shape is NOT also being moved.
-                            // If both are moving, we should just transform both normally.
-                            if (targetShapeNode && !selectionStates.has(targetShapeNode)) {
+                            if (!selectionStates.has(targetShapeNode)) {
                                 isTextPathSlide = true;
                                 const isPercent = state.startOffsetAttr && state.startOffsetAttr.includes('%');
-                                const slideDelta = dx + dy;
                                 const loops = parseInt(targetShapeNode.getAttribute('data-loops')) || 1;
                                 const logicalPathLen = pathLen / loops;
 
                                 if (isPercent) {
                                     const logicalPercent = 100 / loops;
-                                    let newPct = state.startOffset + (slideDelta / pathLen * 100);
+                                    let newPct = state.startOffset + ((dx + dy) / pathLen * 100);
                                     let wrapped = ((newPct % logicalPercent) + logicalPercent) % logicalPercent;
-                                    if (loops > 1) {
-                                        wrapped += Math.floor(loops / 2) * logicalPercent;
-                                    }
+                                    if (loops > 1) wrapped += Math.floor(loops / 2) * logicalPercent;
                                     tp.setAttribute('startOffset', wrapped.toFixed(2) + '%');
                                 } else {
-                                    let newOff = state.startOffset + slideDelta;
+                                    let newOff = state.startOffset + (dx + dy);
                                     let wrapped = ((newOff % logicalPathLen) + logicalPathLen) % logicalPathLen;
-                                    if (loops > 1) {
-                                        wrapped += Math.floor(loops / 2) * logicalPathLen;
-                                    }
+                                    if (loops > 1) wrapped += Math.floor(loops / 2) * logicalPathLen;
                                     tp.setAttribute('startOffset', wrapped.toFixed(2));
                                 }
                             }
@@ -1271,38 +1229,40 @@ class StandardShape extends SvgShape {
                     }
 
                     if (!isTextPathSlide) {
-                        const newMatrix = new SVG.Matrix().translate(dx, dy).multiply(state.matrix);
-                        item.matrix(newMatrix);
+                        item.matrix(new SVG.Matrix().translate(dx, dy).multiply(state.matrix));
                     }
-
-                    const shape = item.remember('_shapeInstance');
-                    if (shape && shape.updateHitArea) shape.updateHitArea();
-                    if (shape && typeof shape.syncSelectionHandlers === 'function') shape.syncSelectionHandlers();
-                    if (shape && typeof shape.syncStrokeTextScale === 'function') shape.syncStrokeTextScale();
                 });
 
-                // 2. 移動完了後に全ての接続を更新
-                if (window.SVGConnectorManager) {
-                    selectionStates.forEach((state, node) => {
-                        const item = SVG(node);
-                        if (item) {
-                            window.SVGConnectorManager.updateConnectionsFromElement(item);
+                // [PERF] 複数図形移動時のUI更新・コネクタ更新を1つの requestAnimationFrame でバッチ化し、激重処理を間引く
+                if (!el.node._uiUpdateScheduled) {
+                    el.node._uiUpdateScheduled = true;
+                    requestAnimationFrame(() => {
+                        el.node._uiUpdateScheduled = false;
+                        
+                        selectionStates.forEach((state, node) => {
+                            const item = state.element;
+                            if (!item) return;
+                            
+                            const s = item.remember('_shapeInstance');
+                            if (s) {
+                                if (s.updateHitArea) s.updateHitArea(true);
+                                if (typeof s.syncSelectionHandlers === 'function') {
+                                    s.syncSelectionHandlers(state.cleanBBox);
+                                }
+                            }
+
+                            if (window.SVGConnectorManager && typeof window.SVGConnectorManager.updateConnectionsFromElement === 'function') {
+                                window.SVGConnectorManager.updateConnectionsFromElement(item);
+                            }
+                        });
+
+                        if (typeof window.updateTransformToolbarValues === 'function') {
+                            window.updateTransformToolbarValues();
                         }
                     });
                 }
-
-                // [NEW] Debug Log: Movement (Shape state and mouse coords)
-                if (window.currentEditingSVG) {
-                    const visual = this.rbox(this.root());
-                    // console.log(`[SVG DRAG DEBUG] Mouse(${event.clientX}, ${event.clientY}) | Shape ${this.id()}: pos(${visual.x.toFixed(1)}, ${visual.y.toFixed(1)}), size(${visual.width.toFixed(1)}x${visual.height.toFixed(1)})`);
-                }
-
-                if (window.updateTransformToolbarValues) {
-                    window.updateTransformToolbarValues();
-                }
             });
 
-            // Sync on end
             el.off('dragend');
             el.on('dragend', (e) => {
                 const shape = el.remember('_shapeInstance');
@@ -1310,14 +1270,32 @@ class StandardShape extends SvgShape {
                     window.currentEditingSVG.hideGuides();
                     window.currentEditingSVG._isOperationInProgress = false;
                 }
-                if (shape && shape._isActuallyMoved) {
-                    syncChanges(true, null, true);
-                }
-                selectionStates.clear();
-            });
+                
+                selectionStates.forEach((state, node) => {
+                    const item = state.element;
+                    if (item) {
+                        const s = item.remember('_shapeInstance');
+                        if (s) {
+                            s._isDragging = false;
+                            // [NEW] 移動確定時に座標変位行列を幾何属性（x, y 等）に焼き込む
+                            if (typeof s.bakeTransformation === 'function') {
+                                s.bakeTransformation(true);
+                            }
+                            if (typeof s.syncStrokeTextScale === 'function') {
+                                s.syncStrokeTextScale();
+                            }
+                        }
+                    }
+                });
 
-            el.off('resizedone');
-            // [REMOVED] Redundant/Conflict with resizedone.sync above
+                if (shape && shape._isActuallyMoved) syncChanges(true, null, true);
+                selectionStates.clear();
+                
+                if (el.node._buildSnapCache) {
+                    delete el.node._buildSnapCache;
+                    delete el.node._getSnapCache;
+                }
+            });
         }
     }
 
@@ -1594,7 +1572,8 @@ class StandardShape extends SvgShape {
             setTimeout(() => {
                 if (this.el && window.currentEditingSVG && window.currentEditingSVG.selectedElements.has(this.el)) {
                     if (typeof window.selectElement === 'function') {
-                        window.selectElement(this.el, false, true); 
+                        // [FIX] すでに選択済みである場合のガード処理を無視し、強制的に再描画させるために第4引数 (force=true) を指定
+                        window.selectElement(this.el, false, true, true); 
                     } else if (typeof this.el.select === 'function') {
                         this.el.select(false);
                         this.applySelectionUI();
@@ -1780,8 +1759,8 @@ class StandardShape extends SvgShape {
      */
     syncStrokeTextScale() {
         const el = this.el;
+        const maintain = typeof AppState !== 'undefined' && AppState.config && AppState.config.svgMaintainStrokeText !== false;
         if (el.type === 'g' && el.attr('data-tool-id') === 'shape-text-group') {
-            const maintain = typeof AppState !== 'undefined' && AppState.config && AppState.config.svgMaintainStrokeText !== false;
             const matrix = el.matrix();
             const sx = Math.sqrt(matrix.a * matrix.a + matrix.b * matrix.b);
             const sy = Math.sqrt(matrix.c * matrix.c + matrix.d * matrix.d);
@@ -1959,6 +1938,13 @@ class StandardShape extends SvgShape {
                     }
                 }
             });
+        } else if (el.type !== 'g' && !el.hasClass('svg-interaction-hitarea')) {
+            // 単体の図形要素の場合
+            if (maintain) {
+                el.attr('vector-effect', 'non-scaling-stroke');
+            } else {
+                el.attr('vector-effect', null);
+            }
         }
     }
 
@@ -2137,6 +2123,9 @@ class StandardShape extends SvgShape {
         if (!el || !el.node || !el.node.isConnected) {
             return;
         }
+
+        // [NEW] SVG.js の bbox キャッシュを再帰的にクリアして最新の属性値を反映させる
+        clearBoxCache(el);
 
         // [FIX] svg.resize.js がリサイズ完了時に勝手にネイティブDOMからmatrixを消去するのを防ぐため、
         // 最後に正しく計算した lastMatrix があればそちらを強制的に使用する
@@ -2449,7 +2438,11 @@ class StandardShape extends SvgShape {
                     } else if (!child.hasClass('svg-interaction-hitarea') && childType !== 'g') {
                         const success = this._updateAttributesUsingMatrix(matrix, child);
                         if (!success) successAll = false;
-                        child.attr('vector-effect', null);
+                        if (maintain) {
+                            child.attr('vector-effect', 'non-scaling-stroke');
+                        } else {
+                            child.attr('vector-effect', null);
+                        }
                     }
                 });
                 return successAll;
@@ -2703,97 +2696,120 @@ class StandardShape extends SvgShape {
     /**
      * [REFACTOR] Synchronize selection UI handles.
      */
-    syncSelectionHandlers() {
-        // [FIX] Prefer the specific selection group associated with this element
-        // to avoid orphaning handles or attaching to the wrong group during multi-select moves.
+    syncSelectionHandlers(cachedBBox = null) {
+        // [NEW] キャッシュされている BBox が最新ではない可能性があるため、同期前にキャッシュクリア
+        clearBoxCache(this.el);
         const sh = this.el.remember('_selectHandler');
-        // [FIX] window.currentEditingSVG が既に null または cleanup 済みの場合のガードを追加
-        if (!window.currentEditingSVG || !window.currentEditingSVG.container) {
-            return;
+
+        // [NEW] リサイズドラッグ中は selectHandler の mutationHandler を同期呼び出しして位置を即座に更新する
+        if (sh && this._isResizing && typeof sh.mutationHandler === 'function') {
+            try {
+                sh.mutationHandler();
+            } catch (e) {
+                console.warn('[syncSelectionHandlers] Sync mutationHandler failed:', e);
+            }
         }
 
+        if (!window.currentEditingSVG || !window.currentEditingSVG.container) return;
+
         const selectionGroups = new Set();
-        if (sh && sh.nested && sh.nested.node) {
-            selectionGroups.add(sh.nested.node);
+        let nested = sh && (sh.nested || sh.group || sh.selection);
+
+        // [PERF] svg.select.js に依存した要素の特定。グローバル検索を避けて超高速化。
+        if (!nested && sh) {
+            const root = this.el.root();
+            if (root && root.node) {
+                const targetId = this.el.id();
+                const allGroups = root.node.querySelectorAll('g[class*="select"]');
+                for (let i = 0; i < allGroups.length; i++) {
+                    const group = allGroups[i];
+                    const inst = group.instance || (typeof window.SVG === 'function' ? window.SVG(group) : null);
+                    if (inst) {
+                        const instEl = inst.el || inst.target || inst.targetEl || inst.selection;
+                        const instElId = (instEl && typeof instEl.id === 'function') ? instEl.id() : (instEl ? instEl.id : null);
+                        if (instElId === targetId) {
+                            nested = inst;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (nested && nested.node) {
+            selectionGroups.add(nested.node);
+        } else if (!sh) {
+            // [PERF] 選択ハンドラが存在しない場合は、無駄なグローバル検索を避けて早期リターン
+            return;
         } else {
-            // Fallback: querySelectorAll to catch all selection groups in case of multi-select
-            // where specific select handler association might be temporarily lost.
+            // [FALLBACK] 最終手段として全体検索を行う（基本到達しない）
             window.currentEditingSVG.container.querySelectorAll('.svg_select_group, .svg-select-group').forEach(g => selectionGroups.add(g));
             window.currentEditingSVG.container.querySelectorAll('.svg_select_shape').forEach(g => {
                 if (g.parentNode) selectionGroups.add(g.parentNode);
             });
         }
 
-        // [LOCK GUARD] If locked, we don't display any interactive handles (Rotation, Radius, etc.)
         const isLocked = this.el.attr('data-locked') === 'true' || this.el.attr('data-locked') === true;
         if (isLocked) {
-            // Clean up existing handles if any
-            if (this._rotationHandler) this._rotationHandler.hide();
-            if (this._radiusHandler) this._radiusHandler.hide();
-            if (this._polylineHandler) this._polylineHandler.hide();
-            if (this._bubbleHandler) this._bubbleHandler.hide();
+            this.clearSelectionUI();
             return;
         }
 
-        if (selectionGroups.size === 0) {
-            return;
-        }
+        if (selectionGroups.size === 0) return;
 
-        const bbox = this.getCleanBBox();
-
-        // Ensure all handles have classes for CSS scaling
-        // svg.select.js creates handles that might miss our custom classes sometimes.
+        const bbox = cachedBBox || this.getCleanBBox();
         const editor = window.currentEditingSVG;
         const zoomVal = (editor && editor.zoom) || 100;
-        const s = 100 / zoomVal;
         const container = editor && editor.container;
 
         selectionGroups.forEach(selectionGroup => {
-            selectionGroup.querySelectorAll('circle, rect').forEach(h => {
-                // クラスの付与（CSSでの一括制御用）
-                if (h.classList.length === 0 || (!h.classList.contains('svg-select-handle') && !h.classList.contains('rotation-handle') && !h.classList.contains('radius-handle'))) {
-                    h.classList.add('svg-select-handle');
-                    if (!h.className.baseVal.includes('-handle')) {
-                        h.classList.add('select-point-handle');
+            // [PERF] DOM検索と属性操作のキャッシュを利用して毎フレームの負荷をゼロに近づける
+            let handles = selectionGroup._cachedHandles;
+            let currentZoomVal = selectionGroup._lastZoomVal;
+            
+            let forceUpdate = false;
+            if (!handles || selectionGroup.children.length !== selectionGroup._cachedChildrenCount) {
+                handles = Array.from(selectionGroup.querySelectorAll('circle, rect'));
+                selectionGroup._cachedHandles = handles;
+                selectionGroup._cachedChildrenCount = selectionGroup.children.length;
+                forceUpdate = true;
+                
+                handles.forEach(h => {
+                    if (h.classList.length === 0 || (!h.classList.contains('svg-select-handle') && !h.classList.contains('rotation-handle') && !h.classList.contains('radius-handle'))) {
+                        h.classList.add('svg-select-handle');
+                        if (!h.className.baseVal.includes('-handle')) h.classList.add('select-point-handle');
                     }
-                }
+                });
+            }
 
-                // [FIX] Invariant Point Scaling (SVG Utils approach)
-                if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-                    window.SVGUtils.updateHandleScaling(h, zoomVal);
-                }
-            });
+            // [FIX] ズーム率の変化、新規ハンドル検出時、またはリサイズ・ドラッグ移動中はハンドルスケール（translateの基準位置）を再計算する
+            if (currentZoomVal !== zoomVal || forceUpdate || this._isResizing || this._isDragging) {
+                handles.forEach(h => {
+                    if (window.SVGUtils && window.SVGUtils.updateHandleScaling) window.SVGUtils.updateHandleScaling(h, zoomVal);
+                });
+                selectionGroup._lastZoomVal = zoomVal;
+            }
         });
 
-
-        const primarySelectionGroup = (sh && sh.nested && sh.nested.node) ||
-            (selectionGroups.size > 0 ? selectionGroups.values().next().value : null);
-
-        // [FIX] 選択枠（ハンドル類）を常に最前面に配置し、他の図形のヒットエリア等によるクリック妨害を防ぐ
-        if (primarySelectionGroup && primarySelectionGroup.parentNode) {
-            SVG(primarySelectionGroup).front();
-        }
+        const primarySelectionGroup = (sh && sh.nested && sh.nested.node) || (selectionGroups.size > 0 ? selectionGroups.values().next().value : null);
+        if (primarySelectionGroup && primarySelectionGroup.parentNode) SVG(primarySelectionGroup).front();
 
         if (container) {
-            // Update Rotation Handle
             if (!this._rotationHandler && typeof SvgRotationHandler !== 'undefined') {
                 this._rotationHandler = new SvgRotationHandler(container, () => { if (window.syncChanges) window.syncChanges(true); });
             }
             if (this._rotationHandler) this._rotationHandler.update(primarySelectionGroup, this.node, bbox);
 
-            // Update Radius Handle
             if (!this._radiusHandler && typeof SvgRadiusHandler !== 'undefined') {
                 this._radiusHandler = new SvgRadiusHandler(container, () => { if (window.syncChanges) window.syncChanges(true); });
             }
             if (this._radiusHandler) this._radiusHandler.update(primarySelectionGroup, this.node, bbox);
 
-            // [NEW] Update Polyline Handles
             if (this instanceof PolylineShape) {
                 if (!this._polylineHandler && typeof SvgPolylineHandler !== 'undefined') {
                     this._polylineHandler = new SvgPolylineHandler(container, () => {
                         if (typeof SVGToolbar !== 'undefined' && this._polylineHandler.activeNode) {
-                            const activeEl = SVG(this._polylineHandler.activeNode);
-                            SVGToolbar.updateArrowMarkers(activeEl);
+                            SVGToolbar.updateArrowMarkers(SVG(this._polylineHandler.activeNode));
                         }
                         if (typeof updateTransformToolbarValues === 'function') updateTransformToolbarValues();
                         if (window.syncChanges) window.syncChanges(true);
@@ -2802,12 +2818,10 @@ class StandardShape extends SvgShape {
                 if (this._polylineHandler) this._polylineHandler.update(primarySelectionGroup, this.node, bbox);
             }
 
-            // [NEW] Update Bubble Handles
             if (!this._bubbleHandler && typeof SvgBubbleHandler !== 'undefined') {
                 this._bubbleHandler = new SvgBubbleHandler(container, () => {
-                    if (typeof SVGToolbar !== 'undefined' && this._bubbleHandler.activeNode) {
-                        const activeEl = SVG(this._bubbleHandler.activeNode);
-                        if (activeEl && typeof window.updateTransformToolbarValues === 'function') window.updateTransformToolbarValues();
+                    if (typeof SVGToolbar !== 'undefined' && this._bubbleHandler.activeNode && typeof window.updateTransformToolbarValues === 'function') {
+                        window.updateTransformToolbarValues();
                     }
                     if (window.syncChanges) window.syncChanges(true);
                 });
@@ -2815,21 +2829,14 @@ class StandardShape extends SvgShape {
             if (this._bubbleHandler) this._bubbleHandler.update(primarySelectionGroup, this.node, bbox);
         }
 
-        // [NEW] Text alignment synchronization during UI sync (Resize/Move)
         if (window.SVGTextAlignmentToolbar) {
             let group = null;
-            if (this.el.attr('data-tool-id') === 'shape-text-group') {
-                group = this.el;
-            } else {
+            if (this.el.attr('data-tool-id') === 'shape-text-group') group = this.el;
+            else {
                 const p = this.el.parent();
-                if (p && typeof p.attr === 'function' && p.attr('data-tool-id') === 'shape-text-group') {
-                    group = p;
-                }
+                if (p && typeof p.attr === 'function' && p.attr('data-tool-id') === 'shape-text-group') group = p;
             }
-
-            if (group) {
-                window.SVGTextAlignmentToolbar.updateTextPosition(group, true);
-            }
+            if (group) window.SVGTextAlignmentToolbar.updateTextPosition(group, true);
         }
     }
 
@@ -2918,15 +2925,14 @@ class StandardShape extends SvgShape {
         });
     }
 
-    updateHitArea() {
+    updateHitArea(isMoveOnly = false) {
         if (!this.hitArea) return;
         const el = this.el;
-        const bbox = this.getCleanBBox();
 
-        // Sync transformation matrix
         this.hitArea.matrix(el.matrix());
+        if (isMoveOnly) return; 
 
-        // Sync geometry based on element type
+        const bbox = this.getCleanBBox();
         const attrs = {};
         const type = el.type;
 
@@ -3603,3 +3609,44 @@ window.StandardShape = StandardShape;
 window.CanvasShape = CanvasShape;
 window.PolylineShape = PolylineShape;
 window.wrapShape = wrapShape;
+
+// [NEW] SVG.G のプロトタイプ拡張による shape-text-group の bbox/rbox 恒久的オーバーライド
+if (typeof SVG !== 'undefined' && SVG.G) {
+    const origGBBox = SVG.G.prototype.bbox;
+    SVG.G.prototype.bbox = function() {
+        if (typeof this.attr === 'function' && this.attr('data-tool-id') === 'shape-text-group') {
+            let bgShape = null;
+            this.children().forEach(ch => {
+                if (!bgShape) {
+                    const tagName = ch.node ? ch.node.tagName.toLowerCase() : '';
+                    if (tagName !== 'text' && tagName !== 'defs' && tagName !== 'title' && tagName !== 'desc' && !ch.hasClass('svg-interaction-hitarea')) {
+                        bgShape = ch;
+                    }
+                }
+            });
+            if (bgShape && typeof bgShape.bbox === 'function') {
+                return bgShape.bbox();
+            }
+        }
+        return origGBBox.apply(this, arguments);
+    };
+
+    const origGRBox = SVG.G.prototype.rbox;
+    SVG.G.prototype.rbox = function() {
+        if (typeof this.attr === 'function' && this.attr('data-tool-id') === 'shape-text-group') {
+            let bgShape = null;
+            this.children().forEach(ch => {
+                if (!bgShape) {
+                    const tagName = ch.node ? ch.node.tagName.toLowerCase() : '';
+                    if (tagName !== 'text' && tagName !== 'defs' && tagName !== 'title' && tagName !== 'desc' && !ch.hasClass('svg-interaction-hitarea')) {
+                        bgShape = ch;
+                    }
+                }
+            });
+            if (bgShape && typeof bgShape.rbox === 'function') {
+                return bgShape.rbox.apply(bgShape, arguments);
+            }
+        }
+        return origGRBox.apply(this, arguments);
+    };
+}

@@ -14,199 +14,231 @@ window.SVGClipboard = {
 function groupSelectedElements() {
     if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
 
-    // [NEW] Sort selected elements by their DOM order (Z-order)
+    window.currentEditingSVG._isOperationInProgress = true;
+    if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
+
+    // [PERF] Z-orderのソートを O(N^2) から O(N) に高速化
+    const parentChildrenMap = new Map();
+    const getIndex = (node) => {
+        const parent = node.parentNode;
+        if (!parent) return 0;
+        if (!parentChildrenMap.has(parent)) {
+            const children = Array.from(parent.children);
+            const indexMap = new Map();
+            for (let i = 0; i < children.length; i++) indexMap.set(children[i], i);
+            parentChildrenMap.set(parent, indexMap);
+        }
+        return parentChildrenMap.get(parent).get(node) || 0;
+    };
+
     const selected = Array.from(window.currentEditingSVG.selectedElements)
         .sort((a, b) => {
-            // 親要素が異なる場合は単純比較しない（安全対策）
             if (a.node.parentNode !== b.node.parentNode) return 0;
-            const indexA = Array.from(a.node.parentNode.children).indexOf(a.node);
-            const indexB = Array.from(b.node.parentNode.children).indexOf(b.node);
-            return indexA - indexB;
+            return getIndex(a.node) - getIndex(b.node);
         });
 
-    if (selected.length < 2) return;
+    if (selected.length < 2) {
+        window.currentEditingSVG._isOperationInProgress = false;
+        return;
+    }
 
-    // [LOCK GUARD] Check if any element in selection is locked
     if (selected.some(el => el.attr('data-locked') === 'true')) {
         console.warn('[groupSelectedElements] Cannot group: Locked element included.');
+        window.currentEditingSVG._isOperationInProgress = false;
         return;
     }
 
     const first = selected[0];
     const group = first.parent().group();
-    group.attr({
-        'data-label': 'Group',
-        'data-tool-id': 'group'
-    });
-
-    // [NEW] Insert the group at the position of the first (bottom-most) element
+    group.attr({ 'data-label': 'Group', 'data-tool-id': 'group' });
     first.before(group);
 
-    // Move all to group and reinitialize
-    selected.forEach(el => {
-        // [FIX] Use destroy method for cleaner object destruction
-        const shape = el.remember('_shapeInstance');
-        if (shape && typeof shape.destroy === 'function') {
-            shape.destroy();
-        } else if (shape && shape.hitArea) {
-            // Fallback for older patterns
-            shape.hitArea.remove();
-            shape.hitArea = null;
-        }
-
-        if (typeof el.draggable === 'function') el.draggable(false);
-        if (typeof el.select === 'function') el.select(false);
-        if (typeof el.resize === 'function') el.resize(false);
-        el.off(); // Remove all event listeners
-        el.removeClass('svg_select_isSelected');
-
-        group.add(el);
-    });
-
+    // [PERF] ループ前に全体の選択を解除し、個別解除時のリフロー・再描画連鎖を防ぐ
     clearSelection();
 
-    // [FIX] Make the new group interactive
-    makeInteractive(group);
+    // [PERF] DOM移動をFragmentで一括化してリフローと再描画を削減
+    const fragment = document.createDocumentFragment();
 
-    // [FIX] Ensure the group itself can receive pointer events (critical for nested groups)
+    selected.forEach(el => {
+        const shape = el.remember('_shapeInstance');
+        if (shape && typeof shape.destroy === 'function') shape.destroy();
+        else if (shape && shape.hitArea) { shape.hitArea.remove(); shape.hitArea = null; }
+
+        if (typeof el.draggable === 'function') el.draggable(false);
+        try { if (typeof el.select === 'function') el.select(false); } catch(e){}
+        try { if (typeof el.resize === 'function') el.resize(false); } catch(e){}
+        el.off();
+        el.removeClass('svg_select_isSelected');
+        
+        fragment.appendChild(el.node);
+    });
+
+    group.node.appendChild(fragment);
+
+    if (typeof makeInteractive === 'function') makeInteractive(group);
     group.attr('pointer-events', 'all');
 
-    // [FIX] Recursively handle pointer-events for all descendants
-    // - Groups: keep 'all' so events from nested elements can bubble up
-    // - Shapes: clear constraints to allow hover highlighting. (Drag loops are prevented because shapes are off()ed before grouping)
-    const setPointerEventsRecursive = (element) => {
-        element.children().forEach(child => {
-            if (child.type === 'g') {
-                // Child is a group - keep pointer-events enabled for event propagation
-                child.attr('pointer-events', 'all');
-                console.log(`[groupSelectedElements] Enabled pointer-events for nested group: ${child.type}#${child.id()}`);
-
-                // [FIX] Re-initialize the group to restore event handlers
-                if (typeof makeInteractive === 'function') {
-                    makeInteractive(child);
-                    console.log(`[groupSelectedElements] Re-initialized nested group: ${child.type}#${child.id()}`);
-                }
-
-                // Recurse into this group
-                setPointerEventsRecursive(child);
-            } else {
-                // Child is a shape - clear pointer-events to allow hover highlighting on group creation
-                child.attr('pointer-events', null);
-                console.log(`[groupSelectedElements] Cleared pointer-events for nested shape: ${child.type}#${child.id()}`);
+    // [PERF] 重い再帰関数での pointer-events 設定を削除し、ネイティブDOM APIによる一括処理へ置換
+    const groupNode = group.node;
+    if (groupNode && groupNode.querySelectorAll) {
+        const childGroups = groupNode.querySelectorAll('g');
+        for (let i = 0; i < childGroups.length; i++) {
+            childGroups[i].setAttribute('pointer-events', 'all');
+        }
+        const nonGroups = groupNode.querySelectorAll('*:not(g)');
+        for (let i = 0; i < nonGroups.length; i++) {
+            if (nonGroups[i].getAttribute('pointer-events') !== 'none') {
+                nonGroups[i].removeAttribute('pointer-events');
             }
-        });
-    };
-
-    setPointerEventsRecursive(group);
-
+        }
+    }
+    
     selectElement(group);
 
+    window.currentEditingSVG._isOperationInProgress = false;
     syncChanges();
 }
 window.groupSelectedElements = groupSelectedElements;
 
-/**
- * Ungroup selected elements
- */
 function ungroupSelectedElements() {
     if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
 
+    window.currentEditingSVG._isOperationInProgress = true;
+    if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
+
     const selected = Array.from(window.currentEditingSVG.selectedElements);
     const newSelection = [];
-
-    // [FIX] Deselect group first to clean up its helpers
+    
+    // [PERF] 解除対象を含め全体の選択を先に解除し、個別操作によるUIの無駄な連鎖更新を防ぐ
     clearSelection();
 
     selected.forEach(el => {
         if (el.type === 'g') {
-            // [LOCK GUARD]
-            if (el.attr('data-locked') === 'true') {
-                console.warn(`[ungroupSelectedElements] Element ${el.id()} is locked.`);
-                return;
-            }
+            if (el.attr('data-locked') === 'true') return;
 
-            const parent = el.parent();
-            const children = el.children();
-
-            // [FIX] Apply group transform to children to maintain visual state
+            const childrenArray = el.children().map(c => c);
             const groupMatrix = new SVG.Matrix(el);
+            
+            // [PERF] 子要素の元の階層への復帰をFragmentで一括化
+            const fragment = document.createDocumentFragment();
 
-            children.each(function (child) {
-                // Combine matrices: parent * child
+            childrenArray.forEach(function (child) {
                 const childMatrix = new SVG.Matrix(child);
-                const newMatrix = groupMatrix.multiply(childMatrix);
+                child.matrix(groupMatrix.multiply(childMatrix));
+                fragment.appendChild(child.node);
 
-                // Apply new transform
-                child.matrix(newMatrix);
-
-                // [NEW] Insert children at the group's current position to maintain Z-order
-                el.before(child);
-
-                // [FIX] Cleanup old hitArea before re-initializing
                 const childShape = child.remember('_shapeInstance');
                 if (childShape && childShape.hitArea) {
                     childShape.hitArea.remove();
                     childShape.hitArea = null;
                 }
 
-                // [FIX] Restore interactivity for individual children
-                makeInteractive(child);
-
                 newSelection.push(child);
             });
 
-            // Cleanup group hitArea before removal
-            const groupShape = el.remember('_shapeInstance');
-            if (groupShape && groupShape.hitArea) {
-                groupShape.hitArea.remove();
-                groupShape.hitArea = null;
+            // 親の前に一括挿入
+            if (el.node.parentNode) {
+                el.node.parentNode.insertBefore(fragment, el.node);
             }
+
+            // DOMへ追加後、インタラクティブにする
+            childrenArray.forEach(child => {
+                 if (typeof makeInteractive === 'function' && !child.remember('_shapeInstance')) {
+                     makeInteractive(child);
+                 }
+            });
+
+            const groupShape = el.remember('_shapeInstance');
+            if (groupShape && typeof groupShape.destroy === 'function') groupShape.destroy();
+            else if (groupShape && groupShape.hitArea) { groupShape.hitArea.remove(); groupShape.hitArea = null; }
+            
             el.remove();
         }
     });
 
-    // clearSelection(); // Already cleared above
     newSelection.forEach(el => selectElement(el, true));
+    window.currentEditingSVG._isOperationInProgress = false;
     syncChanges();
 }
 window.ungroupSelectedElements = ungroupSelectedElements;
 
 function moveSelectedToFront() {
     if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
-    window.currentEditingSVG.selectedElements.forEach(el => el.front());
+    window.currentEditingSVG._isOperationInProgress = true;
+
+    const parentChildrenMap = new Map();
+    const getIndex = (node) => {
+        const parent = node.parentNode;
+        if (!parent) return 0;
+        if (!parentChildrenMap.has(parent)) {
+            const children = Array.from(parent.children);
+            const indexMap = new Map();
+            for (let i = 0; i < children.length; i++) indexMap.set(children[i], i);
+            parentChildrenMap.set(parent, indexMap);
+        }
+        return parentChildrenMap.get(parent).get(node) || 0;
+    };
+
+    Array.from(window.currentEditingSVG.selectedElements)
+        .sort((a, b) => (a.node.parentNode !== b.node.parentNode) ? 0 : getIndex(a.node) - getIndex(b.node))
+        .forEach(el => {
+            el.front();
+            const shapeInstance = el.remember('_shapeInstance');
+            if (shapeInstance && shapeInstance.hitArea) {
+                shapeInstance.hitArea.insertBefore(el);
+            }
+        });
+
+    window.currentEditingSVG._isOperationInProgress = false;
     syncChanges();
 }
 window.moveSelectedToFront = moveSelectedToFront;
 
 function moveSelectedToBack() {
     if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
-
+    window.currentEditingSVG._isOperationInProgress = true;
     const draw = window.currentEditingSVG.draw;
 
-    window.currentEditingSVG.selectedElements.forEach(el => {
-        // [FIX] グリッド線レイヤーより後ろには行かないようにする。
-        // ネイティブDOMのquerySelectorとinsertBeforeで確実にグリッドの直後に配置する。
-        const gridGroupNode = draw.node.querySelector('.svg-grid-lines');
-
-        if (gridGroupNode) {
-            const parent = gridGroupNode.parentNode;
-            const nextSibling = gridGroupNode.nextElementSibling;
-            if (nextSibling) {
-                parent.insertBefore(el.node, nextSibling);
-            } else {
-                parent.appendChild(el.node);
-            }
-        } else {
-            // グリッドがない場合は通常通り最背面へ
-            el.back();
+    const parentChildrenMap = new Map();
+    const getIndex = (node) => {
+        const parent = node.parentNode;
+        if (!parent) return 0;
+        if (!parentChildrenMap.has(parent)) {
+            const children = Array.from(parent.children);
+            const indexMap = new Map();
+            for (let i = 0; i < children.length; i++) indexMap.set(children[i], i);
+            parentChildrenMap.set(parent, indexMap);
         }
-    });
+        return parentChildrenMap.get(parent).get(node) || 0;
+    };
 
+    Array.from(window.currentEditingSVG.selectedElements)
+        .sort((a, b) => (a.node.parentNode !== b.node.parentNode) ? 0 : getIndex(b.node) - getIndex(a.node))
+        .forEach(el => {
+            const canvasProxy = draw.node.querySelector('.svg-canvas-proxy');
+            const gridGroupNode = draw.node.querySelector('.svg-grid-lines');
+            if (canvasProxy) {
+                const parent = canvasProxy.parentNode;
+                const nextSibling = canvasProxy.nextElementSibling;
+                if (nextSibling) parent.insertBefore(el.node, nextSibling);
+                else parent.appendChild(el.node);
+            } else if (gridGroupNode) {
+                const parent = gridGroupNode.parentNode;
+                const nextSibling = gridGroupNode.nextElementSibling;
+                if (nextSibling) parent.insertBefore(el.node, nextSibling);
+                else parent.appendChild(el.node);
+            } else {
+                el.back();
+            }
+            const shapeInstance = el.remember('_shapeInstance');
+            if (shapeInstance && shapeInstance.hitArea) {
+                shapeInstance.hitArea.insertBefore(el);
+            }
+        });
+
+    window.currentEditingSVG._isOperationInProgress = false;
     syncChanges();
 }
-
-
-
 window.moveSelectedToBack = moveSelectedToBack;
 
 // Helper to recursively store original IDs on cloned elements
@@ -275,6 +307,18 @@ async function pasteElements(container, nativeText = null) {
         // 1. Paste all elements and build ID map (Original ID -> New ID)
         window.SVGClipboard.elements.forEach(originalModel => {
             const clone = originalModel.clone();
+
+            // [NEW] Clear remember memory leaks to avoid reusing stale instances on cloned elements
+            const clearRememberData = (el) => {
+                if (el && typeof el.forget === 'function') {
+                    el.forget('_shapeInstance');
+                    el.forget('_selectHandler');
+                    el.forget('_pointSelectHandler');
+                    el.forget('_resizeState');
+                }
+            };
+            clearRememberData(clone);
+            clone.find('*').forEach(child => clearRememberData(child));
 
             // Offset
             const dx = window.SVGClipboard.pasteOffset.x;
@@ -434,6 +478,15 @@ async function pasteElements(container, nativeText = null) {
                 window.SVGToolbar.updateArrowMarkers(clone);
             }
             makeInteractive(clone);
+
+            // [NEW] ペースト直後に transform (dmove 等で追加された平行移動) を子要素に焼き込み、
+            // グループ要素の transform をクリアしておくことで、ダブルクリック時の transform 競合や
+            // 他のプラグインとの座標競合を防止する
+            const shapeInstance = clone.remember('_shapeInstance');
+            if (shapeInstance && typeof shapeInstance.bakeTransformation === 'function') {
+                shapeInstance.bakeTransformation();
+            }
+
             selectElement(clone, true);
         });
 

@@ -1189,8 +1189,8 @@ function initEditor() {
                 if (!h.id) return;
                 const occIndex = h.index || 0;
 
-                // Search for id="id" or id='id' within the block
-                const regex = new RegExp(`id\\s*=\\s*["']${h.id}["']`, 'g');
+                // Search for id="id" or id='id' within the block (prefix with \s to avoid data-original-id etc.)
+                const regex = new RegExp(`\\sid\\s*=\\s*["']${h.id}["']`, 'g');
                 let match;
                 let currentOcc = 0;
                 let found = false;

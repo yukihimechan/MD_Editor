@@ -20,6 +20,9 @@ function makeInteractive(el) {
     const tagName = el.node.tagName.toLowerCase();
     if (['tspan', 'textpath'].includes(tagName)) return;
 
+    // すでにインタラクティブ化されている（SvgShape インスタンスが存在する）場合は重複処理を防止
+    if (el.remember('_shapeInstance')) return;
+
     // [NEW] もし el (子要素の rect や text) の親が shape-text-group であれば、親の g 要素をインタラクティブ化する
     if (el.node.parentNode && el.node.parentNode.nodeType === 1) {
         const pTagName = el.node.parentNode.tagName.toLowerCase();
@@ -88,7 +91,7 @@ window.makeInteractive = makeInteractive;
 /**
  * Select an element
  */
-function selectElement(el, isMulti, silent = false) {
+function selectElement(el, isMulti, silent = false, force = false) {
     if (!window.currentEditingSVG) {
         return;
     }
@@ -141,7 +144,7 @@ function selectElement(el, isMulti, silent = false) {
     // ▼▼▼ 追加: すでに選択されている場合のガード処理 ▼▼▼
     const alreadySelected = window.currentEditingSVG.selectedElements.has(el);
     
-    if (!isMulti && alreadySelected && window.currentEditingSVG.selectedElements.size === 1) {
+    if (!force && !isMulti && alreadySelected && window.currentEditingSVG.selectedElements.size === 1) {
         // 単一選択モードで自分のみが選択されている場合は何もしない
         return;
     } else if (!isMulti) {

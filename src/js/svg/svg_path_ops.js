@@ -20,7 +20,20 @@ const SVGPathOps = {
         elements.forEach(el => {
             if (axis === 'x') el.flip('x', targetBox.cx);
             else el.flip('y', targetBox.cy);
-            this.bakeTransform(el);
+
+            // data-tool-id を持つカスタムパラメータ図形（uturn_arrow等）は、
+            // 変形をパスデータに焼き込むとパラメータ再生成時に失われる、またマーカー位置がずれるため、
+            // bakeTransform を行わず transform に反転を残し、マーカーのみを更新する
+            const isCustomShape = el.attr('data-tool-id') ? true : false;
+            if (!isCustomShape) {
+                this.bakeTransform(el);
+            } else {
+                const shape = el.remember('_shapeInstance');
+                if (shape && typeof shape.updateMarkers === 'function') {
+                    shape.updateMarkers();
+                }
+            }
+
             if (window.SVGUtils && window.SVGUtils.refreshPathMetadata) window.SVGUtils.refreshPathMetadata(el);
         });
     },

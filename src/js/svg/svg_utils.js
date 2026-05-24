@@ -644,11 +644,11 @@ const SVGUtils = {
     wrapAndFitText(text, maxWidth, maxHeight, fontOpts, lineSpacing = 1.2, minFontSize = 8) {
         if (!text) return { lines: [''], fontSize: fontOpts.fontSize || 20 };
         
-        // 角丸などにはみ出さないよう、最低10pxの余白を保証する
-        const paddingX = Math.max(10, maxWidth * 0.05);
-        const paddingY = Math.max(10, maxHeight * 0.1);
-        const effectiveMaxWidth = Math.max(10, maxWidth - (paddingX * 2));
-        const effectiveMaxHeight = Math.max(10, maxHeight - (paddingY * 2));
+        // 角丸などにはみ出さないよう、最低1pxの余白を保証する
+        const paddingX = Math.max(1, maxWidth * 0.05);
+        const paddingY = Math.max(1, maxHeight * 0.1);
+        const effectiveMaxWidth = Math.max(1, maxWidth - (paddingX * 2));
+        const effectiveMaxHeight = Math.max(1, maxHeight - (paddingY * 2));
 
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -679,7 +679,7 @@ const SVGUtils = {
                     const char = pText[i];
                     const testLine = currentLine + char;
                     const metrics = ctx.measureText(testLine);
-                    const estimatedWidth = metrics.width * 1.1;
+                    const estimatedWidth = metrics.width;
                     
                     if (estimatedWidth > effectiveMaxWidth && currentLine.length > 0) {
                         lines.push(currentLine);
@@ -730,11 +730,11 @@ const SVGUtils = {
         
         // パディング（余白）を考慮して実質的な最大幅を狭める
         // 図形の寸法に対して5%の相対的な余白を取る（小さすぎる/大きすぎる図形への対応）
-        // 角丸などにはみ出さないよう、最低10pxの余白を保証する
-        const paddingX = Math.max(10, maxWidth * 0.05);
-        const paddingY = Math.max(10, maxHeight * 0.05);
-        const effectiveMaxWidth = Math.max(10, maxWidth - (paddingX * 2));
-        const effectiveMaxHeight = Math.max(10, maxHeight - (paddingY * 2));
+        // 角丸などにはみ出さないよう、最低1pxの余白を保証する
+        const paddingX = Math.max(1, maxWidth * 0.05);
+        const paddingY = Math.max(1, maxHeight * 0.05);
+        const effectiveMaxWidth = Math.max(1, maxWidth - (paddingX * 2));
+        const effectiveMaxHeight = Math.max(1, maxHeight - (paddingY * 2));
 
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -768,9 +768,8 @@ const SVGUtils = {
                 const char = pText[i];
                 const testLine = currentLine + char;
                 const metrics = ctx.measureText(testLine);
-                // 日本語の全角文字などの場合、Canvasのシステムフォールバック計測が実際より5〜10%ほど小さく出ることがあるため、
-                // 安全係数 1.1 をかけて少し広めに見積もる
-                const estimatedWidth = metrics.width * 1.1;
+                // 安全係数を 1.0 倍（等倍）にする
+                const estimatedWidth = metrics.width;
                 
                 // もしテスト行が幅を超え、かつ現在の行が空でない場合（1文字で超える場合は1文字を表示）
                 if (estimatedWidth > effectiveMaxWidth && currentLine.length > 0) {
