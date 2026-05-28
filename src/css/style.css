@@ -747,10 +747,26 @@ body.dark-theme .preview-page-break-line::after {
     margin: 16px 0;
 }
 
+.svg-view-wrapper {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 400px;
+}
+
+.svg-view-wrapper.svg-editing {
+    content-visibility: visible;
+}
+
 .md-preview .svg-view-wrapper svg {
     max-width: 100% !important;
     height: auto !important;
 }
+
+/* 直線や矢印に関連付けられたテキスト要素のクリックを透過させる */
+.svg-view-wrapper svg text[data-associated-shape-id],
+.svg-view-wrapper svg text[data-associated-shape-id] * {
+    pointer-events: none !important;
+}
+
 
 /* Heading Collapse */
 .md-preview .collapsible {
@@ -2695,6 +2711,14 @@ body>div[id^="dmermaid"] {
     /* cursor: move !important; Removed to allow dynamic cursor */
     outline: transparent 1px solid; /* Hid dashed border when not hovered */
     outline-offset: 2px;
+}
+
+/* SVG編集モード中のテキスト選択およびネイティブドラッグを防止し、ドラッグ操作をスムーズにする */
+.svg-editable,
+.svg-editable * {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
 }
 
 /* Canvas Border (Solid Blue) */
