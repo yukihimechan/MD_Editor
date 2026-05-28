@@ -865,6 +865,10 @@ class StandardShape extends SvgShape {
         });
 
         el.on('resizestart.sync', (e) => {
+            // ▼ 追加: リサイズ中は監視を停止
+            if (window.currentEditingSVG && typeof window.currentEditingSVG.suspendObserver === 'function') {
+                window.currentEditingSVG.suspendObserver();
+            }
             // [LOCK GUARD]
             const isLocked = this.el.attr('data-locked') === 'true' || this.el.attr('data-locked') === true;
             if (isLocked) {
@@ -977,6 +981,10 @@ class StandardShape extends SvgShape {
             el.node._getSnapCache = () => snapTargetsCache;
 
             el.on('beforedrag', (e) => {
+                // ▼ 追加: ドラッグ中は監視を停止
+                if (window.currentEditingSVG && typeof window.currentEditingSVG.suspendObserver === 'function') {
+                    window.currentEditingSVG.suspendObserver();
+                }
                 if (!window.currentEditingSVG) { e.preventDefault(); return; }
                 window.currentEditingSVG._isOperationInProgress = true;
                 if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
@@ -1004,6 +1012,8 @@ class StandardShape extends SvgShape {
                 window.currentEditingSVG.selectedElements.forEach(item => {
                     const s = item.remember('_shapeInstance');
                     if (s) s._isDragging = true;
+                    // 【Phase 3】 GPUレイヤーのアクティブ化
+                    if (item.node) item.node.style.willChange = 'transform';
                 });
 
                 const isCtrl = (window.currentEditingSVG && window.currentEditingSVG.isCtrlPressed) || ev.ctrlKey;
@@ -1050,7 +1060,8 @@ class StandardShape extends SvgShape {
                             selectionStates.set(item.node, {
                                 element: item, // [PERF] キャッシュ化で毎フレームのSVG()呼び出しを防ぐ
                                 matrix: new SVG.Matrix(item), x: item.x(), y: item.y(), rbox: item.rbox(item.root()),
-                                cleanBBox: (shapeInst && typeof shapeInst.getCleanBBox === 'function') ? shapeInst.getCleanBBox() : item.bbox()
+                                cleanBBox: (shapeInst && typeof shapeInst.getCleanBBox === 'function') ? shapeInst.getCleanBBox() : item.bbox(),
+                                latestDx: 0, latestDy: 0
                             });
                         });
                     }
@@ -1080,7 +1091,8 @@ class StandardShape extends SvgShape {
                             element: item, // [PERF] キャッシュ化
                             matrix: new SVG.Matrix(item), x: item.x(), y: item.y(), rbox: item.rbox(item.root()),
                             cleanBBox: (shapeInst && typeof shapeInst.getCleanBBox === 'function') ? shapeInst.getCleanBBox() : item.bbox(),
-                            startOffsetAttr, startOffset: parseFloat(startOffsetAttr) || 0, textPathNode, textPathLength
+                            startOffsetAttr, startOffset: parseFloat(startOffsetAttr) || 0, textPathNode, textPathLength,
+                            latestDx: 0, latestDy: 0
                         });
 
                         const shapeId = item.attr('data-associated-shape-id');
@@ -1090,7 +1102,8 @@ class StandardShape extends SvgShape {
                             selectionStates.set(assocShape.node, {
                                 element: assocShape, // [PERF] キャッシュ化
                                 matrix: new SVG.Matrix(assocShape), x: assocShape.x(), y: assocShape.y(), rbox: assocShape.rbox(assocShape.root()),
-                                cleanBBox: (assocInst && typeof assocInst.getCleanBBox === 'function') ? assocInst.getCleanBBox() : assocShape.bbox()
+                                cleanBBox: (assocInst && typeof assocInst.getCleanBBox === 'function') ? assocInst.getCleanBBox() : assocShape.bbox(),
+                                latestDx: 0, latestDy: 0
                             });
                         }
 
@@ -1101,7 +1114,8 @@ class StandardShape extends SvgShape {
                             selectionStates.set(assocText.node, {
                                 element: assocText, // [PERF] キャッシュ化
                                 matrix: new SVG.Matrix(assocText), x: assocText.x(), y: assocText.y(), rbox: assocText.rbox(assocText.root()),
-                                cleanBBox: (textInst && typeof textInst.getCleanBBox === 'function') ? textInst.getCleanBBox() : assocText.bbox()
+                                cleanBBox: (textInst && typeof textInst.getCleanBBox === 'function') ? textInst.getCleanBBox() : assocText.bbox(),
+                                latestDx: 0, latestDy: 0
                             });
                         }
                     });
@@ -1229,7 +1243,11 @@ class StandardShape extends SvgShape {
                     }
 
                     if (!isTextPathSlide) {
-                        item.matrix(new SVG.Matrix().translate(dx, dy).multiply(state.matrix));
+                        // 【Phase 3】 SVG.jsのラッパーを介さず、文字列で直接transform属性を書き換えてGPUオフロード
+                        const m = state.matrix;
+                        item.node.setAttribute('transform', `matrix(${m.a},${m.b},${m.c},${m.d},${m.e + dx},${m.f + dy})`);
+                        state.latestDx = dx;
+                        state.latestDy = dy;
                     }
                 });
 
@@ -1245,7 +1263,13 @@ class StandardShape extends SvgShape {
                             
                             const s = item.remember('_shapeInstance');
                             if (s) {
-                                if (s.updateHitArea) s.updateHitArea(true);
+                                // 【Phase 3】 ヒットエリアも文字列で高速同期
+                                if (s.hitArea && s.hitArea.node) {
+                                    const m = state.matrix;
+                                    const lDx = state.latestDx !== undefined ? state.latestDx : 0;
+                                    const lDy = state.latestDy !== undefined ? state.latestDy : 0;
+                                    s.hitArea.node.setAttribute('transform', `matrix(${m.a},${m.b},${m.c},${m.d},${m.e + lDx},${m.f + lDy})`);
+                                }
                                 if (typeof s.syncSelectionHandlers === 'function') {
                                     s.syncSelectionHandlers(state.cleanBBox);
                                 }
@@ -1269,11 +1293,28 @@ class StandardShape extends SvgShape {
                 if (window.currentEditingSVG) {
                     window.currentEditingSVG.hideGuides();
                     window.currentEditingSVG._isOperationInProgress = false;
+                    // ▼ 追加: 終了後に監視を再開
+                    if (typeof window.currentEditingSVG.resumeObserver === 'function') {
+                        window.currentEditingSVG.resumeObserver();
+                    }
                 }
                 
                 selectionStates.forEach((state, node) => {
                     const item = state.element;
                     if (item) {
+                        // 【Phase 3】 操作完了時にGPUレイヤーを無効化し、SVG.jsの内部キャッシュに最終変位をBakeする
+                        if (item.node) {
+                            item.node.style.willChange = '';
+                            if (state.latestDx !== undefined) {
+                                const m = state.matrix;
+                                item.matrix({
+                                    a: m.a, b: m.b, c: m.c, d: m.d,
+                                    e: m.e + state.latestDx,
+                                    f: m.f + state.latestDy
+                                });
+                            }
+                        }
+
                         const s = item.remember('_shapeInstance');
                         if (s) {
                             s._isDragging = false;
@@ -1748,6 +1789,10 @@ class StandardShape extends SvgShape {
         } finally {
             if (window.currentEditingSVG) {
                 window.currentEditingSVG._isOperationInProgress = false;
+                // ▼ 追加: 終了後に監視を再開
+                if (typeof window.currentEditingSVG.resumeObserver === 'function') {
+                    window.currentEditingSVG.resumeObserver();
+                }
             }
             this._resizeState = null;
             this._isResizing = false;
@@ -2090,7 +2135,9 @@ class StandardShape extends SvgShape {
         const MatrixClass = rs.mStart.constructor;
         const mScaleLocal = new MatrixClass().scale(ratioX, ratioY, rs._finalPivotL.x, rs._finalPivotL.y);
         const finalMatrix = rs.mStart.multiply(mScaleLocal);
-        el.matrix(finalMatrix);
+        
+        // 【Phase 3】 SVG.jsの重いパーサーをバイパスし、文字列で直接適用 (Fast Path)
+        el.node.setAttribute('transform', finalMatrix.toString());
 
         // Keep the latest successful matrix calculated from the physical mouse pointer.
         rs.lastMatrix = finalMatrix;
@@ -2794,16 +2841,25 @@ class StandardShape extends SvgShape {
         const primarySelectionGroup = (sh && sh.nested && sh.nested.node) || (selectionGroups.size > 0 ? selectionGroups.values().next().value : null);
         if (primarySelectionGroup && primarySelectionGroup.parentNode) SVG(primarySelectionGroup).front();
 
-        if (container) {
-            if (!this._rotationHandler && typeof SvgRotationHandler !== 'undefined') {
-                this._rotationHandler = new SvgRotationHandler(container, () => { if (window.syncChanges) window.syncChanges(true); });
-            }
-            if (this._rotationHandler) this._rotationHandler.update(primarySelectionGroup, this.node, bbox);
+        const isOpenPath = (this instanceof PolylineShape) && (this.el.attr('data-poly-closed') !== 'true');
 
-            if (!this._radiusHandler && typeof SvgRadiusHandler !== 'undefined') {
-                this._radiusHandler = new SvgRadiusHandler(container, () => { if (window.syncChanges) window.syncChanges(true); });
+        if (container) {
+            if (isOpenPath) {
+                // オープンパス（直線、矢印、折れ線矢印など）の場合は、回転、角丸、吹き出しなどの他のハンドラーは非表示にする
+                if (this._rotationHandler) this._rotationHandler.hide();
+                if (this._radiusHandler) this._radiusHandler.hide();
+                if (this._bubbleHandler) this._bubbleHandler.hide();
+            } else {
+                if (!this._rotationHandler && typeof SvgRotationHandler !== 'undefined') {
+                    this._rotationHandler = new SvgRotationHandler(container, () => { if (window.syncChanges) window.syncChanges(true); });
+                }
+                if (this._rotationHandler) this._rotationHandler.update(primarySelectionGroup, this.node, bbox);
+
+                if (!this._radiusHandler && typeof SvgRadiusHandler !== 'undefined') {
+                    this._radiusHandler = new SvgRadiusHandler(container, () => { if (window.syncChanges) window.syncChanges(true); });
+                }
+                if (this._radiusHandler) this._radiusHandler.update(primarySelectionGroup, this.node, bbox);
             }
-            if (this._radiusHandler) this._radiusHandler.update(primarySelectionGroup, this.node, bbox);
 
             if (this instanceof PolylineShape) {
                 if (!this._polylineHandler && typeof SvgPolylineHandler !== 'undefined') {
@@ -2818,15 +2874,17 @@ class StandardShape extends SvgShape {
                 if (this._polylineHandler) this._polylineHandler.update(primarySelectionGroup, this.node, bbox);
             }
 
-            if (!this._bubbleHandler && typeof SvgBubbleHandler !== 'undefined') {
-                this._bubbleHandler = new SvgBubbleHandler(container, () => {
-                    if (typeof SVGToolbar !== 'undefined' && this._bubbleHandler.activeNode && typeof window.updateTransformToolbarValues === 'function') {
-                        window.updateTransformToolbarValues();
-                    }
-                    if (window.syncChanges) window.syncChanges(true);
-                });
+            if (!isOpenPath) {
+                if (!this._bubbleHandler && typeof SvgBubbleHandler !== 'undefined') {
+                    this._bubbleHandler = new SvgBubbleHandler(container, () => {
+                        if (typeof SVGToolbar !== 'undefined' && this._bubbleHandler.activeNode && typeof window.updateTransformToolbarValues === 'function') {
+                            window.updateTransformToolbarValues();
+                        }
+                        if (window.syncChanges) window.syncChanges(true);
+                    });
+                }
+                if (this._bubbleHandler) this._bubbleHandler.update(primarySelectionGroup, this.node, bbox);
             }
-            if (this._bubbleHandler) this._bubbleHandler.update(primarySelectionGroup, this.node, bbox);
         }
 
         if (window.SVGTextAlignmentToolbar) {
@@ -3565,10 +3623,90 @@ class PolylineShape extends StandardShape {
 
     applySelectionUI() {
         // console.log('[PolylineShape] applySelectionUI', this.el.id());
-        // 1. 標準の選択・リサイズ・回転UIを適用
-        super.applySelectionUI();
+        const isClosed = this.el.attr('data-poly-closed') === 'true';
 
-        // 2. 頂点ハンドラの更新 (SvgPolylineHandler) は applySelectionUI 内の syncSelectionHandlers で呼ばれる
+        if (isClosed) {
+            // 1. クローズドパスの場合は、標準の選択・リサイズ・回転UIをすべて適用
+            super.applySelectionUI();
+        } else {
+            // 2. オープンパスの場合は、リサイズマーカーを表示しない
+            const isGroup = this.el.type === 'g';
+            this._applySelectAndResize({
+                points: [],
+                rotationPoint: false,
+                deepSelect: !isGroup,
+                resizable: false
+            });
+            this.syncSelectionHandlers();
+        }
+
+        // 3. 頂点ハンドラの更新 (SvgPolylineHandler) は applySelectionUI 内の syncSelectionHandlers で呼ばれる
+    }
+
+    syncSelectionHandlers(cachedBBox = null) {
+        super.syncSelectionHandlers(cachedBBox);
+
+        // オープンパスの場合は、生成されたリサイズマーカーを非表示にする
+        const isClosed = this.el.attr('data-poly-closed') === 'true';
+        if (!isClosed) {
+            const sh = this.el.remember('_selectHandler');
+            if (sh) {
+                const nested = sh.nested || sh.group || sh.selection;
+                if (nested) {
+                    nested.each(function () {
+                        const node = this.node;
+                        const cls = node.getAttribute('class') || '';
+                        const isSelect = cls.includes('select');
+                        const isShapeOutline = cls.includes('select_shape') || cls.includes('select-shape');
+                        const isVertexHandle = cls.includes('polyline-handle') || cls.includes('midpoint-handle') || cls.includes('bez-control-point') || cls.includes('arrow-size');
+                        if (isSelect && !isShapeOutline && !isVertexHandle) {
+                            this.hide();
+                            node.style.setProperty('display', 'none', 'important');
+                            node.style.setProperty('visibility', 'hidden', 'important');
+                            node.style.setProperty('pointer-events', 'none', 'important');
+                            node.style.setProperty('opacity', '0', 'important');
+                        } else if (isShapeOutline) {
+                            // [NEW] 選択枠線はクリックを完全に透過させ、頂点ハンドルへ届くようにする
+                            node.style.setProperty('pointer-events', 'none', 'important');
+                        }
+                    }, true);
+                }
+            }
+        }
+
+        // [NEW] 頂点編集ハンドラの作成と更新
+        const container = window.currentEditingSVG && window.currentEditingSVG.container;
+        if (container) {
+            const sh = this.el.remember('_selectHandler');
+            
+            // _selectHandler から overlayGroup となる nested または group を探す
+            let primarySelectionGroup = null;
+            if (sh) {
+                primarySelectionGroup = (sh.nested && sh.nested.node) || (sh.group && sh.group.node) || (sh.selection && sh.selection.node);
+            }
+            // fallback: container から検索する
+            if (!primarySelectionGroup) {
+                const firstGroup = container.querySelector('.svg_select_group, .svg-select-group');
+                if (firstGroup) {
+                    primarySelectionGroup = firstGroup;
+                }
+            }
+
+            const bbox = cachedBBox || this.getCleanBBox();
+
+            if (!this._polylineHandler && typeof SvgPolylineHandler !== 'undefined') {
+                this._polylineHandler = new SvgPolylineHandler(container, () => {
+                    if (typeof SVGToolbar !== 'undefined' && this._polylineHandler.activeNode) {
+                        SVGToolbar.updateArrowMarkers(SVG(this._polylineHandler.activeNode));
+                    }
+                    if (typeof updateTransformToolbarValues === 'function') updateTransformToolbarValues();
+                    if (window.syncChanges) window.syncChanges(true);
+                });
+            }
+            if (this._polylineHandler) {
+                this._polylineHandler.update(primarySelectionGroup ? SVG(primarySelectionGroup) : null, this.node, bbox);
+            }
+        }
     }
 
 
@@ -3582,9 +3720,11 @@ function wrapShape(el) {
 
     const tagName = el.node.tagName.toLowerCase();
     const id = el.id();
+    const arrowToolId = el.node.getAttribute('data-tool-id') || el.attr('data-tool-id');
+
+    console.log(`[wrapShape DEBUG] id=${id}, tagName=${tagName}, toolId=${arrowToolId}`);
 
     // [NEW] 矢印要素は ArrowShape へ
-    const arrowToolId = el.attr('data-tool-id');
     if (tagName === 'path' && (
         arrowToolId === 'straight_arrow' || arrowToolId === 'curved_arrow' || arrowToolId === 'uturn_arrow' ||
         arrowToolId === 'straight_both_arrow' || arrowToolId === 'curved_both_arrow' || arrowToolId === 'uturn_both_arrow'
@@ -3594,8 +3734,8 @@ function wrapShape(el) {
     }
 
     // [NEW] Use PolylineShape for line/polyline elements
-    if (tagName === 'polyline' || tagName === 'line' || (tagName === 'path' && ['polyline', 'line', 'arrow', 'freehand', 'polyline_arrow'].includes(el.attr('data-tool-id')))) {
-        // console.log('[wrapShape] Mapping', id, tagName, 'to PolylineShape');
+    if (tagName === 'polyline' || tagName === 'line' || (tagName === 'path' && ['polyline', 'line', 'arrow', 'freehand', 'polyline_arrow'].includes(arrowToolId))) {
+        console.log(`[wrapShape DEBUG] Successfully mapped ${id} to PolylineShape`);
         return new PolylineShape(el);
     }
 

@@ -152,6 +152,71 @@ const MermaidInteraction = (() => {
     }
 
     /**
+     * Mermaidエッジ（矢印）のIDから始点と終点のノードIDをパースする。
+     * v10: L-A-B-0 や L-A-B-0-hitbox
+     * v11: mermaid-1234-0-L_A_B_0-hitbox や L_A_B_0
+     */
+    function parseMermaidEdgeId(id, svgEl) {
+        if (!id) return null;
+        const cleanId = id.replace(/-hitbox$/, '');
+
+        // svgEl が提供されている場合、ノードIDのリストを取得して厳密に分割を試みる
+        if (svgEl) {
+            const nodeIds = collectNodes(svgEl).map(n => n.id);
+            if (nodeIds.length > 0) {
+                // 1. v11 アンダースコア区切りパターン
+                const uIndex = cleanId.indexOf('L_');
+                if (uIndex !== -1) {
+                    let remaining = cleanId.substring(uIndex + 2);
+                    // 末尾のインデックス部分（_0, _1など）を除去
+                    remaining = remaining.replace(/_\d+$/, '');
+                    
+                    const parts = remaining.split('_');
+                    for (let i = 1; i < parts.length; i++) {
+                        const fromCandidate = parts.slice(0, i).join('_');
+                        const toCandidate = parts.slice(i).join('_');
+                        if (nodeIds.includes(fromCandidate) && nodeIds.includes(toCandidate)) {
+                            return { from: fromCandidate, to: toCandidate };
+                        }
+                    }
+                }
+
+                // 2. v10 ハイフン区切りパターン
+                const hIndex = cleanId.indexOf('L-');
+                if (hIndex !== -1) {
+                    let remaining = cleanId.substring(hIndex + 2);
+                    // 末尾のインデックス部分（-0, -1など）を除去
+                    remaining = remaining.replace(/-\d+$/, '');
+                    
+                    const parts = remaining.split('-');
+                    for (let i = 1; i < parts.length; i++) {
+                        const fromCandidate = parts.slice(0, i).join('-');
+                        const toCandidate = parts.slice(i).join('-');
+                        if (nodeIds.includes(fromCandidate) && nodeIds.includes(toCandidate)) {
+                            return { from: fromCandidate, to: toCandidate };
+                        }
+                    }
+                }
+            }
+        }
+
+        // フォールバック（従来の正規表現）
+        // 1. v11 アンダースコア区切りパターン (L_A_B_0 もしくはプレフィックス付き)
+        const matchUnderscore = cleanId.match(/L_([^_]+)_([^_]+)(?:_\d+)?$/);
+        if (matchUnderscore) {
+            return { from: matchUnderscore[1], to: matchUnderscore[2] };
+        }
+
+        // 2. v10 ハイフン区切りパターン (L-A-B-0 もしくはプレフィックス付き)
+        const matchHyphen = cleanId.match(/L-([^-]+)-([^-]+)(?:-\d+)?$/);
+        if (matchHyphen) {
+            return { from: matchHyphen[1], to: matchHyphen[2] };
+        }
+
+        return null;
+    }
+
+    /**
      * ダイアグラムSVG内のすべての操作可能なノードを収集する。
      * @param {Element} svgEl - Mermaidが生成したSVG要素
      * @returns {Array<{el, id, rect, cx, cy}>}
@@ -277,7 +342,6 @@ const MermaidInteraction = (() => {
         const isCluster = isClusterNode(nodeInfo, wrapper);
         if (isCluster) {
             drawGroupHighlight(overlay, nodeInfo, wRect);
-            return;
         }
 
         const nRect  = nodeInfo.rect;
@@ -858,30 +922,77 @@ const MermaidInteraction = (() => {
             const line = lines[i];
             if (!line.includes(currentLabel)) continue;
 
-            // 矢印ラベルが含まれる代表的なパターン
-            // 1. -->|label|
-            // 2. -- label ---
-            // 3. -. label .->
-            // 4. == label ===
-            const patterns = [
-                `|${currentLabel}|`,
-                ` ${currentLabel} `
-            ];
-
-            for (const pat of patterns) {
-                if (line.includes(pat)) {
-                    lines[i] = line.replace(pat, pat.replace(currentLabel, newLabel));
+            if (newLabel === '') {
+                const escapedLabel = currentLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                
+                // パターンA: 記号 + |label| (-->|label|, -.->|label|, ==>|label|, ---|label|)
+                const patternA = new RegExp(`(-->|-\\.-|-.->|==>|---|--)\\|${escapedLabel}\\|`);
+                if (patternA.test(line)) {
+                    lines[i] = line.replace(patternA, '$1');
                     replaced = true;
-                    break;
                 }
-            }
+                
+                // パターンB: -- label --- や -- label -->
+                if (!replaced) {
+                    const patternB = new RegExp(`(--)\\s+${escapedLabel}\\s+(---|-->)`);
+                    if (patternB.test(line)) {
+                        lines[i] = line.replace(patternB, '$2');
+                        replaced = true;
+                    }
+                }
 
-            // もし完全なパターンにマッチしなくても、単語として見つかれば置換する（フォールバック）
-            if (!replaced) {
-                const idx = line.indexOf(currentLabel);
-                if (idx > -1 && line.includes('-')) { // 少なくとも矢印らしいハイフンが含まれている行
-                    lines[i] = line.substring(0, idx) + newLabel + line.substring(idx + currentLabel.length);
-                    replaced = true;
+                // パターンC: -. label .-> や -. label ->
+                if (!replaced) {
+                    const patternC = new RegExp(`(-\\.)\\s+${escapedLabel}\\s+(\\.-|\\.->|->)`);
+                    if (patternC.test(line)) {
+                        lines[i] = line.replace(patternC, '-.->');
+                        replaced = true;
+                    }
+                }
+
+                // パターンD: == label === や == label ==>
+                if (!replaced) {
+                    const patternD = new RegExp(`(==)\\s+${escapedLabel}\\s+(===|==>)`);
+                    if (patternD.test(line)) {
+                        lines[i] = line.replace(patternD, '$2');
+                        replaced = true;
+                    }
+                }
+
+                // フォールバック: 単純に |label| を消す
+                if (!replaced) {
+                    const patternFallback = new RegExp(`\\|${escapedLabel}\\|`);
+                    if (patternFallback.test(line)) {
+                        lines[i] = line.replace(patternFallback, '');
+                        replaced = true;
+                    }
+                }
+            } else {
+                // 矢印ラベルが含まれる代表的なパターン
+                // 1. -->|label|
+                // 2. -- label ---
+                // 3. -. label .->
+                // 4. == label ===
+                const patterns = [
+                    `|${currentLabel}|`,
+                    ` ${currentLabel} `
+                ];
+
+                for (const pat of patterns) {
+                    if (line.includes(pat)) {
+                        lines[i] = line.replace(pat, pat.replace(currentLabel, newLabel));
+                        replaced = true;
+                        break;
+                    }
+                }
+
+                // もし完全なパターンにマッチしなくても、単語として見つかれば置換する（フォールバック）
+                if (!replaced) {
+                    const idx = line.indexOf(currentLabel);
+                    if (idx > -1 && line.includes('-')) { // 少なくとも矢印らしいハイフンが含まれている行
+                        lines[i] = line.substring(0, idx) + newLabel + line.substring(idx + currentLabel.length);
+                        replaced = true;
+                    }
                 }
             }
 
@@ -1825,9 +1936,9 @@ const MermaidInteraction = (() => {
                 // 削除対象のエッジ情報を抽出
                 const edgesToRemove = [];
                 selectedEdges.forEach(edge => {
-                    const idMatch = edge.id ? edge.id.match(/^L-(.+?)-(.+?)-\d+/) : null;
-                    if (idMatch) {
-                        edgesToRemove.push({ from: idMatch[1], to: idMatch[2] });
+                    const parsed = parseMermaidEdgeId(edge.id, svgEl);
+                    if (parsed) {
+                        edgesToRemove.push({ from: parsed.from, to: parsed.to });
                     } else if (edge.classList) {
                         let fromMatch = null, toMatch = null;
                         edge.classList.forEach(cls => {
@@ -2320,10 +2431,10 @@ const MermaidInteraction = (() => {
                         }
                     } else if (selectedEdges.size > 0) {
                         const edge = Array.from(selectedEdges)[0];
-                        const idMatch = edge.id ? edge.id.match(/^L-(.+?)-(.+?)-\d+/) : null;
-                        if (idMatch) {
-                            const from = idMatch[1];
-                            const to = idMatch[2];
+                        const parsed = parseMermaidEdgeId(edge.id, svgEl);
+                        if (parsed) {
+                            const from = parsed.from;
+                            const to = parsed.to;
                             for (let i = range.startIdx + 1; i < range.endIdx; i++) {
                                 if (containsNodeId(range.lines[i], from) && containsNodeId(range.lines[i], to) && arrowSplitRegex.test(range.lines[i])) {
                                     targetLineIndex = i;
@@ -2545,13 +2656,9 @@ const MermaidInteraction = (() => {
             let existingLabelFromSource = null;
             if (edgePathEl && !edgeLabelEl) {
                 const id = edgePathEl.id || (edgePathEl.parentNode && edgePathEl.parentNode.id);
-                if (id) {
-                    const match = id.match(/^L-(.+?)-(.+?)(?:-\d+)?$/);
-                    if (match) {
-                        const fromId = match[1];
-                        const toId = match[2];
-                        existingLabelFromSource = findMermaidEdgeLabelText(wrapper, fromId, toId);
-                    }
+                const parsed = parseMermaidEdgeId(id, svgEl);
+                if (parsed) {
+                    existingLabelFromSource = findMermaidEdgeLabelText(wrapper, parsed.from, parsed.to);
                 }
             }
 
@@ -2587,11 +2694,10 @@ const MermaidInteraction = (() => {
             } else if (edgePathEl) {
                 targetEl = edgePathEl;
                 const id = edgePathEl.id || (edgePathEl.parentNode && edgePathEl.parentNode.id);
-                if (!id) return;
-                const match = id.match(/^L-(.+?)-(.+?)(?:-\d+)?$/);
-                if (!match) return;
-                edgeFromId = match[1];
-                edgeToId = match[2];
+                const parsed = parseMermaidEdgeId(id, svgEl);
+                if (!parsed) return;
+                edgeFromId = parsed.from;
+                edgeToId = parsed.to;
 
                 if (existingLabelFromSource !== null) {
                     // ソースコード上にラベルが存在する場合、既存ラベルの編集として扱う
@@ -2657,7 +2763,7 @@ const MermaidInteraction = (() => {
 
                 // Markdownソースのラベルを書き換える
                 if (isEdgeLabel) {
-                    if (!newLabel || newLabel === currentLabel) return;
+                    if (newLabel === currentLabel) return;
                     renameMermaidEdgeLabel(wrapper, currentLabel, newLabel);
                 } else if (isEdgePath) {
                     if (!newLabel) return;
@@ -2866,7 +2972,7 @@ const MermaidInteraction = (() => {
             if (isInputTarget) return;
 
             // 編集モードのラッパーを探す
-            const activeWrapper = document.querySelector('.mermaid-diagram-wrapper.mermaid-edit-mode, .mermaid-diagram-wrapper.mermaid-sequence-edit-mode, .mermaid-diagram-wrapper.mermaid-class-edit-mode');
+            const activeWrapper = document.querySelector('.mermaid-diagram-wrapper.mermaid-edit-mode, .mermaid-diagram-wrapper.mermaid-sequence-edit-mode, .mermaid-diagram-wrapper.mermaid-class-edit-mode, .mermaid-diagram-wrapper.mermaid-er-edit-mode');
             if (!activeWrapper || !activeWrapper._mermaidAPI) return;
 
             if (e.key === 'Delete' || e.key === 'Backspace') {

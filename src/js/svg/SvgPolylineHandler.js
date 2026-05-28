@@ -16,170 +16,238 @@ class SvgPolylineHandler {
         this._dragPoints = null;
         this._dragBezData = null;
         this._dragCTM = null;
+        this._dragCTMCache = null;
         this._dragRootCTMInv = null;
     }
 
-    update(overlayGroup, node, bbox) {
+    // [NEW] CTMをキャッシュして強制レイアウト再計算（スラッシング）を防ぐ
+    _createCTMCache(node, overlay) {
+        const cache = {
+            nodeCTM: null,
+            overlayCTMInv: null
+        };
+        try { cache.nodeCTM = node.getCTM(); } catch(e) {}
+        try { 
+            const overlayCTM = overlay ? overlay.getCTM() : null; 
+            if (overlayCTM) cache.overlayCTMInv = overlayCTM.inverse();
+        } catch(e) {}
+        return cache;
+    }
+
+    // [NEW] ドラッグ完了時にのみ、重いDOMメタ属性(文字列変換)の書き込みを行う
+    _commitDataAttributes() {
+        if (!this.activeNode) return;
+        const tagName = this.activeNode.tagName.toLowerCase();
+        if (tagName === 'path') {
+            if (this._dragPoints) {
+                const pointsStr = this._dragPoints.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
+                this.activeNode.setAttribute('data-poly-points', pointsStr);
+            }
+            if (this._dragBezData) {
+                this.activeNode.setAttribute('data-bez-points', JSON.stringify(this._dragBezData));
+            }
+            this.generatePath(this.activeNode);
+        } else if (tagName !== 'line') {
+            if (this._dragPoints) {
+                const pointsStr = this._dragPoints.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
+                this.activeNode.setAttribute('points', pointsStr);
+                this.activeNode.setAttribute('data-poly-points', pointsStr);
+            }
+        }
+    }
+
+    update(overlayGroup, node, bbox, passedCtmCache = null) {
+        console.log('[SvgPolylineHandler DEBUG] update called', {
+            hasOverlayGroup: !!overlayGroup,
+            nodeId: node ? node.id : null,
+            nodeTagName: node ? node.tagName : null,
+            bbox: bbox
+        });
         const tagName = node ? node.tagName.toLowerCase() : '';
         if (tagName !== 'polyline' && tagName !== 'line' && tagName !== 'path') {
+            console.log('[SvgPolylineHandler DEBUG] invalid tag, hiding');
             this.hide();
             return;
         }
 
         this.activeNode = node;
         if (overlayGroup && overlayGroup !== this.overlayGroup) this.overlayGroup = overlayGroup;
-        if (!this.overlayGroup) return;
-
-        if (!this.handleGroup) {
-            this.handleGroup = SVG(this.overlayGroup).group().addClass('polyline-handle-group').node;
-        }
-
-        const points = this.getPoints(node);
-
-        // [NEW] 頂点数に変更があった場合はキャッシュを破棄してDOMを再構築
-        const needRebuild = !this._isDragging || !this._handleCache || this._handleCache.pointsLength !== points.length;
-
-        // [NEW] ドラッグ中はDOMを破棄・再生成せず、キャッシュを用いた高速な座標更新のみを行う
-        if (this._isDragging && !needRebuild) {
-            const bezData = (tagName === 'path') ? (this._dragBezData || this.getBezData(node)) : [];
-            this.updateDragPositions(points, bezData, node);
+        if (!this.overlayGroup) {
+            console.log('[SvgPolylineHandler DEBUG] no overlayGroup');
             return;
         }
 
+        if (!this.handleGroup) {
+            this.handleGroup = SVG(this.overlayGroup).group().addClass('polyline-handle-group').node;
+            console.log('[SvgPolylineHandler DEBUG] created handleGroup', this.handleGroup);
+        }
+
+        const points = this.getPoints(node);
+        const shouldDrawHandles = points.length <= 50;
+        console.log('[SvgPolylineHandler DEBUG] points length:', points.length, 'shouldDrawHandles:', shouldDrawHandles);
+
+        // [NEW] 頂点数が多すぎる場合はDOM負荷を避けるためハンドル描画をスキップ
+        if (!shouldDrawHandles) {
+            while (this.handleGroup.firstChild) {
+                this.handleGroup.removeChild(this.handleGroup.firstChild);
+            }
+            this._handleCache = null;
+            return;
+        }
+
+        const bezData = (tagName === 'path') ? this.getBezData(node) : [];
+        const bezSignature = (tagName === 'path') ? bezData.map(b => b ? b.type : 0).join(',') : '';
+        const isClosed = node.getAttribute('data-poly-closed') === 'true';
+        const hasArrow = node.getAttribute('data-arrow-start') === 'true' || node.getAttribute('data-arrow-end') === 'true';
+
+        // [NEW] ハンドルの構成要素に変化がないかチェック
+        const needRebuild = !this._handleCache || 
+                            this._handleCache.pointsLength !== points.length || 
+                            this._handleCache.isClosed !== isClosed ||
+                            this._handleCache.bezSignature !== bezSignature ||
+                            this._handleCache.hasArrow !== hasArrow ||
+                            this.handleGroup.children.length === 0;
+
+        // [NEW] 構成変化がない場合はDOMを破棄せず、既存ハンドルの座標更新のみを超高速に行う
+        if (!needRebuild) {
+            this.updateDragPositions(points, bezData, node, passedCtmCache);
+            return;
+        }
+
+        // --- 以下、再構築が必要な場合のみ実行される ---
         while (this.handleGroup.firstChild) {
             this.handleGroup.removeChild(this.handleGroup.firstChild);
         }
 
-        const shouldDrawHandles = points.length <= 50;
+        // 構築前にCTMを1度だけ計算する（O(1)に削減）
+        const ctmCache = this._createCTMCache(node, this.overlayGroup);
 
-        if (shouldDrawHandles) {
-            if (tagName !== 'line') {
-                const bezData = (tagName === 'path') ? this.getBezData(node) : [];
-                const isClosed = node.getAttribute('data-poly-closed') === 'true';
-                const loopEnd = isClosed ? points.length : points.length - 1;
-                for (let i = 0; i < loopEnd; i++) {
-                    const pt1 = points[i];
-                    const pt2 = points[(i + 1) % points.length];
+        if (tagName !== 'line') {
+            const loopEnd = isClosed ? points.length : points.length - 1;
+            for (let i = 0; i < loopEnd; i++) {
+                const pt1 = points[i];
+                const pt2 = points[(i + 1) % points.length];
 
-                    if (pt2[2] && !isClosed) continue;
-                    if (isClosed && i === points.length - 1 && pt2[2]) {
-                    } else if (pt2[2]) {
-                        continue;
-                    }
-
-                    let midPt;
-                    if (tagName === 'path' && bezData.length > 0) {
-                        const bz1 = bezData[i] || { type: 0 };
-                        const bz2 = bezData[(i + 1) % points.length] || { type: 0 };
-                        const cp1 = bz1.cpOut || pt1;
-                        const cp2 = bz2.cpIn || pt2;
-                        midPt = [
-                            0.125 * pt1[0] + 0.375 * cp1[0] + 0.375 * cp2[0] + 0.125 * pt2[0],
-                            0.125 * pt1[1] + 0.375 * cp1[1] + 0.375 * cp2[1] + 0.125 * pt2[1]
-                        ];
-                    } else {
-                        midPt = [(pt1[0] + pt2[0]) / 2, (pt1[1] + pt2[1]) / 2];
-                    }
-
-                    const handlePoint = this.getHandlePoint(midPt, node, this.overlayGroup);
-                    const midCircleWrap = SVG(this.handleGroup).circle(6)
-                        .fill('#ffec3d').attr('fill-opacity', '0.5')
-                        .stroke({color: '#333', width: 1})
-                        .attr('cursor', 'grab')
-                        .addClass('midpoint-handle')
-                        .attr({
-                            'data-type': 'midpoint',
-                            'data-vertex-index': i,
-                            'pointer-events': 'all'
-                        })
-                        .center(handlePoint.x, handlePoint.y);
-                    const midCircle = midCircleWrap.node;
-
-                    if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-                        window.SVGUtils.updateHandleScaling(midCircle);
-                    }
-                    this.bindMidpointDrag(midCircle);
+                if (pt2[2] && !isClosed) continue;
+                if (isClosed && i === points.length - 1 && pt2[2]) {
+                } else if (pt2[2]) {
+                    continue;
                 }
-            }
 
-            points.forEach((pt, index) => {
-                const handlePoint = this.getHandlePoint(pt, node, this.overlayGroup);
-                const circleWrap = SVG(this.handleGroup).circle(10)
-                    .fill('#ffec3d')
+                let midPt;
+                if (tagName === 'path' && bezData.length > 0) {
+                    const bz1 = bezData[i] || { type: 0 };
+                    const bz2 = bezData[(i + 1) % points.length] || { type: 0 };
+                    const cp1 = bz1.cpOut || pt1;
+                    const cp2 = bz2.cpIn || pt2;
+                    midPt = [
+                        0.125 * pt1[0] + 0.375 * cp1[0] + 0.375 * cp2[0] + 0.125 * pt2[0],
+                        0.125 * pt1[1] + 0.375 * cp1[1] + 0.375 * cp2[1] + 0.125 * pt2[1]
+                    ];
+                } else {
+                    midPt = [(pt1[0] + pt2[0]) / 2, (pt1[1] + pt2[1]) / 2];
+                }
+
+                const handlePoint = this.getHandlePoint(midPt, node, this.overlayGroup, ctmCache);
+                const midCircleWrap = SVG(this.handleGroup).circle(6)
+                    .fill('#ffec3d').attr('fill-opacity', '0.5')
                     .stroke({color: '#333', width: 1})
-                    .attr('cursor', 'move')
-                    .addClass('polyline-handle')
+                    .attr('cursor', 'grab')
+                    .addClass('midpoint-handle')
+                    // [PERF] .center() は重いため、属性へ直接 cx/cy を書き込む
                     .attr({
-                        'data-type': 'vertex',
-                        'data-index': index
-                    })
-                    .center(handlePoint.x, handlePoint.y);
-                const circle = circleWrap.node;
+                        'data-type': 'midpoint',
+                        'data-vertex-index': i,
+                        'pointer-events': 'all',
+                        'cx': handlePoint.x,
+                        'cy': handlePoint.y
+                    });
+                const midCircle = midCircleWrap.node;
 
                 if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-                    window.SVGUtils.updateHandleScaling(circle);
+                    window.SVGUtils.updateHandleScaling(midCircle);
                 }
-                this.bindVertexDrag(circle, index);
-                this.bindVertexDblClick(circle, index);
-            });
-
-            if (tagName === 'path') {
-                const bezData = this.getBezData(node);
-                points.forEach((pt, index) => {
-                    const bz = bezData[index];
-                    if (!bz || bz.type === 0) return;
-
-                    const drawHandle = (cp, cpName) => {
-                        if (!cp) return;
-                        const hVertex = this.getHandlePoint(pt, node, this.overlayGroup);
-                        const hCP = this.getHandlePoint(cp, node, this.overlayGroup);
-
-                        const isCusp = bz && bz.type === 2;
-                        const handleColor = isCusp ? '#000080' : '#0366d6';
-
-                        const lineWrap = SVG(this.handleGroup).line(hVertex.x, hVertex.y, hCP.x, hCP.y)
-                            .stroke({color: handleColor, width: 1.5})
-                            .attr('stroke-dasharray', '3,3')
-                            .attr({
-                                'data-type': 'bez-control-line',
-                                'data-index': index,
-                                'data-cp-name': cpName
-                            });
-                        const line = lineWrap.node;
-
-                        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-                            window.SVGUtils.updateHandleScaling(line);
-                        }
-
-                        const cpCircleWrap = SVG(this.handleGroup).circle(8)
-                            .fill('#fff')
-                            .stroke({color: handleColor, width: 2})
-                            .attr('cursor', 'pointer')
-                            .addClass('bez-control-point')
-                            .attr({
-                                'data-type': 'bez-control-point',
-                                'data-index': index,
-                                'data-cp-name': cpName
-                            })
-                            .center(hCP.x, hCP.y);
-                        const cpCircle = cpCircleWrap.node;
-
-                        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-                            window.SVGUtils.updateHandleScaling(cpCircle);
-                        }
-                        this.bindBezControlDrag(cpCircle, index, cpName);
-                    };
-                    drawHandle(bz.cpIn, 'cpIn');
-                    drawHandle(bz.cpOut, 'cpOut');
-                });
+                this.bindMidpointDrag(midCircle);
             }
         }
 
-        const arrowSize = parseFloat(node.getAttribute('data-arrow-size')) || 10;
-        const hasStart = node.getAttribute('data-arrow-start') === 'true';
-        const hasEnd = node.getAttribute('data-arrow-end') === 'true';
+        points.forEach((pt, index) => {
+            const handlePoint = this.getHandlePoint(pt, node, this.overlayGroup, ctmCache);
+            const circleWrap = SVG(this.handleGroup).circle(10)
+                .fill('#ffec3d')
+                .stroke({color: '#333', width: 1})
+                .attr('cursor', 'move')
+                .addClass('polyline-handle')
+                .attr({
+                    'data-type': 'vertex',
+                    'data-index': index,
+                    'pointer-events': 'all',
+                    'cx': handlePoint.x,
+                    'cy': handlePoint.y
+                });
+            const circle = circleWrap.node;
 
-        if (hasStart || hasEnd) {
+            if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+                window.SVGUtils.updateHandleScaling(circle);
+            }
+            this.bindVertexDrag(circle, index);
+            this.bindVertexDblClick(circle, index);
+        });
+
+        if (tagName === 'path') {
+            points.forEach((pt, index) => {
+                const bz = bezData[index];
+                if (!bz || bz.type === 0) return;
+
+                const drawHandle = (cp, cpName) => {
+                    if (!cp) return;
+                    const hVertex = this.getHandlePoint(pt, node, this.overlayGroup, ctmCache);
+                    const hCP = this.getHandlePoint(cp, node, this.overlayGroup, ctmCache);
+
+                    const isCusp = bz && bz.type === 2;
+                    const handleColor = isCusp ? '#000080' : '#0366d6';
+
+                    const lineWrap = SVG(this.handleGroup).line(hVertex.x, hVertex.y, hCP.x, hCP.y)
+                        .stroke({color: handleColor, width: 1.5})
+                        .attr('stroke-dasharray', '3,3')
+                        .attr({
+                            'data-type': 'bez-control-line',
+                            'data-index': index,
+                            'data-cp-name': cpName
+                        });
+                    const line = lineWrap.node;
+
+                    if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+                        window.SVGUtils.updateHandleScaling(line);
+                    }
+
+                    const cpCircleWrap = SVG(this.handleGroup).circle(8)
+                        .fill('#fff')
+                        .stroke({color: handleColor, width: 2})
+                        .attr('cursor', 'pointer')
+                        .addClass('bez-control-point')
+                        .attr({
+                            'data-type': 'bez-control-point',
+                            'data-index': index,
+                            'data-cp-name': cpName,
+                            'pointer-events': 'all',
+                            'cx': hCP.x,
+                            'cy': hCP.y
+                        });
+                    const cpCircle = cpCircleWrap.node;
+
+                    if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+                        window.SVGUtils.updateHandleScaling(cpCircle);
+                    }
+                    this.bindBezControlDrag(cpCircle, index, cpName);
+                };
+                drawHandle(bz.cpIn, 'cpIn');
+                drawHandle(bz.cpOut, 'cpOut');
+            });
+        }
+
+        if (hasArrow) {
+            const arrowSize = parseFloat(node.getAttribute('data-arrow-size')) || 10;
             const lastPt = points[points.length - 1];
             const prevPt = points[points.length - 2] || points[0];
             const dx = lastPt[0] - prevPt[0];
@@ -190,33 +258,28 @@ class SvgPolylineHandler {
                 x: lastPt[0] - (dx / len) * arrowSize,
                 y: lastPt[1] - (dy / len) * arrowSize
             };
-            const handleSizePt = this.getHandlePoint([sizePt.x, sizePt.y], node, this.overlayGroup);
+            const handleSizePt = this.getHandlePoint([sizePt.x, sizePt.y], node, this.overlayGroup, ctmCache);
 
-            let sizeHandle = Array.from(this.handleGroup.children).find(h => h.getAttribute('data-type') === 'arrow-size');
-            if (!sizeHandle) {
-                const sizeHandleWrap = SVG(this.handleGroup).circle(8)
-                    .fill('#0366d6')
-                    .stroke({color: '#fff', width: 1})
-                    .attr('cursor', 'se-resize')
-                    .addClass('polyline-handle arrow-size-handle')
-                    .attr('data-type', 'arrow-size');
-                sizeHandle = sizeHandleWrap.node;
-                this.bindSizeDrag(sizeHandle);
-            }
-            sizeHandle.setAttribute('cx', handleSizePt.x);
-            sizeHandle.setAttribute('cy', handleSizePt.y);
+            const sizeHandleWrap = SVG(this.handleGroup).circle(8)
+                .fill('#0366d6')
+                .stroke({color: '#fff', width: 1})
+                .attr('cursor', 'se-resize')
+                .addClass('polyline-handle arrow-size-handle')
+                .attr({
+                    'data-type': 'arrow-size',
+                    'pointer-events': 'all',
+                    'cx': handleSizePt.x,
+                    'cy': handleSizePt.y
+                });
+            const sizeHandle = sizeHandleWrap.node;
+            this.bindSizeDrag(sizeHandle);
 
             if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
                 window.SVGUtils.updateHandleScaling(sizeHandle);
             }
-            sizeHandle.style.display = 'block';
-        } else {
-            const sizeHandle = Array.from(this.handleGroup.children).find(h => h.getAttribute('data-type') === 'arrow-size');
-            if (sizeHandle) sizeHandle.style.display = 'none';
         }
 
         if (tagName === 'path' || tagName === 'polyline' || tagName === 'line') {
-            const isClosed = node.getAttribute('data-poly-closed') === 'true';
             if (!isClosed && node.getAttribute('fill') !== 'none') {
                 node.setAttribute('fill', 'none');
             }
@@ -226,9 +289,12 @@ class SvgPolylineHandler {
             this.overlayGroup.appendChild(this.handleGroup);
         }
 
-        // [NEW] 再検索(querySelectorAll)を防ぐための要素配列キャッシュ
+        // [NEW] 再検索を防ぐためのDOM要素配列キャッシュを作成
         this._handleCache = {
             pointsLength: points.length,
+            isClosed: isClosed,
+            bezSignature: bezSignature,
+            hasArrow: hasArrow,
             vertex: Array.from(this.handleGroup.querySelectorAll('.polyline-handle[data-type="vertex"]')),
             midpoint: Array.from(this.handleGroup.querySelectorAll('.midpoint-handle[data-type="midpoint"]')),
             cpCircles: Array.from(this.handleGroup.querySelectorAll('.bez-control-point[data-type="bez-control-point"]')),
@@ -239,6 +305,10 @@ class SvgPolylineHandler {
 
     getPoints(node) {
         if (!node) return [];
+        
+        // [PERF] ドラッグ中はパースを省略しオンメモリキャッシュを返す
+        if (this._isDragging && this._dragPoints) return this._dragPoints;
+
         const tagName = node.tagName.toLowerCase();
         if (tagName === 'line') {
             const x1 = parseFloat(node.getAttribute('x1')) || 0;
@@ -282,6 +352,9 @@ class SvgPolylineHandler {
     }
 
     getBezData(node) {
+        // [PERF]
+        if (this._isDragging && this._dragBezData) return this._dragBezData;
+
         try {
             const bezStr = node.getAttribute('data-bez-points');
             if (bezStr) {
@@ -304,11 +377,13 @@ class SvgPolylineHandler {
 
         const bezData = (this._isDragging && this._dragBezData) ? this._dragBezData : this.getBezData(node);
         const isClosed = node.getAttribute('data-poly-closed') === 'true';
-        let d = "";
+        
+        // [PERF] +=の文字列連結ではなく、配列のjoinを使用して大規模データでの処理を高速化
+        const d = [];
 
         points.forEach((curr, i) => {
             if (i === 0 || curr[2]) {
-                d += `M ${curr[0]} ${curr[1]} `;
+                d.push(`M ${curr[0]} ${curr[1]}`);
             } else {
                 const prev = points[i - 1];
                 const prevBez = bezData[i - 1] || { type: 0 };
@@ -317,9 +392,9 @@ class SvgPolylineHandler {
                 let cp2 = currBez.cpIn || curr;
 
                 if (cp1[0] === prev[0] && cp1[1] === prev[1] && cp2[0] === curr[0] && cp2[1] === curr[1]) {
-                    d += `L ${curr[0]} ${curr[1]} `;
+                    d.push(`L ${curr[0]} ${curr[1]}`);
                 } else {
-                    d += `C ${cp1[0]} ${cp1[1]}, ${cp2[0]} ${cp2[1]}, ${curr[0]} ${curr[1]} `;
+                    d.push(`C ${cp1[0]} ${cp1[1]}, ${cp2[0]} ${cp2[1]}, ${curr[0]} ${curr[1]}`);
                 }
             }
         });
@@ -334,13 +409,13 @@ class SvgPolylineHandler {
             const cp2 = firstBez.cpIn || curr;
 
             if (cp1[0] !== prev[0] || cp1[1] !== prev[1] || cp2[0] !== curr[0] || cp2[1] !== curr[1]) {
-                d += `C ${cp1[0]} ${cp1[1]}, ${cp2[0]} ${cp2[1]}, ${curr[0]} ${curr[1]} `;
+                d.push(`C ${cp1[0]} ${cp1[1]}, ${cp2[0]} ${cp2[1]}, ${curr[0]} ${curr[1]}`);
             }
-            d += "Z";
+            d.push("Z");
         } else if (isClosed) {
-            d += "Z";
+            d.push("Z");
         }
-        node.setAttribute('d', d);
+        node.setAttribute('d', d.join(' '));
     }
 
     convertToPath(node) {
@@ -373,8 +448,9 @@ class SvgPolylineHandler {
         return path.node;
     }
 
-    getHandlePoint(pt, node, overlay) {
-        if (window.SVGUtils && window.SVGUtils.mapLocalToOverlay) {
+    // [NEW] キャッシュがあれば計算をスキップして高速化
+    getHandlePoint(pt, node, overlay, ctmCache = null) {
+        if (window.SVGUtils && window.SVGUtils.mapLocalToOverlay && !ctmCache) {
             return window.SVGUtils.mapLocalToOverlay(pt, node, overlay);
         }
         try {
@@ -383,13 +459,20 @@ class SvgPolylineHandler {
             const p = svg.createSVGPoint();
             p.x = pt[0]; p.y = pt[1];
 
-            const nodeMatrix = node.getCTM();
-            const overlayMatrix = overlay ? overlay.getCTM() : null;
+            const nodeMatrix = ctmCache ? ctmCache.nodeCTM : node.getCTM();
+            let overlayMatrixInv = ctmCache ? ctmCache.overlayCTMInv : null;
+
+            if (!ctmCache && overlay) {
+                const overlayMatrix = overlay.getCTM();
+                if (overlayMatrix) {
+                    try { overlayMatrixInv = overlayMatrix.inverse(); } catch (err) {}
+                }
+            }
 
             if (nodeMatrix) {
                 const worldP = p.matrixTransform(nodeMatrix);
-                if (overlayMatrix) {
-                    try { return worldP.matrixTransform(overlayMatrix.inverse()); } catch (err) { return worldP; }
+                if (overlayMatrixInv) {
+                    try { return worldP.matrixTransform(overlayMatrixInv); } catch (err) { return worldP; }
                 }
                 return worldP;
             }
@@ -408,7 +491,7 @@ class SvgPolylineHandler {
             if (!svg) return { x: e.clientX, y: e.clientY };
             const p = svg.createSVGPoint();
             p.x = e.clientX; p.y = e.clientY;
-            const ctm = (this._isDragging && this._dragCTM) ? this._dragCTM : this.activeNode.getScreenCTM();
+            const ctm = this.activeNode.getScreenCTM();
             localPt = (ctm) ? p.matrixTransform(ctm.inverse()) : { x: e.clientX, y: e.clientY };
         }
 
@@ -430,35 +513,168 @@ class SvgPolylineHandler {
         return localPt;
     }
 
+    /**
+     * Shiftキー押下時の水平・垂直固定スナップ、および交点（スマート直角）スナップを適用する
+     */
+    applyShiftSnap(localPt, activeIndex, points, e) {
+        if (!this.activeNode) return;
+        const tagName = this.activeNode.tagName.toLowerCase();
+        
+        // 1. まず交点（スマートガイド）スナップの判定
+        let snappedToIntersection = false;
+        const isClosed = this.activeNode.getAttribute('data-poly-closed') === 'true';
+        
+        if (tagName !== 'line') {
+            let prevIdx = activeIndex - 1;
+            let nextIdx = activeIndex + 1;
+            
+            if (isClosed) {
+                prevIdx = (activeIndex - 1 + points.length) % points.length;
+                nextIdx = (activeIndex + 1) % points.length;
+            }
+            
+            const hasPrev = isClosed ? true : (prevIdx >= 0);
+            const hasNext = isClosed ? true : (nextIdx < points.length);
+            
+            let prevPt = (hasPrev && points[prevIdx]) ? points[prevIdx] : null;
+            let nextPt = (hasNext && points[nextIdx]) ? points[nextIdx] : null;
+            
+            if (tagName === 'path') {
+                if (nextPt && nextPt[2]) nextPt = null;
+                if (points[activeIndex] && points[activeIndex][2]) prevPt = null;
+            }
+
+            if (prevPt && nextPt) {
+                // 両端が存在する場合の2つの交点候補 (prev.x, next.y) または (next.x, prev.y)
+                const intersects = [
+                    { x: prevPt[0], y: nextPt[1] },
+                    { x: nextPt[0], y: prevPt[1] }
+                ];
+                
+                const m = this._dragCTM;
+                let bestIntersect = null;
+                let minIntersectDist = Infinity;
+                const intersectThreshold = 15; // 画面上のピクセル数
+                
+                intersects.forEach(pt => {
+                    let dist;
+                    if (m) {
+                        dist = Math.hypot((localPt.x - pt.x) * m.a, (localPt.y - pt.y) * m.d);
+                    } else {
+                        dist = Math.hypot(localPt.x - pt.x, localPt.y - pt.y);
+                    }
+                    
+                    if (dist < intersectThreshold && dist < minIntersectDist) {
+                        minIntersectDist = dist;
+                        bestIntersect = pt;
+                    }
+                });
+                
+                if (bestIntersect) {
+                    localPt.x = bestIntersect.x;
+                    localPt.y = bestIntersect.y;
+                    snappedToIntersection = true;
+                }
+            }
+        }
+
+        // 2. 交点スナップしなかった場合は、通常の垂直・水平軸スナップを適用
+        if (!snappedToIntersection) {
+            const candidates = [];
+            if (tagName === 'line') {
+                const otherIdx = (activeIndex === 0) ? 1 : 0;
+                if (points[otherIdx]) candidates.push(points[otherIdx]);
+            } else {
+                let prevIdx = activeIndex - 1;
+                let nextIdx = activeIndex + 1;
+                
+                if (isClosed) {
+                    prevIdx = (activeIndex - 1 + points.length) % points.length;
+                    nextIdx = (activeIndex + 1) % points.length;
+                } else {
+                    if (tagName === 'path' && points[activeIndex] && points[activeIndex][2]) {
+                        prevIdx = -1; // Mコマンド（始点）の場合は前とは繋がっていない
+                    }
+                }
+                
+                const hasPrev = isClosed ? true : (prevIdx >= 0);
+                const hasNext = isClosed ? true : (nextIdx < points.length);
+                
+                let prevPt = (hasPrev && points[prevIdx]) ? points[prevIdx] : null;
+                let nextPt = (hasNext && points[nextIdx]) ? points[nextIdx] : null;
+                
+                if (tagName === 'path') {
+                    if (nextPt && nextPt[2]) nextPt = null;
+                }
+                
+                if (prevPt) candidates.push(prevPt);
+                if (nextPt) candidates.push(nextPt);
+            }
+            
+            if (candidates.length > 0) {
+                let minVDist = Infinity, minHDist = Infinity;
+                let bestVPivot = null, bestHPivot = null;
+
+                candidates.forEach(c => {
+                    const dv = Math.abs(localPt.x - c[0]);
+                    const dh = Math.abs(localPt.y - c[1]);
+                    if (dv < minVDist) { minVDist = dv; bestVPivot = c; }
+                    if (dh < minHDist) { minHDist = dh; bestHPivot = c; }
+                });
+
+                const isAlt = e.altKey || (window.currentEditingSVG && window.currentEditingSVG.isAltPressed);
+                const gridConfig = (typeof AppState !== 'undefined' && AppState.config && AppState.config.grid) || { size: 15 };
+                const snapSize = gridConfig.size || 15;
+
+                if (minVDist < minHDist) {
+                    if (bestVPivot) {
+                        localPt.x = bestVPivot[0];
+                        if (isAlt && snapSize > 0) localPt.y = Math.round(localPt.y / snapSize) * snapSize;
+                    }
+                } else {
+                    if (bestHPivot) {
+                        localPt.y = bestHPivot[1];
+                        if (isAlt && snapSize > 0) localPt.x = Math.round(localPt.x / snapSize) * snapSize;
+                    }
+                }
+            }
+        }
+    }
+
     bindVertexDrag(handle, index) {
         let isDragging = false;
         let rAF = null;
         let lastEvent = null;
+        let lastClickTime = 0;
 
         const performUpdate = () => {
             rAF = null;
             if (!this.activeNode || !lastEvent) return;
             const e = lastEvent;
             this._isDragging = true;
+            
+            const draw = SVG(this.activeNode.ownerSVGElement);
 
-            if (!this._connectorsShown) {
-                const isAlt = SVGUtils.isSnapEnabled(e);
-                if (!isAlt && window.SVGConnectorManager) {
-                    const draw = SVG(this.activeNode.ownerSVGElement);
-                    window.SVGConnectorManager.showAllConnectors(draw, SVG(this.activeNode));
-                }
-                this._connectorsShown = true;
+            // 実線更新の前に、このフレームの最新CTMを取得 (レイアウトスラッシングの回避)
+            const currentCtmCache = this._createCTMCache(this.activeNode, this.overlayGroup);
+
+            const isAlt = SVGUtils.isSnapEnabled(e);
+            if (!isAlt && window.SVGConnectorManager && this._connectorCache) {
+                const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+                const worldPt = this._dragRootCTMInv ? new SVG.Point(e.clientX, e.clientY).transform(this._dragRootCTMInv) : draw.point(e.clientX, e.clientY);
+                window.SVGConnectorManager.updateConnectorDisplay(draw, this._connectorCache, worldPt, zoom);
+            } else if (window.SVGConnectorManager) {
+                window.SVGConnectorManager.hideAllConnectors(draw);
             }
 
             let localPt = this.getLocalPoint(e);
-            const isAlt = SVGUtils.isSnapEnabled(e);
-            const draw = SVG(this.activeNode.ownerSVGElement);
             const vIdx = parseInt(handle.getAttribute('data-index'), 10);
             const points = this._dragPoints;
             const endType = (vIdx === 0) ? 'start' : (vIdx === points.length - 1 ? 'end' : null);
 
             if (!isAlt && endType && window.SVGConnectorManager) {
-                const worldPt = draw.point(e.clientX, e.clientY);
+                // [NEW] getScreenCTM() の呼び出しを回避
+                const worldPt = this._dragRootCTMInv ? new SVG.Point(e.clientX, e.clientY).transform(this._dragRootCTMInv) : draw.point(e.clientX, e.clientY);
                 const nearest = window.SVGConnectorManager.findNearestConnector(draw, worldPt, 20, SVG(this.activeNode));
 
                 let skipSnap = false;
@@ -497,76 +713,9 @@ class SvgPolylineHandler {
             const activeIndex = index;
             if (isNaN(activeIndex)) return;
 
-            // Shiftキー押下時の垂直・水平固定、およびAltキー同時押下時のグリッド吸着
             const isShift = e.shiftKey || (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed);
             if (isShift && this.activeNode) {
-                const tagName = this.activeNode.tagName.toLowerCase();
-                
-                const candidates = [];
-                if (tagName === 'line') {
-                    const otherIdx = (activeIndex === 0) ? 1 : 0;
-                    if (points[otherIdx]) candidates.push(points[otherIdx]);
-                } else {
-                    const prevIdx = activeIndex - 1;
-                    const nextIdx = activeIndex + 1;
-                    
-                    if (prevIdx >= 0 && points[prevIdx]) candidates.push(points[prevIdx]);
-                    if (nextIdx < points.length && points[nextIdx]) candidates.push(points[nextIdx]);
-                    
-                    // 閉じているパスの場合は最初と最後が隣接
-                    const isClosed = this.activeNode.getAttribute('data-poly-closed') === 'true';
-                    if (isClosed) {
-                        if (activeIndex === 0) {
-                            candidates.push(points[points.length - 1]);
-                        } else if (activeIndex === points.length - 1) {
-                            candidates.push(points[0]);
-                        }
-                    }
-                }
-                
-                if (candidates.length > 0) {
-                    let minVDist = Infinity;
-                    let minHDist = Infinity;
-                    let bestVPivot = null;
-                    let bestHPivot = null;
-
-                    candidates.forEach(c => {
-                        const dv = Math.abs(localPt.x - c[0]);
-                        const dh = Math.abs(localPt.y - c[1]);
-                        if (dv < minVDist) {
-                            minVDist = dv;
-                            bestVPivot = c;
-                        }
-                        if (dh < minHDist) {
-                            minHDist = dh;
-                            bestHPivot = c;
-                        }
-                    });
-
-                    const isAlt = e.altKey || (window.currentEditingSVG && window.currentEditingSVG.isAltPressed);
-                    const gridConfig = (typeof AppState !== 'undefined' && AppState.config && AppState.config.grid) || { size: 15 };
-                    const snapSize = gridConfig.size || 15;
-
-                    if (minVDist < minHDist) {
-                        // 垂直線（x座標を固定）
-                        if (bestVPivot) {
-                            localPt.x = bestVPivot[0];
-                            if (isAlt && snapSize > 0) {
-                                // y座標をグリッドに吸着
-                                localPt.y = Math.round(localPt.y / snapSize) * snapSize;
-                            }
-                        }
-                    } else {
-                        // 水平線（y座標を固定）
-                        if (bestHPivot) {
-                            localPt.y = bestHPivot[1];
-                            if (isAlt && snapSize > 0) {
-                                // x座標をグリッドに吸着
-                                localPt.x = Math.round(localPt.x / snapSize) * snapSize;
-                            }
-                        }
-                    }
-                }
+                this.applyShiftSnap(localPt, activeIndex, points, e);
             }
 
             this._isSnappedToClose = false;
@@ -632,17 +781,14 @@ class SvgPolylineHandler {
                         if (obz.cpOut) obz.cpOut = [obz.cpOut[0] + dx, obz.cpOut[1] + dy];
                     }
                 }
-                const pointsStr = points.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
-                this.activeNode.setAttribute('data-poly-points', pointsStr);
-                this.activeNode.setAttribute('data-bez-points', JSON.stringify(bezData));
+                // [PERF] ドラッグ中は重いデータ属性への書き込みを省略
                 this.generatePath(this.activeNode);
             } else {
                 const pointsStr = points.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
                 this.activeNode.setAttribute('points', pointsStr);
-                this.activeNode.setAttribute('data-poly-points', pointsStr);
             }
 
-            this.update(this.overlayGroup, this.activeNode, null);
+            this.update(this.overlayGroup, this.activeNode, null, currentCtmCache);
             if (this.onUpdate) this.onUpdate();
         };
 
@@ -656,14 +802,20 @@ class SvgPolylineHandler {
 
         const onMouseUp = () => {
             isDragging = false;
-            this._isDragging = false;
-            this._connectorsShown = false;
+            if (window.currentEditingSVG && typeof window.currentEditingSVG.resumeObserver === 'function') {
+                window.currentEditingSVG.resumeObserver();
+            }
             if (rAF) {
                 cancelAnimationFrame(rAF);
                 rAF = null;
             }
 
             if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
+
+            // [NEW] ドラッグ終了時にデータをDOMに確定させる
+            this._commitDataAttributes();
+            this._isDragging = false;
+            this._connectorsShown = false;
 
             if (this._isSnappedToClose) {
                 this.activeNode.setAttribute('data-poly-closed', 'true');
@@ -695,23 +847,48 @@ class SvgPolylineHandler {
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
 
+            this._dragCTM = null;
+            this._dragCTMCache = null;
+            this._dragRootCTMInv = null;
+            this._dragPoints = null;
+            this._dragBezData = null;
+            this._connectorCache = null;
+
             if (window.syncChanges) window.syncChanges(true, null, true);
         };
 
         handle.addEventListener('mousedown', (e) => {
+            if (window.currentEditingSVG && typeof window.currentEditingSVG.suspendObserver === 'function') {
+                window.currentEditingSVG.suspendObserver();
+            }
             if (this.activeNode.getAttribute('data-locked') === 'true' || this.activeNode.getAttribute('data-locked') === true) return;
+
+            // 自前ダブルクリック検出（手ぶれ許容）
+            const now = Date.now();
+            if (now - lastClickTime < 350) {
+                lastClickTime = 0; // リセット
+                e.stopPropagation(); e.preventDefault();
+                this.triggerVertexDblClick(handle, index);
+                return;
+            }
+            lastClickTime = now;
 
             if (window.currentEditingSVG) {
                 window.currentEditingSVG._isOperationInProgress = true;
                 if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
             }
 
+            // [NEW] ドラッグ開始時に計算用データを一括キャッシュ
             this._dragPoints = this.getPoints(this.activeNode);
             this._dragBezData = this.activeNode.tagName.toLowerCase() === 'path' ? this.getBezData(this.activeNode) : [];
             this._dragCTM = this.activeNode.getScreenCTM();
+            this._dragCTMCache = this._createCTMCache(this.activeNode, this.overlayGroup);
             const draw = SVG(this.activeNode.ownerSVGElement);
             if (draw && draw.node) {
                 this._dragRootCTMInv = draw.node.getScreenCTM().inverse();
+            }
+            if (window.SVGConnectorManager && draw) {
+                this._connectorCache = window.SVGConnectorManager.cacheConnectorPoints(draw, SVG(this.activeNode));
             }
 
             const isCtrl = e.ctrlKey || (window.currentEditingSVG && window.currentEditingSVG.isCtrlPressed);
@@ -766,6 +943,20 @@ class SvgPolylineHandler {
             const e = lastEvent;
             this._isDragging = true;
 
+            // 実線更新の前に、このフレームの最新CTMを取得 (レイアウトスラッシングの回避)
+            const currentCtmCache = this._createCTMCache(this.activeNode, this.overlayGroup);
+            const draw = SVG(this.activeNode.ownerSVGElement);
+
+            // ドラッグ中のリアルタイム近接接続表示
+            const isAlt = SVGUtils.isSnapEnabled(e);
+            if (!isAlt && window.SVGConnectorManager && this._connectorCache && draw) {
+                const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+                const worldPt = this._dragRootCTMInv ? new SVG.Point(e.clientX, e.clientY).transform(this._dragRootCTMInv) : draw.point(e.clientX, e.clientY);
+                window.SVGConnectorManager.updateConnectorDisplay(draw, this._connectorCache, worldPt, zoom);
+            } else if (window.SVGConnectorManager && draw) {
+                window.SVGConnectorManager.hideAllConnectors(draw);
+            }
+
             if (!hasConverted) {
                 hasConverted = true;
                 const insertAfter = parseInt(handle.getAttribute('data-vertex-index'), 10);
@@ -776,16 +967,10 @@ class SvgPolylineHandler {
                 let localPt = this.getLocalPoint(e);
 
                 points.splice(vertexIndex, 0, [localPt.x, localPt.y]);
-                const pointsStr = points.map(p => p.join(',')).join(' ');
 
                 if (this.activeNode.tagName.toLowerCase() === 'path') {
-                    this.activeNode.setAttribute('data-poly-points', pointsStr);
                     const bezData = this._dragBezData;
                     bezData.splice(vertexIndex, 0, { type: 0 });
-                    this.activeNode.setAttribute('data-bez-points', JSON.stringify(bezData));
-                } else {
-                    this.activeNode.setAttribute('points', pointsStr);
-                    this.activeNode.setAttribute('data-poly-points', pointsStr);
                 }
 
                 handle.setAttribute('data-type', 'vertex');
@@ -803,22 +988,21 @@ class SvgPolylineHandler {
             const points = this._dragPoints;
             if (vertexIndex >= points.length) return;
 
-            points[vertexIndex] = [localPt.x, localPt.y];
-            const pointsStr = points.map(p => p.join(',')).join(' ');
-
-            if (this.activeNode.tagName.toLowerCase() === 'path') {
-                this.activeNode.setAttribute('data-poly-points', pointsStr);
-                this.generatePath(this.activeNode);
-            } else {
-                this.activeNode.setAttribute('points', pointsStr);
-                this.activeNode.setAttribute('data-poly-points', pointsStr);
+            const isShift = e.shiftKey || (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed);
+            if (isShift && this.activeNode) {
+                this.applyShiftSnap(localPt, vertexIndex, points, e);
             }
 
-            const handlePoint = this.getHandlePoint([localPt.x, localPt.y], this.activeNode, this.overlayGroup);
-            handle.setAttribute('cx', handlePoint.x);
-            handle.setAttribute('cy', handlePoint.y);
+            points[vertexIndex] = [localPt.x, localPt.y];
 
-            this.update(this.overlayGroup, this.activeNode, null);
+            if (this.activeNode.tagName.toLowerCase() === 'path') {
+                this.generatePath(this.activeNode);
+            } else {
+                const pointsStr = points.map(p => p.join(',')).join(' ');
+                this.activeNode.setAttribute('points', pointsStr);
+            }
+
+            this.update(this.overlayGroup, this.activeNode, null, currentCtmCache);
             if (this.onUpdate) this.onUpdate();
         };
 
@@ -832,7 +1016,9 @@ class SvgPolylineHandler {
 
         const onMouseUp = () => {
             isDragging = false;
-            this._isDragging = false;
+            if (window.currentEditingSVG && typeof window.currentEditingSVG.resumeObserver === 'function') {
+                window.currentEditingSVG.resumeObserver();
+            }
             if (rAF) {
                 cancelAnimationFrame(rAF);
                 rAF = null;
@@ -846,6 +1032,20 @@ class SvgPolylineHandler {
 
             if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
 
+            if (window.SVGConnectorManager && this.activeNode) {
+                const draw = SVG(this.activeNode.ownerSVGElement);
+                window.SVGConnectorManager.hideAllConnectors(draw);
+            }
+
+            this._commitDataAttributes();
+            this._isDragging = false;
+            this._dragCTM = null;
+            this._dragCTMCache = null;
+            this._dragRootCTMInv = null;
+            this._dragPoints = null;
+            this._dragBezData = null;
+            this._connectorCache = null;
+
             if (didConvert || vIndex >= 0) {
                 this.update(this.overlayGroup, this.activeNode, null);
                 if (window.syncChanges) window.syncChanges(true, null, true);
@@ -853,6 +1053,9 @@ class SvgPolylineHandler {
         };
 
         handle.addEventListener('mousedown', (e) => {
+            if (window.currentEditingSVG && typeof window.currentEditingSVG.suspendObserver === 'function') {
+                window.currentEditingSVG.suspendObserver();
+            }
             if (this.activeNode.getAttribute('data-locked') === 'true' || this.activeNode.getAttribute('data-locked') === true) return;
 
             if (window.currentEditingSVG) {
@@ -863,6 +1066,15 @@ class SvgPolylineHandler {
             this._dragPoints = this.getPoints(this.activeNode);
             this._dragBezData = this.activeNode.tagName.toLowerCase() === 'path' ? this.getBezData(this.activeNode) : [];
             this._dragCTM = this.activeNode.getScreenCTM();
+            this._dragCTMCache = this._createCTMCache(this.activeNode, this.overlayGroup);
+
+            const draw = SVG(this.activeNode.ownerSVGElement);
+            if (draw && draw.node) {
+                this._dragRootCTMInv = draw.node.getScreenCTM().inverse();
+            }
+            if (window.SVGConnectorManager && draw) {
+                this._connectorCache = window.SVGConnectorManager.cacheConnectorPoints(draw, SVG(this.activeNode));
+            }
 
             const isCtrl = e.ctrlKey || (window.currentEditingSVG && window.currentEditingSVG.isCtrlPressed);
             if (isCtrl) {
@@ -916,6 +1128,9 @@ class SvgPolylineHandler {
             const e = lastEvent;
             this._isDragging = true;
             
+            // 実線更新の前に、このフレームの最新CTMを取得 (レイアウトスラッシングの回避)
+            const currentCtmCache = this._createCTMCache(this.activeNode, this.overlayGroup);
+            
             const dy = e.clientY - startPt.y;
             const dx = e.clientX - startPt.x;
             const delta = Math.sqrt(dx * dx + dy * dy) * (dy > 0 ? 1 : -1);
@@ -923,7 +1138,7 @@ class SvgPolylineHandler {
             const newSize = Math.max(2, startSize + delta);
             this.activeNode.setAttribute('data-arrow-size', newSize);
 
-            this.update(this.overlayGroup, this.activeNode, null);
+            this.update(this.overlayGroup, this.activeNode, null, currentCtmCache);
             if (this.onUpdate) this.onUpdate();
         };
 
@@ -938,6 +1153,9 @@ class SvgPolylineHandler {
         const onMouseUp = () => {
             isDragging = false;
             this._isDragging = false;
+            if (window.currentEditingSVG && typeof window.currentEditingSVG.resumeObserver === 'function') {
+                window.currentEditingSVG.resumeObserver();
+            }
             if (rAF) {
                 cancelAnimationFrame(rAF);
                 rAF = null;
@@ -946,16 +1164,28 @@ class SvgPolylineHandler {
             window.removeEventListener('mouseup', onMouseUp);
 
             if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
+
+            this._dragCTM = null;
+            this._dragCTMCache = null;
+            this._dragRootCTMInv = null;
+            this._dragPoints = null;
+            this._dragBezData = null;
+
             if (window.syncChanges) window.syncChanges(true, null, true);
         };
 
         handle.addEventListener('mousedown', (e) => {
+            if (window.currentEditingSVG && typeof window.currentEditingSVG.suspendObserver === 'function') {
+                window.currentEditingSVG.suspendObserver();
+            }
             if (this.activeNode.getAttribute('data-locked') === 'true' || this.activeNode.getAttribute('data-locked') === true) return;
 
             if (window.currentEditingSVG) {
                 window.currentEditingSVG._isOperationInProgress = true;
                 if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
             }
+
+            this._dragCTMCache = this._createCTMCache(this.activeNode, this.overlayGroup);
 
             e.stopPropagation(); e.preventDefault();
             isDragging = true;
@@ -967,112 +1197,115 @@ class SvgPolylineHandler {
         });
     }
 
+    triggerVertexDblClick(handle, index) {
+        const currentIndex = parseInt(handle.getAttribute('data-index'), 10);
+        if (isNaN(currentIndex)) return;
+
+        let targetNode = this.activeNode;
+        let converted = false;
+
+        if (targetNode.tagName.toLowerCase() !== 'path') {
+            const newNode = this.convertToPath(targetNode);
+            if (newNode) {
+                targetNode = newNode;
+                converted = true;
+            }
+        }
+
+        const points = this.getPoints(targetNode);
+        const bezData = this.getBezData(targetNode);
+
+        let bz = bezData[currentIndex];
+        if (!bz || typeof bz !== 'object') bz = { type: 0 };
+        if (bz.type === undefined) bz.type = 0;
+
+        const isClosed = targetNode.getAttribute('data-poly-closed') === 'true';
+        const isEnd = !isClosed && (currentIndex === 0 || currentIndex === points.length - 1);
+
+        if (bz.type === 0) {
+            bz.type = 1;
+            const pt = points[currentIndex];
+            if (isEnd) {
+                bz.type = 2; // 終端は常に cusp (角)
+                if (currentIndex === 0) {
+                    const next = points[1] || pt;
+                    const dx = pt[0] - next[0]; const dy = pt[1] - next[1];
+                    const len = Math.hypot(dx, dy) || 1;
+                    bz.cpOut = [pt[0] + (dx / len) * 30, pt[1] + (dy / len) * 30];
+                } else {
+                    const prev = points[currentIndex - 1] || pt;
+                    const dx = pt[0] - prev[0]; const dy = pt[1] - prev[1];
+                    const len = Math.hypot(dx, dy) || 1;
+                    bz.cpIn = [pt[0] + (dx / len) * 30, pt[1] + (dy / len) * 30];
+                }
+            } else {
+                let prev, next;
+                if (isClosed) {
+                    let pIdx = currentIndex - 1;
+                    if (pIdx < 0) pIdx = points.length - 1;
+                    prev = points[pIdx];
+                    if (Math.abs(prev[0] - pt[0]) < 0.001 && Math.abs(prev[1] - pt[1]) < 0.001) {
+                        pIdx = pIdx - 1;
+                        if (pIdx < 0) pIdx = points.length - 1;
+                        prev = points[pIdx];
+                    }
+                    
+                    let nIdx = currentIndex + 1;
+                    if (nIdx >= points.length) nIdx = 0;
+                    next = points[nIdx];
+                    if (Math.abs(next[0] - pt[0]) < 0.001 && Math.abs(next[1] - pt[1]) < 0.001) {
+                        nIdx = nIdx + 1;
+                        if (nIdx >= points.length) nIdx = 0;
+                        next = points[nIdx];
+                    }
+                } else {
+                    prev = points[currentIndex - 1];
+                    next = points[currentIndex + 1];
+                }
+
+                if (prev && next) {
+                    const dx = next[0] - prev[0];
+                    const dy = next[1] - prev[1];
+                    const len = Math.hypot(dx, dy) || 1;
+                    const udx = dx / len; const udy = dy / len;
+                    bz.cpIn = [pt[0] - udx * 30, pt[1] - udy * 30];
+                    bz.cpOut = [pt[0] + udx * 30, pt[1] + udy * 30];
+                } else {
+                    bz.cpIn = [pt[0] - 30, pt[1]];
+                    bz.cpOut = [pt[0] + 30, pt[1]];
+                }
+            }
+        } else if (bz.type === 1 && !isEnd) {
+            bz.type = 2; // スムーズから cusp に変更
+        } else {
+            bz = { type: 0 }; // 直線に変更
+        }
+
+        bezData[currentIndex] = bz;
+
+        if (isClosed && (currentIndex === 0 || currentIndex === points.length - 1)) {
+            const otherIdx = (currentIndex === 0) ? points.length - 1 : 0;
+            const pt = points[currentIndex];
+            const otherPt = points[otherIdx];
+            if (Math.abs(pt[0] - otherPt[0]) < 0.001 && Math.abs(pt[1] - otherPt[1]) < 0.001) {
+                bezData[otherIdx] = JSON.parse(JSON.stringify(bz));
+            }
+        }
+
+        this.setBezData(targetNode, bezData);
+
+        if (converted) {
+            if (window.selectElement) window.selectElement(SVG(targetNode));
+        } else {
+            this.update(this.overlayGroup, targetNode, null);
+            if (this.onUpdate) this.onUpdate();
+        }
+    }
+
     bindVertexDblClick(handle, index) {
         SVG(handle).on('dblclick', (e) => {
             e.stopPropagation(); e.preventDefault();
-
-            const currentIndex = parseInt(handle.getAttribute('data-index'), 10);
-            if (isNaN(currentIndex)) return;
-
-            let targetNode = this.activeNode;
-            let converted = false;
-
-            if (targetNode.tagName.toLowerCase() !== 'path') {
-                const newNode = this.convertToPath(targetNode);
-                if (newNode) {
-                    targetNode = newNode;
-                    converted = true;
-                }
-            }
-
-            const points = this.getPoints(targetNode);
-            const bezData = this.getBezData(targetNode);
-
-            let bz = bezData[currentIndex];
-            if (!bz || typeof bz !== 'object') bz = { type: 0 };
-            if (bz.type === undefined) bz.type = 0;
-
-            const isClosed = targetNode.getAttribute('data-poly-closed') === 'true';
-            const isEnd = !isClosed && (currentIndex === 0 || currentIndex === points.length - 1);
-
-            if (bz.type === 0) {
-                bz.type = 1;
-                const pt = points[currentIndex];
-                if (isEnd) {
-                    bz.type = 2; // Endpoints are always cusp
-                    if (currentIndex === 0) {
-                        const next = points[1] || pt;
-                        const dx = pt[0] - next[0]; const dy = pt[1] - next[1];
-                        const len = Math.hypot(dx, dy) || 1;
-                        bz.cpOut = [pt[0] + (dx / len) * 30, pt[1] + (dy / len) * 30];
-                    } else {
-                        const prev = points[currentIndex - 1] || pt;
-                        const dx = pt[0] - prev[0]; const dy = pt[1] - prev[1];
-                        const len = Math.hypot(dx, dy) || 1;
-                        bz.cpIn = [pt[0] + (dx / len) * 30, pt[1] + (dy / len) * 30];
-                    }
-                } else {
-                    let prev, next;
-                    if (isClosed) {
-                        let pIdx = currentIndex - 1;
-                        if (pIdx < 0) pIdx = points.length - 1;
-                        prev = points[pIdx];
-                        if (Math.abs(prev[0] - pt[0]) < 0.001 && Math.abs(prev[1] - pt[1]) < 0.001) {
-                            pIdx = pIdx - 1;
-                            if (pIdx < 0) pIdx = points.length - 1;
-                            prev = points[pIdx];
-                        }
-                        
-                        let nIdx = currentIndex + 1;
-                        if (nIdx >= points.length) nIdx = 0;
-                        next = points[nIdx];
-                        if (Math.abs(next[0] - pt[0]) < 0.001 && Math.abs(next[1] - pt[1]) < 0.001) {
-                            nIdx = nIdx + 1;
-                            if (nIdx >= points.length) nIdx = 0;
-                            next = points[nIdx];
-                        }
-                    } else {
-                        prev = points[currentIndex - 1];
-                        next = points[currentIndex + 1];
-                    }
-
-                    if (prev && next) {
-                        const dx = next[0] - prev[0];
-                        const dy = next[1] - prev[1];
-                        const len = Math.hypot(dx, dy) || 1;
-                        const udx = dx / len; const udy = dy / len;
-                        bz.cpIn = [pt[0] - udx * 30, pt[1] - udy * 30];
-                        bz.cpOut = [pt[0] + udx * 30, pt[1] + udy * 30];
-                    } else {
-                        bz.cpIn = [pt[0] - 30, pt[1]];
-                        bz.cpOut = [pt[0] + 30, pt[1]];
-                    }
-                }
-            } else if (bz.type === 1 && !isEnd) {
-                bz.type = 2; // Change smooth to cusp
-            } else {
-                bz = { type: 0 }; // Change to straight
-            }
-
-            bezData[currentIndex] = bz;
-
-            if (isClosed && (currentIndex === 0 || currentIndex === points.length - 1)) {
-                const otherIdx = (currentIndex === 0) ? points.length - 1 : 0;
-                const pt = points[currentIndex];
-                const otherPt = points[otherIdx];
-                if (Math.abs(pt[0] - otherPt[0]) < 0.001 && Math.abs(pt[1] - otherPt[1]) < 0.001) {
-                    bezData[otherIdx] = JSON.parse(JSON.stringify(bz));
-                }
-            }
-
-            this.setBezData(targetNode, bezData);
-
-            if (converted) {
-                if (window.selectElement) window.selectElement(SVG(targetNode));
-            } else {
-                this.update(this.overlayGroup, targetNode, null);
-                if (this.onUpdate) this.onUpdate();
-            }
+            this.triggerVertexDblClick(handle, index);
         });
     }
 
@@ -1086,6 +1319,9 @@ class SvgPolylineHandler {
             if (!this.activeNode || !lastEvent) return;
             const e = lastEvent;
             this._isDragging = true;
+
+            // 実線更新の前に、このフレームの最新CTMを取得 (レイアウトスラッシングの回避)
+            const currentCtmCache = this._createCTMCache(this.activeNode, this.overlayGroup);
             
             const bezData = this._dragBezData;
             const bz = bezData[index];
@@ -1116,10 +1352,10 @@ class SvgPolylineHandler {
                 }
             }
 
-            this.activeNode.setAttribute('data-bez-points', JSON.stringify(bezData));
+            // [PERF] ドラッグ中は重いデータ属性の書き込みを省略し、generatePath のみ呼ぶ
             this.generatePath(this.activeNode);
             
-            this.update(this.overlayGroup, this.activeNode, null);
+            this.update(this.overlayGroup, this.activeNode, null, currentCtmCache);
             if (this.onUpdate) this.onUpdate();
         };
 
@@ -1133,7 +1369,6 @@ class SvgPolylineHandler {
 
         const onMouseUp = () => {
             isDragging = false;
-            this._isDragging = false;
             if (rAF) {
                 cancelAnimationFrame(rAF);
                 rAF = null;
@@ -1141,11 +1376,29 @@ class SvgPolylineHandler {
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
 
-            if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = false;
+                if (typeof window.currentEditingSVG.resumeObserver === 'function') {
+                    window.currentEditingSVG.resumeObserver();
+                }
+            }
+            
+            // [NEW] ドラッグ終了時にデータをコミット
+            this._commitDataAttributes();
+            this._isDragging = false;
+            this._dragCTM = null;
+            this._dragCTMCache = null;
+            this._dragRootCTMInv = null;
+            this._dragPoints = null;
+            this._dragBezData = null;
+
             if (window.syncChanges) window.syncChanges(true, null, true);
         };
 
         handle.addEventListener('mousedown', (e) => {
+            if (window.currentEditingSVG && typeof window.currentEditingSVG.suspendObserver === 'function') {
+                window.currentEditingSVG.suspendObserver();
+            }
             if (this.activeNode.getAttribute('data-locked') === 'true' || this.activeNode.getAttribute('data-locked') === true) return;
 
             if (window.currentEditingSVG) {
@@ -1156,6 +1409,7 @@ class SvgPolylineHandler {
             this._dragPoints = this.getPoints(this.activeNode);
             this._dragBezData = this.getBezData(this.activeNode);
             this._dragCTM = this.activeNode.getScreenCTM();
+            this._dragCTMCache = this._createCTMCache(this.activeNode, this.overlayGroup);
 
             e.stopPropagation(); e.preventDefault();
             isDragging = true;
@@ -1165,19 +1419,46 @@ class SvgPolylineHandler {
         });
     }
 
-    updateDragPositions(points, bezData, node) {
+    updateDragPositions(points, bezData, node, passedCtmCache = null) {
         if (!this._handleCache) return;
 
         const tagName = node.tagName.toLowerCase();
+        const ctmCache = passedCtmCache || (this._isDragging ? this._dragCTMCache : this._createCTMCache(node, this.overlayGroup));
+
+        // 画面の表示領域（viewBox）を取得し、カリング判定関数を作成
+        // 頂点数が50を超える場合のみ、パフォーマンス向上のためカリングを有効にする
+        let isVisible = () => true;
+        if (points && points.length > 50) {
+            const svgEdit = window.currentEditingSVG;
+            if (svgEdit && svgEdit.draw && svgEdit.draw.node.viewBox) {
+                const vb = svgEdit.draw.node.viewBox.baseVal;
+                const zoom = svgEdit.zoom ? svgEdit.zoom / 100 : 1;
+                const margin = 50 / zoom; // 画面外に少し余裕を持たせる
+                const minX = vb.x - margin;
+                const maxX = vb.x + vb.width + margin;
+                const minY = vb.y - margin;
+                const maxY = vb.y + vb.height + margin;
+                
+                isVisible = (hp) => {
+                    return hp.x >= minX && hp.x <= maxX && hp.y >= minY && hp.y <= maxY;
+                };
+            }
+        }
 
         // 1. Vertex Handles
         const vertexHandles = this._handleCache.vertex;
         vertexHandles.forEach(h => {
             const idx = parseInt(h.getAttribute('data-index'), 10);
             if (!isNaN(idx) && points[idx]) {
-                const hp = this.getHandlePoint(points[idx], node, this.overlayGroup);
-                h.setAttribute('cx', hp.x);
-                h.setAttribute('cy', hp.y);
+                const hp = this.getHandlePoint(points[idx], node, this.overlayGroup, ctmCache);
+                // ▼ 追加: 画面外なら非表示にしてDOM/描画負荷削減
+                if (isVisible(hp)) {
+                    h.style.display = '';
+                    h.setAttribute('cx', hp.x);
+                    h.setAttribute('cy', hp.y);
+                } else {
+                    h.style.display = 'none';
+                }
             }
         });
 
@@ -1202,9 +1483,15 @@ class SvgPolylineHandler {
                     } else {
                         midPt = [(pt1[0] + pt2[0]) / 2, (pt1[1] + pt2[1]) / 2];
                     }
-                    const hp = this.getHandlePoint(midPt, node, this.overlayGroup);
-                    h.setAttribute('cx', hp.x);
-                    h.setAttribute('cy', hp.y);
+                    const hp = this.getHandlePoint(midPt, node, this.overlayGroup, ctmCache);
+                    // ▼ 追加: カリング
+                    if (isVisible(hp)) {
+                        h.style.display = '';
+                        h.setAttribute('cx', hp.x);
+                        h.setAttribute('cy', hp.y);
+                    } else {
+                        h.style.display = 'none';
+                    }
                 }
             }
         });
@@ -1216,9 +1503,15 @@ class SvgPolylineHandler {
                 const idx = parseInt(h.getAttribute('data-index'), 10);
                 const cpName = h.getAttribute('data-cp-name');
                 if (!isNaN(idx) && bezData[idx] && bezData[idx][cpName]) {
-                    const hp = this.getHandlePoint(bezData[idx][cpName], node, this.overlayGroup);
-                    h.setAttribute('cx', hp.x);
-                    h.setAttribute('cy', hp.y);
+                    const hp = this.getHandlePoint(bezData[idx][cpName], node, this.overlayGroup, ctmCache);
+                    // ▼ 追加: カリング
+                    if (isVisible(hp)) {
+                        h.style.display = '';
+                        h.setAttribute('cx', hp.x);
+                        h.setAttribute('cy', hp.y);
+                    } else {
+                        h.style.display = 'none';
+                    }
                 }
             });
 
@@ -1227,12 +1520,18 @@ class SvgPolylineHandler {
                 const idx = parseInt(l.getAttribute('data-index'), 10);
                 const cpName = l.getAttribute('data-cp-name');
                 if (!isNaN(idx) && points[idx] && bezData[idx] && bezData[idx][cpName]) {
-                    const hVertex = this.getHandlePoint(points[idx], node, this.overlayGroup);
-                    const hCP = this.getHandlePoint(bezData[idx][cpName], node, this.overlayGroup);
-                    l.setAttribute('x1', hVertex.x);
-                    l.setAttribute('y1', hVertex.y);
-                    l.setAttribute('x2', hCP.x);
-                    l.setAttribute('y2', hCP.y);
+                    const hVertex = this.getHandlePoint(points[idx], node, this.overlayGroup, ctmCache);
+                    const hCP = this.getHandlePoint(bezData[idx][cpName], node, this.overlayGroup, ctmCache);
+                    // ▼ 追加: どちらかの端点が見えていれば表示するカリング
+                    if (isVisible(hVertex) || isVisible(hCP)) {
+                        l.style.display = '';
+                        l.setAttribute('x1', hVertex.x);
+                        l.setAttribute('y1', hVertex.y);
+                        l.setAttribute('x2', hCP.x);
+                        l.setAttribute('y2', hCP.y);
+                    } else {
+                        l.style.display = 'none';
+                    }
                 }
             });
         }
@@ -1250,9 +1549,15 @@ class SvgPolylineHandler {
                 x: lastPt[0] - (dx / len) * arrowSize,
                 y: lastPt[1] - (dy / len) * arrowSize
             };
-            const hp = this.getHandlePoint([sizePt.x, sizePt.y], node, this.overlayGroup);
-            sizeHandle.setAttribute('cx', hp.x);
-            sizeHandle.setAttribute('cy', hp.y);
+            const hp = this.getHandlePoint([sizePt.x, sizePt.y], node, this.overlayGroup, ctmCache);
+            // ▼ 追加: カリング
+            if (isVisible(hp)) {
+                sizeHandle.style.display = '';
+                sizeHandle.setAttribute('cx', hp.x);
+                sizeHandle.setAttribute('cy', hp.y);
+            } else {
+                sizeHandle.style.display = 'none';
+            }
         }
     }
 

@@ -20,6 +20,19 @@ const SvgTextEditor = {
             }
             current = current.parent();
         }
+
+        // 最上位コンテナがテキスト要素自身のまま（グループ化されていない場合）で、
+        // 関連する図形要素（直線・矢印・折れ線矢印など）が存在する場合は、そちらを選択ターゲットにする
+        if (target === el && el.node) {
+            const assocShapeId = el.attr('data-associated-shape-id');
+            if (assocShapeId) {
+                const root = el.root();
+                const assocShape = root ? root.findOne('#' + assocShapeId) : null;
+                if (assocShape) {
+                    target = assocShape;
+                }
+            }
+        }
         return target;
     },
 
@@ -567,6 +580,8 @@ const SvgTextEditor = {
             }
         }
 
+        const assocShapeId = this.targetElement.attr('data-associated-shape-id');
+
         if (textPathData && textPathData.href) {
             // Clear existing safely
             while (textNode.firstChild) {
@@ -580,6 +595,9 @@ const SvgTextEditor = {
             }
             // textPath does not support multiline nicely, convert to spaces
             textPathEl.textContent = cleanText.replace(/\n/g, ' ');
+            if (assocShapeId) {
+                textPathEl.setAttribute('pointer-events', 'none');
+            }
             textNode.appendChild(textPathEl);
         } else {
             this.targetElement.text(add => {
@@ -591,10 +609,15 @@ const SvgTextEditor = {
                         'x': curX,
                         'y': curY + (i * lineHeight), // 絶対座標
                         'text-anchor': anchor,
-                        'dominant-baseline': baseline
+                        'dominant-baseline': baseline,
+                        'pointer-events': assocShapeId ? 'none' : null
                     });
                 });
             });
+        }
+
+        if (assocShapeId) {
+            this.targetElement.css('pointer-events', 'none');
         }
 
         const targetEl = this.targetElement;

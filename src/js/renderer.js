@@ -593,7 +593,11 @@ async function render(force = false) {
                     if (oldHash) el.removeAttribute('data-block-hash');
                     
                     const rawHtml = el.outerHTML;
-                    const hashKey = el.tagName + '_' + cyrb53(rawHtml);
+                    // ハッシュ生成の軽量化: 巨大なHTMLの場合は全体をハッシュ化せず、先頭/末尾/文字数を利用して計算量を削減
+                    const hashInput = rawHtml.length > 2000 
+                        ? rawHtml.substring(0, 1000) + '...' + rawHtml.substring(rawHtml.length - 1000) + '_' + rawHtml.length
+                        : rawHtml;
+                    const hashKey = el.tagName + '_' + cyrb53(hashInput);
                     currentBlockHashes.add(hashKey);
                     
                     // 属性を元に戻す
@@ -807,11 +811,14 @@ async function render(force = false) {
                         if (oldNode.nodeType === 1) { // 要素ノード
                             const oldHash = oldNode.getAttribute('data-block-hash');
                             const newHash = newNode.getAttribute('data-block-hash');
-                            if (oldHash && newHash && oldHash === newHash) return true;
+                            if (oldHash && newHash) return oldHash === newHash;
+                            // isEqualNodeのディープ比較を回避し、タグ名とouterHTMLによる高速な文字列比較を行う
+                            if (oldNode.tagName !== newNode.tagName) return false;
+                            return oldNode.outerHTML === newNode.outerHTML;
                         } else if (oldNode.nodeType === 3) { // テキストノード
-                            if (oldNode.nodeValue === newNode.nodeValue) return true;
+                            return oldNode.nodeValue === newNode.nodeValue;
                         }
-                        return oldNode.isEqualNode && oldNode.isEqualNode(newNode);
+                        return false;
                     };
 
                     // DOM要素を破壊せずに行番号などの「ズレ」だけを補正する関数

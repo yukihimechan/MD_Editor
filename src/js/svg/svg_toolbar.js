@@ -303,6 +303,11 @@ class LineTool extends BaseTool {
             window.SVGConnectorManager.connect(this.activeElement, 'start', startConnect.id, startConnect.index);
         }
 
+        // [NEW] ドラッグ開始時に接続ポイントのキャッシュを生成
+        if (window.SVGConnectorManager && this.draw) {
+            this._connectorCache = window.SVGConnectorManager.cacheConnectorPoints(this.draw, this.activeElement);
+        }
+
         // Initial marker setup
         this.toolbar.updateArrowMarkers(this.activeElement);
     }
@@ -318,6 +323,14 @@ class LineTool extends BaseTool {
 
         const isAlt = SVGUtils.isSnapEnabled(e);
         let targetPt = pt;
+
+        // [NEW] ドラッグ中のリアルタイム近接接続表示
+        if (!isAlt && window.SVGConnectorManager && this._connectorCache) {
+            const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+            window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._connectorCache, pt, zoom);
+        } else if (window.SVGConnectorManager) {
+            window.SVGConnectorManager.hideAllConnectors(this.draw);
+        }
 
         // [NEW] コネクタ吸着またはグリッドスナップ
         if (!isAlt && window.SVGConnectorManager) {
@@ -383,10 +396,11 @@ class LineTool extends BaseTool {
     mouseup(e, pt) {
         if (!this.activeElement) return;
 
-        // [NEW] コネクタポイントを非表示
+        // [NEW] コネクタポイントを非表示にし、キャッシュをクリア
         if (window.SVGConnectorManager) {
             window.SVGConnectorManager.hideAllConnectors(this.draw);
         }
+        this._connectorCache = null;
 
         // クリックのみ（ドラッグなし）の場合、デフォルトサイズで横線を配置
         if (!this.isDragging) {
@@ -445,9 +459,10 @@ class PolylineArrowTool extends LineTool {
             this.points = [{ x: pt.x, y: pt.y }];
             this._isSnappedToClose = false;
 
-            // コネクタ表示 (初回クリック時)
-            if (!isAlt && window.SVGConnectorManager) {
-                window.SVGConnectorManager.showAllConnectors(this.draw, this.activeElement);
+            // コネクタ近接表示 (初回クリック時)
+            if (!isAlt && window.SVGConnectorManager && this._connectorCache) {
+                const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+                window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._connectorCache, pt, zoom);
             }
 
             // コネクタ接続 (開始点)
@@ -492,9 +507,12 @@ class PolylineArrowTool extends LineTool {
         let targetPt = pt;
         this._isSnappedToClose = false;
 
-        // コネクタ表示 (移動中、未表示の場合)
-        if (!isAlt && window.SVGConnectorManager && !this.draw.findOne('.svg-connector-overlay')) {
-            window.SVGConnectorManager.showAllConnectors(this.draw, this.activeElement);
+        // ドラッグ中のリアルタイム近接接続表示
+        if (!isAlt && window.SVGConnectorManager && this._connectorCache) {
+            const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+            window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._connectorCache, pt, zoom);
+        } else if (window.SVGConnectorManager) {
+            window.SVGConnectorManager.hideAllConnectors(this.draw);
         }
 
         // [NEW] 始点への吸着判定 (クローズパス化)
@@ -569,6 +587,7 @@ class PolylineArrowTool extends LineTool {
 
             // コネクタを隠す
             if (window.SVGConnectorManager) window.SVGConnectorManager.hideAllConnectors(this.draw);
+            this._connectorCache = null;
 
             super.finalize();
         }
@@ -587,6 +606,7 @@ class PolylineArrowTool extends LineTool {
         }
         this.toolbar.setTool('select');
         if (window.SVGConnectorManager) window.SVGConnectorManager.hideAllConnectors(this.draw);
+        this._connectorCache = null;
     }
 }
 
@@ -1300,11 +1320,32 @@ class SVGMainToolbar extends SVGToolbarBase {
     }
 
     destroy() {
+        // 描画中のツールがあればキャンセルし、接続ポイントの表示を強制的にクリアする
+        if (this.activeToolInstance) {
+            if (typeof this.activeToolInstance.cancel === 'function') {
+                try {
+                    this.activeToolInstance.cancel();
+                } catch (e) {
+                    console.error('[SVG Toolbar] Error during active tool cancel:', e);
+                }
+            } else if (this.activeToolInstance.activeElement) {
+                try {
+                    this.activeToolInstance.activeElement.remove();
+                    this.activeToolInstance.activeElement = null;
+                } catch (e) {}
+            }
+            this.activeToolInstance._connectorCache = null;
+        }
+        if (window.SVGConnectorManager && this.draw) {
+            window.SVGConnectorManager.hideAllConnectors(this.draw);
+        }
+
         if (this.toolbarElement) this.toolbarElement.remove();
         this.unbindEvents();
         this.draw = null;
         this.container = null;
     }
+
 
     createToolbar() {
         const { toolbar, contentArea } = this.createBaseToolbar(this.config);

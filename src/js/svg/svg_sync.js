@@ -11,25 +11,57 @@
  */
 let partialSyncTimeout = null;
 
-// エディタ内の現在の対象SVGブロック（```svg から ``` まで）のテキストを取得する
+// ゼロアロケーションでSVGブロックの位置を特定する高速スキャナ
+function getSvgBlockInfo(text, targetSvgIndex) {
+    if (!text) return null;
+    let currentIdx = 0, searchPos = 0, currentLine = 0;
+
+    while (true) {
+        const startIdx = text.indexOf('```svg', searchPos);
+        if (startIdx === -1) return null;
+
+        // startIdxまでの改行を数える
+        for (let i = searchPos; i < startIdx; i++) {
+            if (text[i] === '\n') currentLine++;
+        }
+        const startLine = currentLine;
+
+        const endIdx = text.indexOf('```', startIdx + 6);
+        if (endIdx === -1) return null;
+
+        // endIdxまでの改行を数える
+        for (let i = startIdx; i < endIdx; i++) {
+            if (text[i] === '\n') currentLine++;
+        }
+        const endLine = currentLine;
+
+        if (currentIdx === targetSvgIndex) {
+            let lineStart = text.lastIndexOf('\n', startIdx - 1);
+            lineStart = lineStart === -1 ? 0 : lineStart + 1;
+            const indentationMatch = text.substring(lineStart, startIdx).match(/^[ \t]*/);
+            const indentation = indentationMatch ? indentationMatch[0] : '';
+            
+            return {
+                startIdx, endIdx,
+                startLine, endLine,
+                content: text.substring(startIdx + 6, endIdx).trim(),
+                indentation
+            };
+        }
+        currentIdx++;
+        // searchPosを進める
+        for (let i = endIdx; i < endIdx + 3 && i < text.length; i++) {
+             if (text[i] === '\n') currentLine++;
+        }
+        searchPos = endIdx + 3;
+    }
+}
+
+// 既存の getSVGBlockText を以下に置換
 function getSVGBlockText(svgIndex) {
     if (typeof getEditorText !== 'function') return null;
-    const editorContent = getEditorText();
-    const lines = editorContent.split('\n');
-    let currentIdx = 0, startLine = -1, endLine = -1, inBlock = false;
-
-    for (let i = 0; i < lines.length; i++) {
-        const lineStr = lines[i].trim();
-        if (lineStr === '```svg') {
-            if (currentIdx === svgIndex) { startLine = i; inBlock = true; }
-            currentIdx++;
-        } else if (inBlock && lineStr === '```') {
-            endLine = i;
-            break;
-        }
-    }
-    if (startLine === -1 || endLine <= startLine) return null;
-    return lines.slice(startLine, endLine + 1).join('\n');
+    const info = getSvgBlockInfo(getEditorText(), svgIndex);
+    return info ? info.content : null;
 }
 
 function schedulePartialSync() {
@@ -224,7 +256,7 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
             const name = liveAttrs[i].name;
             let val = liveAttrs[i].value;
 
-            if (['data-is-proxy', 'data-is-canvas', 'data-internal', 'data-locked', 'data-tool-id'].includes(name) && id !== '__root__') continue;
+            if (['data-is-proxy', 'data-is-canvas', 'data-internal', 'data-locked'].includes(name) && id !== '__root__') continue;
 
             if (name === 'class') {
                 val = val.split(' ').filter(c => !c.includes('svg_select') && !c.includes('svg-interaction')).join(' ').trim();
@@ -304,70 +336,146 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
  * @returns {string} Formatted SVG
  */
 function formatSVGCode(svgStr) {
-    let formatted = '';
-    // まず既存のタグ間の空白や改行をすべて削除してクリーンにする
-    svgStr = svgStr.replace(/>\s+</g, '><').trim();
+    let cleanStr = svgStr.replace(/>\s+</g, '><').trim();
+    cleanStr = cleanStr.replace(/(>)(<)(\/*)/g, '$1\n$2$3');
 
-    // タグごとに改行を入れる
-    const reg = /(>)(<)(\/*)/g;
-    svgStr = svgStr.replace(reg, '$1\n$2$3');
-
+    const lines = cleanStr.split('\n');
+    const out = []; // 文字列の += 結合を廃止し、配列 of push を使用
     let pad = 0;
-    svgStr.split('\n').forEach(function (node) {
-        node = node.trim();
-        if (!node) return; // 空行はスキップ
+
+    for (let i = 0; i < lines.length; i++) {
+        const node = lines[i].trim();
+        if (!node) continue;
 
         let indent = 0;
-        // [PERF] 非常に長い行（Base64等）は検索・正規表現コストが高いため、
-        // 1000文字を超える場合はインデント計算をスキップして単なる要素として扱う
         if (node.length > 1000) {
             indent = 0;
-        } else if (node.match(/.+<\/\w[^>]*>$/) || node.match(/^<\w[^>]*\/>$/)) {
-            // 1行で完結するタグ (例: <rect ... /> or <text>...</text>) はインデントを変化させない
-            indent = 0;
-        } else if (node.match(/^<\/\w/)) {
-            // 閉じタグの場合はインデントを下げる
+        } else if ((node.includes('</') && node.endsWith('>')) || node.endsWith('/>')) {
+            indent = 0; 
+        } else if (node.startsWith('</')) {
             if (pad > 0) pad -= 1;
-        } else if (node.match(/^<\w[^>]*[^\/]>.*$/) && !node.includes('</')) {
-            // 開始タグの場合はインデントを上げる
+        } else if (node.startsWith('<') && !node.includes('</')) {
             indent = 1;
-        } else {
-            indent = 0;
         }
 
-        // [PERF] repeat のコストを抑え、巨大な行はそのまま連結 (閾値を1000に統一)
         const prefix = (pad > 0 && node.length < 1000) ? '  '.repeat(pad) : '';
-        formatted += prefix + node + '\n';
+        out.push(prefix + node);
         pad += indent;
+    }
+
+    return out.join('\n');
+}
+
+// ▼▼▼ 新規追加 ▼▼▼
+const FLOAT_ROUND_REGEX = /[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g;
+const ROUND3 = (val) => Math.round(parseFloat(val) * 1000) / 1000;
+
+const IGNORE_CLASSES = new Set([
+    'svg-interaction-hitarea', 'svg_interaction', 'svg-canvas-proxy', 
+    'svg-grid-lines', 'svg-grid-pattern', 'svg-grid-rect', 'svg-grid-line',
+    'svg_select_group', 'svg-select-group', 'svg-select-group-canvas',
+    'rotation-handle-group', 'radius-handle-group', 'polyline-handle-group', 
+    'bubble-handle-group', 'svg-snap-guides', 'svg-control-marker', 
+    'svg-canvas-border', 'svg-ruler', 'svg-select-handle', 'svg_select_handle',
+    'svg_select_shape', 'rotation-handle', 'svg_select_handle_rot'
+]);
+
+function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
+    if (node.nodeType === 3) return node.nodeValue; // Text node
+    if (node.nodeType !== 1) return ''; // Skip comments etc.
+
+    // O(1) exclusion of editor-only elements
+    if (node.getAttribute('data-internal') === 'true' || node.id === 'grid-group') return '';
+    
+    const tagName = node.tagName.toLowerCase();
+    
+    // Class-based exclusion (both self and descendants)
+    if (node.classList) {
+        for (let i = 0; i < node.classList.length; i++) {
+            const cls = node.classList[i];
+            if (IGNORE_CLASSES.has(cls) || 
+                cls.includes('svg-select') || 
+                cls.includes('svg_select') || 
+                cls.includes('select-handle') ||
+                cls.includes('select_handle') ||
+                cls.includes('rotation-handle')) {
+                return '';
+            }
+        }
+    }
+
+    // If it's a container element (like g), check if it contains any internal editor elements
+    if (tagName === 'g') {
+        const hasInternal = node.querySelector(
+            '.svg-interaction-hitarea, .svg_interaction, .svg-canvas-proxy, ' +
+            '.svg-grid-lines, .svg-grid-pattern, .svg-grid-rect, .svg-grid-line, ' +
+            '.svg_select_group, .svg-select-group, .svg-select-group-canvas, ' +
+            '.rotation-handle-group, .radius-handle-group, .polyline-handle-group, ' +
+            '.bubble-handle-group, .svg-snap-guides, .svg-control-marker, ' +
+            '.svg-canvas-border, .svg-ruler, .svg_select_shape, .svg-select-handle, ' +
+            '.svg_select_handle, .rotation-handle, .svg_select_handle_rot'
+        );
+        if (hasInternal) return '';
+    }
+
+    // Skip empty g tags
+    if (tagName === 'g' && node.childNodes.length === 0 && (!node.textContent || !node.textContent.trim())) return '';
+
+    let str = `<${tagName}`;
+    const attrs = node.attributes;
+    const isRoot = tagName === 'svg';
+    
+    const attrMap = new Map();
+    for (let i = 0; i < attrs.length; i++) attrMap.set(attrs[i].name, attrs[i].value);
+    
+    // Apply overrides for root
+    if (isRoot && rootOptions) {
+        for (const [k, v] of Object.entries(rootOptions)) attrMap.set(k, v);
+    }
+
+    if (attrMap.has('class')) {
+        const cleanedClass = attrMap.get('class').split(' ')
+            .filter(c => !c.includes('svg_select') && !c.includes('svg-interaction') && c !== 'svg-editable' && c !== 'isSelected')
+            .join(' ').trim();
+        if (cleanedClass) attrMap.set('class', cleanedClass);
+        else attrMap.delete('class');
+    }
+
+    attrMap.forEach((val, name) => {
+        // Remove internal attributes
+        if (['data-is-proxy', 'data-is-canvas', 'data-locked'].includes(name) && !isRoot && tagName !== 'g') return;
+
+        if (!skipRounding && val !== undefined && val !== null) {
+            val = String(val);
+            if (['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2'].includes(name)) {
+                if (!isNaN(val) && val.trim() !== '') val = ROUND3(val).toString();
+            } else if (['transform', 'd', 'points', 'data-poly-points', 'stroke-dasharray', 'viewBox'].includes(name) || name.startsWith('data-arrow-')) {
+                if (val.length < 5000 && val.includes('.')) val = val.replace(FLOAT_ROUND_REGEX, m => ROUND3(m));
+            } else if (name.startsWith('data-') && !isNaN(val) && val.trim() !== '' && val.length < 512) {
+                val = ROUND3(val).toString();
+            } else if (['font-size', 'stroke-width', 'letter-spacing'].includes(name)) {
+                if (!isNaN(parseFloat(val))) val = val.replace(parseFloat(val).toString(), ROUND3(parseFloat(val)).toString());
+            }
+        }
+        // Basic escaping
+        val = String(val).replace(/"/g, '&quot;');
+        str += ` ${name}="${val}"`;
     });
 
-    return formatted.trim();
+    const voidElements = ['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'image', 'use', 'pattern'];
+    if (node.childNodes.length === 0 && voidElements.includes(tagName)) return str + ` />`;
+
+    str += `>`;
+    for (let i = 0; i < node.childNodes.length; i++) {
+        str += serializeLiveSvgNode(node.childNodes[i], skipRounding);
+    }
+    return str + `</${tagName}>`;
 }
 
-/**
- * Helper to identify a stable signature for a line to preserve folding
- * @param {string} lineText 
- * @returns {string} Signature (Priority: ID, Fallback: trimmed text)
- */
-function getFoldSignature(lineText) {
-    const trimmed = lineText.trim();
-    // Match id="id" or id='id'
-    const idMatch = trimmed.match(/id=["']([^"']+)["']/);
-    if (idMatch) return 'id:' + idMatch[1];
-    return trimmed;
-}
-
-/**
- * Sync Logic (Preserved from original)
- * @param {boolean} silent - If true, update values but don't fire 'input' event. Default: true.
- * @param {Object} overrideDims - Optional dimensions to force update.
- */
 function syncSVGToEditor(container, svgIndex, silent = true, overrideDims = null, addToHistory = true, isolateHistory = false) {
-    // [FIX] 古い呼び出し形式 syncSVGToEditor(svgIndex, silent, overrideDims) との互換性を正しく維持
     if (typeof container === 'number') {
-        const actualThirdArg = arguments.length >= 3 ? arguments[2] : null;
-        // 第3引数がオブジェクト（且つ非配列）の場合のみ overrideDims とみなす
-        overrideDims = (actualThirdArg && typeof actualThirdArg === 'object' && !Array.isArray(actualThirdArg)) ? actualThirdArg : null;
+        const arg2 = arguments.length >= 3 ? arguments[2] : null;
+        overrideDims = (arg2 && typeof arg2 === 'object' && !Array.isArray(arg2)) ? arg2 : null;
         silent = (svgIndex === true || svgIndex === false) ? svgIndex : true;
         svgIndex = container;
         container = window.currentEditingSVG ? window.currentEditingSVG.container : null;
@@ -375,733 +483,170 @@ function syncSVGToEditor(container, svgIndex, silent = true, overrideDims = null
         isolateHistory = arguments.length >= 5 ? arguments[4] : false;
     }
 
-
-
-    // console.log(`[svg_sync] syncSVGToEditor start (silent: ${silent}, svgIndex: ${svgIndex})`);
-    if (!container) {
-        // console.error('[svg_sync] syncSVGToEditor: No container provided');
-        return;
-    }
-    // エディタ→SVG同期中（updateSVGFromEditor実行中）は逆方向同期をスキップ（無限ループ防止）
-    if (window.currentEditingSVG && window.currentEditingSVG._updatingFromEditor) {
-        // console.log('[svg_sync] syncSVGToEditor skipped: _updatingFromEditor is true');
-        return;
-    }
-
-    // Save state for auto-resume after render
-    if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.setItem('mdEditor_pendingSVGEditIndex', svgIndex);
-
-        // Save selected elements indices
-        if (window.currentEditingSVG && window.currentEditingSVG.draw) {
-            const allItems = window.currentEditingSVG.draw.children();
-            const validItems = [];
-            allItems.each(function (el) {
-                const tagName = el.node.tagName.toLowerCase();
-                if (['defs', 'style', 'marker', 'symbol', 'metadata'].includes(tagName)) return;
-
-                // [NEW] Exclude proxy and internal tools
-                const isTool = el.classes().some(c => c.startsWith('svg_select')) ||
-                    el.parent().classes().some(c => c.startsWith('svg_select')) ||
-                    el.hasClass('svg-canvas-proxy') ||
-                    el.hasClass('svg-control-marker');
-                if (!isTool) {
-                    validItems.push(el);
-                }
-            });
-
-            const selectedIndices = [];
-            window.currentEditingSVG.selectedElements.forEach(el => {
-                // Find index in validItems by node reference
-                const idx = validItems.findIndex(item => item.node === el.node);
-                if (idx !== -1) selectedIndices.push(idx);
-            });
-            sessionStorage.setItem('mdEditor_pendingSelectionIndices', JSON.stringify(selectedIndices));
-        }
-    }
+    if (!container || (window.currentEditingSVG && window.currentEditingSVG._updatingFromEditor)) return;
 
     const svgElement = container.querySelector('svg');
     if (!svgElement) return;
 
-    const clone = svgElement.cloneNode(true);
+    const editorContent = getEditorText();
+    const info = getSvgBlockInfo(editorContent, svgIndex);
+    if (!info) return;
 
-    // [NEW] Remove hit areas and internal editor-only elements before syncing to editor source
-    // These elements should NEVER persist in the Markdown source.
-    const internalSelectors = [
-        '.svg-interaction-hitarea',
-        '.svg_interaction',
-        '.svg-canvas-proxy',
-        '.svg-grid-lines',
-        '.svg-grid-pattern',
-        '.svg-grid-rect',
-        '.svg-grid-line',
-        '.svg_select_group',
-        '.svg-select-group',
-        '.svg-select-group-canvas',
-        '.rotation-handle-group',
-        '.radius-handle-group',
-        '.polyline-handle-group',
-        '.bubble-handle-group',
-        '.svg-snap-guides',
-        '.svg-control-marker',
-        '.svg-canvas-border',
-        '.svg-ruler',
-        '[data-internal="true"]',
-        '#grid-group'
-    ];
-    let strippedCount = 0;
+    // ----- Pre-processing: Apply text alignment changes to live DOM -----
+    if (window.currentEditingSVG) window.currentEditingSVG._syncingToEditor = true;
+    
     try {
-        // [FIX] セレクタを結合して走査を1回に統合 (Additional Optimization 3)
-        const combinedSelector = internalSelectors.join(', ');
-        const found = clone.querySelectorAll(combinedSelector);
-        found.forEach(n => {
-            n.remove();
-            strippedCount++;
-        });
-    } catch (e) {
-        // console.warn('[svg_sync] querySelectorAll combined failed, using TreeWalker fallback', e);
-        // Fallback: 1回の DOM 探索で全要素をチェックし、複数回の querySelectorAll によるレイアウトスラッシングや遅延を防ぐ
-        const treeWalker = document.createTreeWalker(clone, NodeFilter.SHOW_ELEMENT, null, false);
-        const nodesToRemove = [];
-        let currentNode = treeWalker.nextNode();
-        while (currentNode) {
-            let shouldRemove = false;
-            if (currentNode.classList) {
-                for (let i = 0; i < internalSelectors.length; i++) {
-                    const sel = internalSelectors[i];
-                    if (sel.startsWith('.') && currentNode.classList.contains(sel.substring(1))) {
-                        shouldRemove = true; break;
-                    } else if (sel.startsWith('#') && currentNode.id === sel.substring(1)) {
-                        shouldRemove = true; break;
-                    } else if (sel === '[data-internal="true"]' && currentNode.getAttribute('data-internal') === 'true') {
-                        shouldRemove = true; break;
-                    }
-                }
-            }
-            if (shouldRemove) nodesToRemove.push(currentNode);
-            currentNode = treeWalker.nextNode();
+        const groups = svgElement.querySelectorAll('g[data-tool-id="shape-text-group"]');
+        if (groups.length > 0 && window.SVGTextAlignmentToolbar && typeof window.SVGTextAlignmentToolbar.updateTextPosition === 'function') {
+            // Re-apply alignment calculations to ensure they are baked into x/y attributes
+            groups.forEach(g => window.SVGTextAlignmentToolbar.updateTextPosition(SVG(g), true));
         }
-        nodesToRemove.forEach(n => { n.remove(); strippedCount++; });
-    }
-
-    // [DEBUG] 非表示属性の保持状態を確認
-    const hiddenElements = Array.from(clone.querySelectorAll('*')).filter(el => {
-        return el.getAttribute('display') === 'none' || el.style.display === 'none';
-    });
-    if (hiddenElements.length > 0) {
-        // console.log(`[svg_sync] Found ${hiddenElements.length} HIDDEN elements in clone:`,
-        //     hiddenElements.map(el => `${el.tagName}#${el.id || 'no-id'} (dispAttr=${el.getAttribute('display')}, styleDisp=${el.style.display})`));
-    }
-
-    if (strippedCount > 0) {
-        // console.log(`[svg_sync] Stripped ${strippedCount} internal editor elements from SVG clone.`);
-    }
-
-    // [FIX] Ensure clone has latest proxy dimensions even if root isn't updated yet
-    // [NEW] Use AppState.config.previewWidth for width if available
-    const configWidth = (typeof AppState !== 'undefined' && AppState.config) ? AppState.config.previewWidth : null;
-
-    if (overrideDims) {
-        // Use explicit dimensions passed from resize handler
-        const { w, h, x, y } = overrideDims;
-        const finalW = configWidth || w;
-        const finalH = configWidth ? Math.round(h * (configWidth / w)) : h;
-
-        clone.setAttribute('width', finalW);
-        clone.setAttribute('height', finalH);
-        clone.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
-
-        // [FIX] Phase 5: Ensure restoration attributes are also set when overrideDims is used
-        clone.setAttribute('data-paper-width', Math.round(w));
-        clone.setAttribute('data-paper-height', Math.round(h));
-        clone.setAttribute('data-paper-x', Math.round(x));
-        clone.setAttribute('data-paper-y', Math.round(y));
-
-        // [FIX] Ensure memory is also updated if overrideDims is provided
-        // This acts as a safety net if the caller forgot to update memory.
-        if (window.currentEditingSVG) {
-            const cur = window.currentEditingSVG;
-            // [TIGHTENED] Reset check criteria: Within 1px of defaults
-            const isResetVal = Math.abs(h - (cur.standardHeight || 350)) < 1 || Math.abs(h - 350) < 1 || Math.abs(h - 450) < 1;
-            // [TIGHTENED] Pollution check: If it's a reset value but memory says otherwise (>1px diff), it's suspicious
-            const isSus = isResetVal && Math.abs(h - cur.baseHeight) > 1;
-
-            if (isSus) {
-                // console.warn(`[svg_sync] Memory Sync (Safety) BLOCKED to prevent pollution: ${w}x${h} (Current: ${cur.baseWidth}x${cur.baseHeight})`);
-            } else if (cur.baseWidth !== w || cur.baseHeight !== h || cur.baseX !== x || cur.baseY !== y) {
-                // console.log(`[svg_sync] Memory Sync (Safety) - BEFORE: ${cur.baseWidth}x${cur.baseHeight} at (${cur.baseX}, ${cur.baseY})`);
-                cur.baseWidth = w;
-                cur.baseHeight = h;
-                cur.baseX = x;
-                cur.baseY = y;
-                // console.log(`[svg_sync] Memory Sync (Safety) - AFTER:  ${cur.baseWidth}x${cur.baseHeight} at (${cur.baseX}, ${cur.baseY})`);
-            }
-        }
-    } else if (window.currentEditingSVG && window.currentEditingSVG.canvasProxy) {
-        const proxy = window.currentEditingSVG.canvasProxy;
-        const inset = window.currentEditingSVG.canvasInset || 4;
-        const w = Math.round(proxy.width() + (inset * 2));
-        const h = Math.round(proxy.height() + (inset * 2));
-        const x = Math.round(proxy.x() - inset);
-        const y = Math.round(proxy.y() - inset);
-
-        // [FIX] Zoom/Pan Persistence: Use current living viewBox for preservation
-        const current = window.currentEditingSVG;
-        // // console.log(`[svg_sync] syncSVGToEditor - Current Zoom State: ${current.zoom}%`);
-        const svgNode = current.draw.node;
-        const vb = svgNode.viewBox.baseVal;
-
-        // [FIX] 優先順位: 1. overrideDims (引数)  2. current.baseWidth/Height (メモリ)  3. node attributes (DOM)
-        const mW = (overrideDims && !isNaN(overrideDims.w)) ? overrideDims.w : (current.baseWidth && !isNaN(current.baseWidth) ? current.baseWidth : null);
-        const mH = (overrideDims && !isNaN(overrideDims.h)) ? overrideDims.h : (current.baseHeight && !isNaN(current.baseHeight) ? current.baseHeight : null);
-
-        const finalW = configWidth || mW || w;
-        const finalH = configWidth ? Math.round((mH || h) * (configWidth / (mW || w))) : (mH || h);
-
-        // [FIX] viewBox 算出: エディタの作業用ズーム・パンを意図的に含めて保存する (永続化のため)
-        if (overrideDims) {
-            clone.setAttribute('viewBox', `${overrideDims.x} ${overrideDims.y} ${overrideDims.w} ${overrideDims.h}`);
-        } else {
-            const rx = (current.baseX !== undefined && !isNaN(current.baseX)) ? current.baseX : vb.x;
-            const ry = (current.baseY !== undefined && !isNaN(current.baseY)) ? current.baseY : vb.y;
-            const rh = mH || vb.height || h;
-            const rw = mW || vb.width || w;
-
-            // [NEW] エディタ内での操作状態 (zoom, offX, offY) を元に viewBox を算出
-            const scale = 100 / (current.zoom || 100);
-            const r3 = (v) => Math.round(v * 1000) / 1000;
-            const vx = r3(rx + (current.offX || 0));
-            const vy = r3(ry + (current.offY || 0));
-            const vw = r3(rw * scale);
-            const vh = r3(rh * scale);
-
-            // console.log(`[svg_sync] Serializing with Zoom/Pan: zoom=${current.zoom}%, off=(${current.offX},${current.offY}), viewBox=${vx} ${vy} ${vw} ${vh}`);
-            clone.setAttribute('viewBox', `${vx} ${vy} ${vw} ${vh}`);
-            // [VERIFY] Check after setting
-            // console.log(`[svg_sync] Verified attribute on clone: viewBox="${clone.getAttribute('viewBox')}"`);
-        }
-
-        const scaleFactor = (current.zoom || 100) / 100;
-        const fW = configWidth || Math.round(mW * scaleFactor);
-        const fH = configWidth ? Math.round((mH || h) * (configWidth / (mW || w))) : Math.round(mH * scaleFactor);
-
-        // console.log(`[svg_sync] Setting SVG display size (Zoomed): width:${fW}, height:${fH} (zoom=${current.zoom}%, base=${mW}x${mH})`);
-        clone.setAttribute('width', fW);
-        clone.setAttribute('height', fH);
-
-        // Paper State (the "100%" base for zoom/pan restoration)
-        const paperH = Math.round(current.baseHeight || h);
-        // console.log(`[svg_sync] FINAL Dimension Sync - W: ${fW}, H: ${fH}, PaperH: ${paperH}`);
-        clone.setAttribute('data-paper-width', Math.round(current.baseWidth || w));
-        clone.setAttribute('data-paper-height', paperH);
-        clone.setAttribute('data-paper-x', Math.round(current.baseX !== undefined ? current.baseX : x));
-        clone.setAttribute('data-paper-y', Math.round(current.baseY !== undefined ? current.baseY : y));
-
-        // [NEW] ズーム・パン状態を専用属性として明示的に永続化 (viewBoxのリセット対策)
-        clone.setAttribute('data-paper-zoom', current.zoom || 100);
-        clone.setAttribute('data-paper-offx', current.offX || 0);
-        clone.setAttribute('data-paper-offy', current.offY || 0);
-
-        // [NEW] グリッド設定を永続化
-        if (typeof AppState !== 'undefined' && AppState.config.grid) {
-            clone.setAttribute('data-paper-grid-size', AppState.config.grid.size || 15);
-            clone.setAttribute('data-paper-grid-major', AppState.config.grid.majorInterval || 5);
-        }
-
-        // console.log(`[svg_sync] Persisted view state: zoom=${current.zoom}, offX=${current.offX}, offY=${current.offY}`);
-    }
-
-    // Cleanup clone (Remove editor-only temporary elements)
-    const tools = clone.querySelectorAll([
-        '.svg_select_shape', '.svg-select-shape',
-        '.svg_select_handle', '.svg-select-handle',
-        '.svg_select_handle_rot', '.svg-select-handle-rot',
-        '.svg_select_handle_point', '.svg-select-handle-point',
-        '.svg_select_group', '.svg-select-group',
-        '.svg-canvas-proxy', '.svg-canvas-border',
-        '.rotation-handle-group', '.radius-handle-group',
-        '.polyline-handle-group', '.bubble-handle-group',
-        '.svg-control-marker', '.svg-connector-overlay',
-        '.svg-interaction-hitarea' // [NEW] もし残っていたら削除
-    ].join(', '));
-    tools.forEach(t => t.remove());
-
-    // [NEW] Remove empty groups (debris from grouping/ungrouping or selection tools)
-    // Note: We avoid removing <defs>, <symbol>, <marker> etc. just in case, though they are usually not <g>.
-    // Using simple loop to handle nested emptiness if needed? Just top level debris is likely enough.
-    const emptyGroups = clone.querySelectorAll('g');
-    emptyGroups.forEach(g => {
-        // Check if truly empty (no children, no text content)
-        // Adjust check if we want to keep groups with specific attributes?
-        // Usually an empty group <g></g> has no visual meaning.
-        if (g.children.length === 0 && (!g.textContent || !g.textContent.trim())) {
-            g.remove();
-        }
-    });
-
-    // [NEW] Remove grid elements (editing aids, not part of the actual drawing)
-    clone.querySelectorAll('.svg-grid-pattern').forEach(el => el.remove());
-    clone.querySelectorAll('.svg-grid-rect').forEach(el => el.remove());
-    clone.querySelectorAll('.svg-grid-lines').forEach(el => el.remove());
-    clone.querySelectorAll('.svg-grid-line').forEach(el => el.remove());
-
-    // [NEW] Remove unused marker definitions
-    if (typeof cleanupUnusedMarkers === 'function') {
-        cleanupUnusedMarkers(clone);
-    }
-
-    // Restore temporary styles
-    clone.style.overflow = '';
-
-
-    // [NEW] Text Alignment Persistence Sync
-    // g[data-tool-id="shape-text-group"] 内のテキスト位置を、data-align 属性に基づいて
-    // シリアライズ直前に再確定させる。これにより Markdown ソースへの保存漏れを防ぐ。
-    clone.querySelectorAll('g[data-tool-id="shape-text-group"]').forEach(groupNode => {
-        try {
-            const group = SVG(groupNode);
-            let rect = null, text = null;
-            group.children().forEach(ch => {
-                if (!ch.hasClass('svg-interaction-hitarea')) {
-                    if (ch.type === 'rect' && !rect) rect = ch;
-                    if (ch.type === 'text' && !text) text = ch;
-                }
-            });
-            if (!rect && typeof group.findOne === 'function') {
-                try { rect = group.findOne('rect:not(.svg-interaction-hitarea)'); } catch(e){}
-            }
-            if (!text && typeof group.findOne === 'function') {
-                try { text = group.findOne('text:not(.svg-interaction-hitarea)'); } catch(e){}
-            }
-            if (!rect && typeof group.findOne === 'function') rect = group.findOne('rect');
-            if (!text && typeof group.findOne === 'function') text = group.findOne('text');
-
-            if (!rect || !text) return;
-
-            const h = group.attr('data-align-h') || 'center';
-            const v = group.attr('data-align-v') || 'middle';
-
-            // [FIX] Use matrix-based box calculation (Reflow-Independent) in the clone.
-            // This ensures that the text alignment is calculated based on the MOVED position of the rect.
-            // [FIX] Use matrix-based box calculation (Reflow-Independent) in the clone.
-            // This ensures that the text alignment is calculated based on the MOVED position of the rect.
-            const rawX = parseFloat(rect.attr('x')) || 0;
-            const rawY = parseFloat(rect.attr('y')) || 0;
-            const rawW = parseFloat(rect.attr('width')) || 0;
-            const rawH = parseFloat(rect.attr('height')) || 0;
-            
-            const m = rect.matrix();
-            const p1 = new SVG.Point(rawX, rawY).transform(m);
-            const p2 = new SVG.Point(rawX + rawW, rawY + rawH).transform(m);
-            
-            const rx = Math.min(p1.x, p2.x);
-            const ry = Math.min(p1.y, p2.y);
-            const rx2 = Math.max(p1.x, p2.x);
-            const ry2 = Math.max(p1.y, p2.y);
-            const rw = rx2 - rx;
-            const rh = ry2 - ry;
-            const rcx = rx + rw / 2;
-            const rcy = ry + rh / 2;
-
-            let fontSize = NaN;
-            const orig = document.getElementById(text.attr('id'));
-            if (orig && window.getComputedStyle) {
-                const cs = window.getComputedStyle(orig);
-                if (cs && cs.fontSize) fontSize = parseFloat(cs.fontSize);
-            }
-            if (isNaN(fontSize) || fontSize <= 0) fontSize = parseFloat(text.node.getAttribute('font-size'));
-            if (isNaN(fontSize) || fontSize <= 0) fontSize = parseFloat(text.attr('font-size'));
-            if (isNaN(fontSize) || fontSize <= 0) fontSize = 20;
-            let spacingVal = parseFloat(group.attr('data-line-spacing'));
-            if (isNaN(spacingVal)) spacingVal = 1.2;
+        
+        // Single text line spacing persistence
+        svgElement.querySelectorAll('text[data-line-spacing]').forEach(textNode => {
+            let fontSize = parseFloat(textNode.getAttribute('font-size')) || 20;
+            let spacingVal = parseFloat(textNode.getAttribute('data-line-spacing')) || 1.2;
             const lineSpacing = fontSize * spacingVal;
-            const tspans = text.find('tspan');
-            const totalOffset = (tspans.length - 1) * lineSpacing;
-            const margin = 5;
-            // [NEW] Writing Mode の取得
-            const wm = group.attr('data-writing-mode') || text.attr('data-writing-mode') || 'h-ltr';
-            const isVertical = wm === 'v-rl';
-            const isRTL = wm === 'h-rtl';
-
-            let targetX, targetY, anchor, baseline;
-
-            // 水平方向の決定
-            if (isVertical) {
-                if (h === 'left') targetX = rx + margin + totalOffset;
-                else if (h === 'right') targetX = rx2 - margin;
-                else targetX = rcx + (totalOffset / 2);
-            } else {
-                if (h === 'left') {
-                    // [FIX] RTL時は start/end を反転させて視覚的な「左」に合わせる
-                    anchor = isRTL ? 'end' : 'start';
-                    targetX = rx + margin;
-                } else if (h === 'right') {
-                    anchor = isRTL ? 'start' : 'end';
-                    targetX = rx2 - margin;
-                } else {
-                    anchor = 'middle';
-                    targetX = rcx;
-                }
-            }
-
-            // 垂直方向の決定
-            if (isVertical) {
-                if (v === 'top') { anchor = 'start'; targetY = ry + margin; }
-                else if (v === 'bottom') { anchor = 'end'; targetY = ry2 - margin; }
-                else { anchor = 'middle'; targetY = rcy; }
-                baseline = 'central';
-            } else {
-                if (v === 'top') {
-                    baseline = 'text-before-edge';
-                    targetY = ry + margin;
-                } else if (v === 'bottom') {
-                    baseline = 'text-after-edge';
-                    targetY = ry2 - margin - totalOffset;
-                } else {
-                    baseline = 'central';
-                    targetY = rcy - (totalOffset / 2);
-                }
-            }
-
-            // クローン側のすべてのテキスト要素に属性を強制適用
-            group.find('text').forEach(text => {
-                // 筆記方向の適用
-                if (isVertical) {
-                    text.attr({ 'writing-mode': 'vertical-rl', 'direction': 'ltr' });
-                    text.css({ 'writing-mode': 'vertical-rl', 'direction': 'ltr', 'unicode-bidi': 'normal' });
-                } else if (isRTL) {
-                    text.attr({ 'writing-mode': 'horizontal-tb', 'direction': 'rtl' });
-                    // [FIX] unicode-bidi: bidi-override を追加
-                    text.css({ 'writing-mode': 'horizontal-tb', 'direction': 'rtl', 'unicode-bidi': 'bidi-override' });
-                } else {
-                    text.attr({ 'writing-mode': 'horizontal-tb', 'direction': 'ltr' });
-                    text.css({ 'writing-mode': 'horizontal-tb', 'direction': 'ltr', 'unicode-bidi': 'normal' });
-                }
-
-                text.attr({
-                    'x': targetX,
-                    'y': targetY,
-                    'text-anchor': anchor,
-                    'dominant-baseline': baseline,
-                    'transform': null
-                });
-
-                // tspan にも同期
-                text.find('tspan').forEach((tspan, idx) => {
-                    if (isVertical) {
-                        tspan.node.setAttribute('x', targetX - (idx * lineSpacing));
-                        tspan.node.setAttribute('y', targetY);
-                        tspan.node.setAttribute('dy', 0);
-                        tspan.node.setAttribute('text-anchor', anchor);
-                        tspan.node.setAttribute('dominant-baseline', baseline);
-                    } else {
-                        tspan.node.setAttribute('x', targetX);
-                        tspan.node.removeAttribute('y');
-                        tspan.node.setAttribute('text-anchor', anchor);
-                        tspan.node.setAttribute('dominant-baseline', baseline);
-                        tspan.node.setAttribute('dy', idx === 0 ? 0 : lineSpacing);
-                    }
-                });
-            });
-
-        } catch (e) {
-            // console.warn('[svg_sync] Failed to restore alignment for group:', e);
-        }
-    });
-
-    // [NEW] 単体テキストの同期処理 (data-line-spacing 等の反映)
-    clone.querySelectorAll('text[data-line-spacing]').forEach(textNode => {
-        try {
-            let fontSize = NaN;
-            const textId = textNode.getAttribute('id');
-            const orig = textId ? document.getElementById(textId) : null;
-            if (orig && window.getComputedStyle) {
-                const cs = window.getComputedStyle(orig);
-                if (cs && cs.fontSize) fontSize = parseFloat(cs.fontSize);
-            }
-            if (isNaN(fontSize) || fontSize <= 0) fontSize = parseFloat(textNode.getAttribute('font-size'));
-            if (isNaN(fontSize) || fontSize <= 0) fontSize = 20;
-            let spacingVal = parseFloat(textNode.getAttribute('data-line-spacing'));
-            if (isNaN(spacingVal)) spacingVal = 1.2;
-            const lineSpacing = fontSize * spacingVal;
-            
-            let targetX = textNode.getAttribute('x');
-            if (targetX === null || targetX === undefined) {
-                targetX = 0;
-            } else {
-                targetX = parseFloat(targetX) || 0;
-            }
-
+            let targetX = parseFloat(textNode.getAttribute('x')) || 0;
             const tspans = textNode.querySelectorAll('tspan');
             tspans.forEach((tspan, idx) => {
-                // [FIX] tspan.attr() や SVG.js での操作によるテキストノード消滅バグを防ぐため、完全にネイティブ DOM API のみで処理する
                 tspan.setAttribute('x', targetX);
                 tspan.setAttribute('dy', idx === 0 ? '0' : String(lineSpacing));
             });
-        } catch (e) { }
-    });
-
-    // 【No.4 修正】 巨大なSVG（300KB以上）は負荷を減らすため、文字列処理や整形をスキップ
-    const rawHTML = clone.outerHTML;
-    const isHuge = rawHTML.length > 300000;
-    const elementCount = clone.querySelectorAll('*').length;
-
-    // [FIX] 巨大SVG時やドラッグ中のリアルタイム同期(silent=true)時は丸め処理をスキップ (Optimization 4)
-    const isDraggingOrResizing = window.currentEditingSVG && (window.currentEditingSVG._isDragging || window.currentEditingSVG._isResizing);
-    const skipRounding = isHuge || elementCount > 200 || (silent === true && isDraggingOrResizing);
-
-    if (!skipRounding) {
-        // Also remove classes from elements and round numeric attributes
-        const elements = clone.querySelectorAll('*');
-        elements.forEach(el => {
-            el.classList.remove('svg_select_isSelected');
-
-            // 丸め処理用関数 (小数第3位まで)
-            const round3 = (val) => Math.round(val * 1000) / 1000;
-
-            // 一般的な数値属性の丸め
-            ['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2'].forEach(attr => {
-                const val = el.getAttribute(attr);
-                if (val && !isNaN(val)) {
-                    el.setAttribute(attr, round3(parseFloat(val)));
-                }
-            });
-
-            // カスタムデータ属性(data-arrow-* など)の丸め
-            Array.from(el.attributes).forEach(attr => {
-                if (attr.value.length > 512) return;
-                if (attr.name.startsWith('data-') && !isNaN(attr.value) && attr.value.trim() !== '') {
-                    el.setAttribute(attr.name, round3(parseFloat(attr.value)));
-                }
-            });
-
-            // transform属性の丸め
-            const transform = el.getAttribute('transform');
-            if (transform && transform.length < 5000 && transform.includes('.')) {
-                const roundedTransform = transform.replace(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g, (match) => {
-                    return round3(parseFloat(match));
-                });
-                el.setAttribute('transform', roundedTransform);
-            }
-
-            // path要素のd属性の丸め
-            if (el.tagName.toLowerCase() === 'path') {
-                const d = el.getAttribute('d');
-                if (d && d.length < 1500 && d.includes('.')) {
-                    const roundedD = d.replace(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g, (match) => {
-                        return round3(parseFloat(match));
-                    });
-                    el.setAttribute('d', roundedD);
-                }
-            }
-
-            // points属性の丸め
-            if (el.tagName.toLowerCase() === 'polyline' || el.tagName.toLowerCase() === 'polygon') {
-                const pts = el.getAttribute('points');
-                if (pts && pts.length < 1500 && pts.includes('.')) {
-                    const roundedPts = pts.replace(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g, (match) => {
-                        return round3(parseFloat(match));
-                    });
-                    el.setAttribute('points', roundedPts);
-                }
-            }
-
-            // カスタムポイントデータ属性の丸め
-            ['data-poly-points', 'stroke-dasharray'].forEach(attr => {
-                const val = el.getAttribute(attr);
-                if (val && val.length < 1500 && val.includes('.')) {
-                    const rounded = val.replace(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g, (match) => {
-                        return round3(parseFloat(match));
-                    });
-                    el.setAttribute(attr, rounded);
-                }
-            });
-
-            // CSS変数やインラインスタイル内の数値丸め
-            ['font-size', 'stroke-width', 'letter-spacing'].forEach(attr => {
-                const val = el.getAttribute(attr);
-                if (val && !isNaN(parseFloat(val))) {
-                    const rounded = val.replace(parseFloat(val), round3(parseFloat(val)));
-                    el.setAttribute(attr, rounded);
-                }
-                if (el.style && el.style[attr]) {
-                    const sVal = el.style[attr];
-                    if (!isNaN(parseFloat(sVal))) {
-                        const rounded = sVal.replace(parseFloat(sVal), round3(parseFloat(sVal)));
-                        el.style[attr] = rounded;
-                    }
-                }
-            });
-
-            // viewBox の丸め
-            if (el.tagName.toLowerCase() === 'svg') {
-                const vb = el.getAttribute('viewBox');
-                if (vb && vb.includes('.')) {
-                    const roundedVb = vb.replace(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g, (match) => {
-                        return round3(parseFloat(match));
-                    });
-                    el.setAttribute('viewBox', roundedVb);
-                }
-            }
         });
-    }
+    } catch (e) {}
 
-    let svgCode = clone.outerHTML;
-    if (!isHuge) {
-        svgCode = formatSVGCode(svgCode);
-    }
-    // console.log(`[svg_sync] Final SVG string generated. viewBox in string: ${svgCode.match(/viewBox=["']([^"']+)["']/)?.[1]}`);
-    // console.log(`[svg_sync] Serialization Result (Preview):`, svgCode.substring(0, 500) + '...');
+    // ----- Prepare Root Attributes -----
+    const cur = window.currentEditingSVG;
+    const configWidth = (typeof AppState !== 'undefined' && AppState.config) ? AppState.config.previewWidth : null;
+    const rootOptions = {};
 
+    if (overrideDims) {
+        rootOptions.width = configWidth || overrideDims.w;
+        rootOptions.height = configWidth ? Math.round(overrideDims.h * (configWidth / overrideDims.w)) : overrideDims.h;
+        rootOptions.viewBox = `${overrideDims.x} ${overrideDims.y} ${overrideDims.w} ${overrideDims.h}`;
+        rootOptions['data-paper-width'] = Math.round(overrideDims.w);
+        rootOptions['data-paper-height'] = Math.round(overrideDims.h);
+        rootOptions['data-paper-x'] = Math.round(overrideDims.x);
+        rootOptions['data-paper-y'] = Math.round(overrideDims.y);
+        if (cur) {
+            cur.baseWidth = overrideDims.w;
+            cur.baseHeight = overrideDims.h;
+            cur.baseX = overrideDims.x;
+            cur.baseY = overrideDims.y;
+        }
+    } else if (cur) {
+        const scaleFactor = (cur.zoom || 100) / 100;
+        const vb = svgElement.viewBox.baseVal;
+        const mW = cur.baseWidth || vb.width;
+        const mH = cur.baseHeight || vb.height;
+        const rx = cur.baseX !== undefined ? cur.baseX : vb.x;
+        const ry = cur.baseY !== undefined ? cur.baseY : vb.y;
 
-    // Editor update logic
-    if (typeof DOM === 'undefined' || !DOM.editor) return; // Guard
+        rootOptions.width = configWidth || Math.round(mW * scaleFactor);
+        rootOptions.height = configWidth ? Math.round(mH * (configWidth / mW)) : Math.round(mH * scaleFactor);
+        
+        const vx = ROUND3(rx + (cur.offX || 0));
+        const vy = ROUND3(ry + (cur.offY || 0));
+        const vw = ROUND3(mW * (100 / (cur.zoom || 100)));
+        const vh = ROUND3(mH * (100 / (cur.zoom || 100)));
 
-    const editorContent = getEditorText();
-    const lines = editorContent.split('\n');
-
-    let currentSvgIndex = 0;
-    let startLine = -1;
-    let endLine = -1;
-    let inSvgBlock = false;
-
-    for (let i = 0; i < lines.length; i++) {
-        if (lines[i].trim() === '```svg') {
-            if (currentSvgIndex === svgIndex) {
-                startLine = i;
-                inSvgBlock = true;
-            }
-            currentSvgIndex++;
-        } else if (inSvgBlock && lines[i].trim() === '```') {
-            endLine = i;
-            break;
+        rootOptions.viewBox = `${vx} ${vy} ${vw} ${vh}`;
+        rootOptions['data-paper-width'] = Math.round(mW);
+        rootOptions['data-paper-height'] = Math.round(mH);
+        rootOptions['data-paper-x'] = Math.round(rx);
+        rootOptions['data-paper-y'] = Math.round(ry);
+        rootOptions['data-paper-zoom'] = cur.zoom || 100;
+        rootOptions['data-paper-offx'] = cur.offX || 0;
+        rootOptions['data-paper-offy'] = cur.offY || 0;
+        if (typeof AppState !== 'undefined' && AppState.config && AppState.config.grid) {
+            rootOptions['data-paper-grid-size'] = AppState.config.grid.size || 15;
+            rootOptions['data-paper-grid-major'] = AppState.config.grid.majorInterval || 5;
         }
     }
 
-    if (startLine !== -1 && endLine !== -1) {
-        // [NEW] Save fold state of this block before replacing
+    const isDraggingOrResizing = cur && (cur._isDragging || cur._isResizing);
+    const elementCount = svgElement.querySelectorAll('*').length;
+    // Skip rounding for huge files or during drag/resize for max performance
+    const skipRounding = elementCount > 500 || (silent && isDraggingOrResizing);
+
+    // ★ Execute Zero-Clone Serialization
+    let svgCode = serializeLiveSvgNode(svgElement, skipRounding, rootOptions);
+
+    if (elementCount <= 500) {
+        svgCode = formatSVGCode(svgCode);
+    }
+
+    // ----- Apply to Markdown Editor -----
+    const indentedSvgCode = svgCode.split('\n')
+        .map(line => line.trim() ? info.indentation + line : line).join('\n');
+    const newBlock = `${info.indentation}\`\`\`svg\n${indentedSvgCode}\n${info.indentation}\`\`\``;
+
+    if (window._svgSyncFromEditorTimer) {
+        clearTimeout(window._svgSyncFromEditorTimer);
+        window._svgSyncFromEditorTimer = null;
+    }
+
+    if (typeof DOM !== 'undefined' && DOM.editor) {
+        // Save fold state if using CM6
         const foldedSignatures = new Set();
-        const editor = DOM.editorInstance || DOM.editor;
-        if (window.CM6 && window.CM6.foldedRanges && editor && editor.state) {
-            const state = editor.state;
+        if (window.CM6 && window.CM6.foldedRanges && DOM.editor.state) {
+            const state = DOM.editor.state;
             const foldedIt = window.CM6.foldedRanges(state).iter();
             while (foldedIt.value) {
                 const foldPos = foldedIt.from;
                 const lineObj = state.doc.lineAt(foldPos);
-                // lineObj.number is 1-based, startLine is 0-based
-                if (lineObj.number >= startLine + 1 && lineObj.number <= endLine + 1) {
-                    // Save the stable signature of the folded line
-                    foldedSignatures.add(getFoldSignature(lineObj.text));
+                if (lineObj.number >= info.startLine + 1 && lineObj.number <= info.endLine + 1) {
+                    const match = lineObj.text.match(/id=["']([^"']+)["']/);
+                    foldedSignatures.add(match ? 'id:' + match[1] : lineObj.text.trim());
                 }
                 foldedIt.next();
             }
         }
 
-        // 元の ```svg 行のインデント（行頭の空白）を取得
-        const startLineText = lines[startLine];
-        const indentationMatch = startLineText.match(/^\s*/);
-        const indentation = indentationMatch ? indentationMatch[0] : '';
+        // Replace using lines (0-based to 1-based)
+        DOM.editor.replaceLines(info.startLine + 1, info.endLine + 1, newBlock, addToHistory, isolateHistory);
+        if (!silent) DOM.editor.dispatchEvent(new Event('input'));
 
-        // SVGコードの各行にも同じインデントを適用
-        const indentedSvgCode = svgCode.split('\n')
-            .map(line => line.trim() ? indentation + line : line) // 空行には余計なスペースを入れない
-            .join('\n');
-
-        // 開始/終了の ``` にもインデントを付与
-        const newBlock = `${indentation}\`\`\`svg\n${indentedSvgCode}\n${indentation}\`\`\``;
-
-        // [LOG-VERBOSE] Verify height in the actual block we are about to write
-        const writtenHeightMatch = svgCode.match(/height="(\d+(?:\.\d+)?)"/);
-        // console.log(`[syncSVGToEditor] FINAL BLOCK VERIFICATION: Height="${writtenHeightMatch ? writtenHeightMatch[1] : 'NOT FOUND'}" (Line ${startLine + 1})`);
-
-        // [FIX] フラグを立てて、この変更によるeditor_core.js側のdocChangedが
-        // updateSVGFromEditorを呼ばないようにする
-        if (window.currentEditingSVG) {
-            window.currentEditingSVG._syncingToEditor = true;
-            // [NEW] エディタ→SVGへの逆方向同期タイマーが動いていればキャンセルする
-            if (window._svgSyncFromEditorTimer) {
-                // console.log('[syncSVGToEditor] Cancelling pending reverse sync timer.');
-                clearTimeout(window._svgSyncFromEditorTimer);
-                window._svgSyncFromEditorTimer = null;
-            }
-        }
-
-        // [FIX] Surgical update instead of full-text rewrite
-        // DOM.editor.replaceLines is 1-based, startLine is 0-based index of ```svg
-        // endLine is 0-based index of ```
-        DOM.editor.replaceLines(startLine + 1, endLine + 1, newBlock, addToHistory, isolateHistory);
-
-        if (typeof AppState !== 'undefined') {
-            AppState.text = getEditorText();
-            AppState.isModified = true;
-            if (typeof updateTitle === 'function') updateTitle();
-        }
-
-        // Trigger render updates ONLY if not silent
-        if (!silent) {
-            DOM.editor.dispatchEvent(new Event('input'));
-        }
-
-        // [FIX] CodeMirror v6のupdateListenerは非同期または遅れて発火する場合があるため、
-        // 余裕を持ってフラグを解除する（editor_coreのデバウンス120+300msより長く設定）
-        if (window.currentEditingSVG) {
-            clearTimeout(window.currentEditingSVG._syncingToEditorTimer);
-            window.currentEditingSVG._syncingToEditorTimer = setTimeout(() => {
-                if (window.currentEditingSVG) {
-                    const currentDocHeight = getEditorText().match(/height="(\d+)"/)?.[1];
-                    // console.log(`[syncSVGToEditor] Syncing guard cleared. Current source height in editor: ${currentDocHeight}`);
-                    window.currentEditingSVG._syncingToEditor = false;
-                }
-            }, 400); // 800ms -> 400ms に短縮 (マウス操作をブロックしすぎないよう調整)
-        }
-
-        // [NEW] Restore fold state
-        if (foldedSignatures.size > 0 && window.CM6 && window.CM6.foldEffect && window.CM6.foldable) {
+        // Restore fold state
+        if (foldedSignatures.size > 0 && window.CM6 && window.CM6.foldEffect) {
             setTimeout(() => {
                 try {
-                    const editor = DOM.editorInstance || DOM.editor;
-                    if (!editor || !editor.state) return;
-                    const state = editor.state;
+                    const state = DOM.editor.state;
                     const effects = [];
-                    // Search lines in the new block for matches
-                    let searchLine = startLine + 2; // the first content line
-                    while (searchLine <= state.doc.lines) {
-                        const lineObj = state.doc.line(searchLine);
-                        const lineText = lineObj.text;
-                        if (lineText.trim() === '```') break;
-
-                        const sig = getFoldSignature(lineText);
+                    for (let i = info.startLine + 2; i <= state.doc.lines; i++) {
+                        const lineObj = state.doc.line(i);
+                        if (lineObj.text.trim() === '```') break;
+                        const match = lineObj.text.match(/id=["']([^"']+)["']/);
+                        const sig = match ? 'id:' + match[1] : lineObj.text.trim();
                         if (foldedSignatures.has(sig)) {
-                            // Find the foldable range for this line
                             const range = window.CM6.foldable(state, lineObj.from, lineObj.to);
                             if (range) {
                                 effects.push(window.CM6.foldEffect.of(range));
-                                // Make sure not to fold it again if identical text is repeated, 
-                                // though repeated IDs are unlikely in robust SVG
                                 foldedSignatures.delete(sig);
                             }
                         }
-                        searchLine++;
                     }
-                    if (effects.length > 0) {
-                        editor.dispatch({ effects: effects });
-                    }
-                } catch (e) {
-                    // console.warn('[svg_sync] Failed to restore fold state:', e);
-                }
-            }, 100); // 100ms waits for syntax tree to be updated post-dispatch
+                    if (effects.length > 0) DOM.editor.dispatch({ effects });
+                } catch (e) {}
+            }, 100);
         }
+    }
 
-        // [NEW] テキスト置換によってCodeMirrorのデコレーションが揮発する問題を防ぐため、
-        // 同期完了直後にハイライトを再適用して復元する
-        if (typeof window.updateSVGSourceHighlight === 'function') {
-            window.updateSVGSourceHighlight();
-        }
+    if (typeof AppState !== 'undefined') {
+        AppState.text = getEditorText();
+        AppState.isModified = true;
+        if (typeof updateTitle === 'function') updateTitle();
+    }
 
-        // [NEW] Update SVG List panel after sync
-        if (typeof window.buildSvgList === 'function') {
-            window.buildSvgList();
-        }
+    if (typeof updateSVGSourceHighlight === 'function') updateSVGSourceHighlight();
+    if (typeof window.buildSvgList === 'function') window.buildSvgList();
+
+    if (cur) {
+        clearTimeout(cur._syncingToEditorTimer);
+        cur._syncingToEditorTimer = setTimeout(() => { 
+            if (window.currentEditingSVG) window.currentEditingSVG._syncingToEditor = false; 
+        }, 400);
     }
 }
 window.syncSVGToEditor = syncSVGToEditor;

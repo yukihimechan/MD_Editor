@@ -400,23 +400,16 @@ function startSVGEdit(container, svgIndex) {
 
         this.draw.fire('zoomchange', { zoom: this.zoom });
 
+        // 【Phase 4】 ルーラーとグリッドを Canvas に再描画
+        if (typeof updateGrid === 'function') updateGrid(this.draw);
+        if (typeof updateRulers === 'function') updateRulers(this.draw);
+
         clearTimeout(this._zoomPanSyncTimer);
         this._zoomPanSyncTimer = setTimeout(() => {
             if (typeof syncChanges === 'function' && window.currentEditingSVG === this) {
                 syncChanges(true, null, false); 
             }
         }, 500); 
-
-        // ルーラーも requestAnimationFrame で間引く
-        if (typeof updateRulers === 'function') {
-            if (!this._rulerRequested) {
-                this._rulerRequested = true;
-                requestAnimationFrame(() => {
-                    updateRulers(this.draw);
-                    this._rulerRequested = false;
-                });
-            }
-        }
     };
 
 
@@ -935,82 +928,98 @@ function startSVGEdit(container, svgIndex) {
     });
 
     // [NEW] 改善案2: makeInteractiveの遅延初期化（デリゲーション）
+    let _lazyInitTicking = false;
     const lazyInitHandler = (e) => {
         if (!window.currentEditingSVG) return;
-        let target = e.target;
-        // console.log(`[lazyInitHandler] Event: ${e.type}, Target: ${target.tagName}#${target.id}`);
-        // Search upward until we hit the root element
-        while (target && target !== svgElement && target !== draw.node) {
-            if (target.nodeType === 1) { // Element nodes only
-                const rawTagName = target.tagName.toLowerCase();
-                if (['tspan', 'textpath'].includes(rawTagName)) {
-                    target = target.parentNode;
-                    continue;
-                }
-                // [NEW] shape-text-group の子要素（rect や text）である場合は、親の g 要素を対象として処理する
-                if (target.parentNode && target.parentNode.nodeType === 1) {
-                    const pTagName = target.parentNode.tagName.toLowerCase();
-                    const pToolId = target.parentNode.getAttribute('data-tool-id');
-                    if (pTagName === 'g' && pToolId === 'shape-text-group') {
+        
+        // 描画ツールがアクティブな場合は、作成中の要素への誤った初期化を防ぐためスキップ
+        if (typeof SVGToolbar !== 'undefined' && SVGToolbar.currentTool !== 'select') {
+            return;
+        }
+        
+        const processInit = (target) => {
+            const svgElement = window.currentEditingSVG.container.querySelector('svg');
+            const drawNode = window.currentEditingSVG.draw.node;
+            
+            while (target && target !== svgElement && target !== drawNode) {
+                if (target.nodeType === 1) { // Element nodes only
+                    const rawTagName = target.tagName.toLowerCase();
+                    if (['tspan', 'textpath'].includes(rawTagName)) {
                         target = target.parentNode;
                         continue;
                     }
-                }
-                // Get existing SVG.js wrapper, or create it if missing (e.g. raw DOM nodes from DOMParser)
-                const el = target.instance || (typeof window.SVG === 'function' ? window.SVG(target) : null);
-                // console.log(`[lazyInitHandler] Target: ${target.tagName}#${target.id}, Wrapper: ${el ? el.type + '#' + el.id() : 'null'}`);
-                if (el) {
-                    const oldShape = el.remember('_shapeInstance');
-                    if (oldShape && (oldShape.node !== target || !oldShape.node.isConnected)) {
-                        console.log(`[lazyInitHandler] Destroying stale shape instance for ${target.tagName}#${target.id}`);
-                        oldShape.destroy();
+                    if (target.parentNode && target.parentNode.nodeType === 1) {
+                        const pTagName = target.parentNode.tagName.toLowerCase();
+                        const pToolId = target.parentNode.getAttribute('data-tool-id');
+                        if (pTagName === 'g' && pToolId === 'shape-text-group') {
+                            target = target.parentNode;
+                            continue;
+                        }
+                    }
+                    
+                    const el = target.instance || (typeof window.SVG === 'function' ? window.SVG(target) : null);
+                    if (el) {
+                        const oldShape = el.remember('_shapeInstance');
+                        if (oldShape && (oldShape.node !== target || !oldShape.node.isConnected)) {
+                            oldShape.destroy();
+                        }
+                    }
+
+                    if (el && !el.remember('_shapeInstance')) {
+                        const tagName = el.node.tagName.toLowerCase();
+                        if (['defs', 'style', 'marker', 'symbol', 'metadata'].includes(tagName)) {
+                            target = target.parentNode;
+                            continue;
+                        }
+                        if (el.hasClass('svg-canvas-proxy') || el.hasClass('svg-grid-line') || el.hasClass('svg-grid-lines') || el.hasClass('svg-ruler') || el.attr('data-internal') === 'true' || el.hasClass('svg-interaction-hitarea')) {
+                            target = target.parentNode;
+                            continue;
+                        }
+                        if (el.hasClass('svg_select_shape') || el.hasClass('svg_select_handle') || el.hasClass('svg_select_group') || el.hasClass('svg-select-group') ||
+                            (el.parent() && el.parent().hasClass('svg_select_handle_rot')) || el.hasClass('rotation-handle-group') || el.hasClass('radius-handle-group') ||
+                            (el.node.querySelector && el.node.querySelector('.svg_select_shape, .svg-select-shape, .svg_select_handle, .svg-select-handle, .rotation-handle, .radius-handle'))) {
+                            target = target.parentNode;
+                            continue;
+                        }
+                        
+                        if (tagName === 'polyline') {
+                            const connectors = el.node.querySelectorAll('connector-data');
+                            if (connectors.length > 0) {
+                                const connectData = Array.from(connectors).map(c => ({
+                                    endType: c.getAttribute('end'),
+                                    targetId: c.getAttribute('target'),
+                                    pointIndex: parseInt(c.getAttribute('index'))
+                                }));
+                                el.attr('data-connections', JSON.stringify(connectData));
+                            }
+                        }
+
+                        if (typeof makeInteractive === 'function') {
+                            makeInteractive(el);
+                        }
                     }
                 }
-
-                if (el && !el.remember('_shapeInstance')) {
-                    const tagName = el.node.tagName.toLowerCase();
-                
-                if (['defs', 'style', 'marker', 'symbol', 'metadata'].includes(tagName)) {
-                    target = target.parentNode;
-                    continue;
-                }
-                if (el.hasClass('svg-canvas-proxy') || el.hasClass('svg-grid-line') || el.hasClass('svg-grid-lines') || el.hasClass('svg-ruler') || el.attr('data-internal') === 'true' || el.hasClass('svg-interaction-hitarea')) {
-                    target = target.parentNode;
-                    continue;
-                }
-                if (el.hasClass('svg_select_shape') || el.hasClass('svg_select_handle') || el.hasClass('svg_select_group') || el.hasClass('svg-select-group') ||
-                    (el.parent() && el.parent().hasClass('svg_select_handle_rot')) || el.hasClass('rotation-handle-group') || el.hasClass('radius-handle-group') ||
-                    (el.node.querySelector && el.node.querySelector('.svg_select_shape, .svg-select-shape, .svg_select_handle, .svg-select-handle, .rotation-handle, .radius-handle'))) {
-                    target = target.parentNode;
-                    continue;
-                }
-
-                // connector-data の復元
-                if (tagName === 'polyline') {
-                    const connectors = el.node.querySelectorAll('connector-data');
-                    if (connectors.length > 0) {
-                        const connectData = Array.from(connectors).map(c => ({
-                            endType: c.getAttribute('end'),
-                            targetId: c.getAttribute('target'),
-                            pointIndex: parseInt(c.getAttribute('index'))
-                        }));
-                        el.attr('data-connections', JSON.stringify(connectData));
-                    }
-                }
-
-                if (typeof makeInteractive === 'function') {
-                    makeInteractive(el);
-                }
-                } // 閉じカッコ追加
+                target = target.parentNode;
             }
-            target = target.parentNode;
+        };
+
+        if (e.type === 'pointerover' || e.type === 'mouseover' || e.type === 'mousemove') {
+            if (_lazyInitTicking) return;
+            _lazyInitTicking = true;
+            const target = e.target;
+            requestAnimationFrame(() => {
+                _lazyInitTicking = false;
+                processInit(target);
+            });
+        } else {
+            processInit(e.target);
         }
     };
 
     draw.node.addEventListener('pointerover', lazyInitHandler, { passive: true });
-    draw.node.addEventListener('pointerdown', lazyInitHandler, { passive: true });
+    draw.node.addEventListener('pointerdown', lazyInitHandler, { capture: true });
     draw.node.addEventListener('mouseover', lazyInitHandler, { passive: true });
-    draw.node.addEventListener('mousedown', lazyInitHandler, { passive: true });
+    draw.node.addEventListener('mousedown', lazyInitHandler, { capture: true });
     current.lazyInitHandler = lazyInitHandler;
 
     // Restore selection if pending
@@ -1075,9 +1084,27 @@ function startSVGEdit(container, svgIndex) {
                     if (targetNode.classList && targetNode.classList.contains('svg-interaction-hitarea')) continue;
                     if (targetNode.getAttribute('data-internal') === 'true') continue;
 
-                    if (targetNode.closest('.svg-grid-lines, .svg-canvas-proxy, .svg-snap-guides, .svg-control-marker, .svg-ruler, .svg_select_group')) {
-                        continue;
+                    let isIgnored = false;
+                    let curr = targetNode;
+                    // 最大4階層までの O(1) 判定で遡上を高速化
+                    for (let j = 0; j < 4 && curr && curr.nodeType === 1; j++) {
+                        if (curr.getAttribute('data-internal') === 'true' || curr.id === 'grid-group') {
+                            isIgnored = true; break;
+                        }
+                        if (curr.classList) {
+                            const cls = curr.className.baseVal || curr.className || '';
+                            if (typeof cls === 'string' && (
+                                cls.includes('svg-canvas-proxy') || cls.includes('svg-grid') || 
+                                cls.includes('svg_select') || cls.includes('svg-interaction') ||
+                                cls.includes('svg-snap-guides') || cls.includes('svg-ruler') ||
+                                cls.includes('svg-control-marker') || cls.includes('-handle-group')
+                            )) {
+                                isIgnored = true; break;
+                            }
+                        }
+                        curr = curr.parentNode;
                     }
+                    if (isIgnored) continue;
 
                     if (mutation.type === 'childList' || mutation.type === 'characterData') {
                         queue.requiresFullSync = true;
@@ -1109,44 +1136,64 @@ function startSVGEdit(container, svgIndex) {
     });
     current.syncObserver = syncObserver;
 
-    // 起動時に既存の全要素を即座にインタラクティブ化（遅延初期化によるドラッグ不具合を防止）
+    // ▼ 追加: Observerの完全一時停止・再開メソッド
+    current.suspendObserver = function() {
+        if (this.syncObserver && !this._isObserverSuspended) {
+            this.syncObserver.takeRecords(); // 溜まった未処理キューを破棄
+            this.syncObserver.disconnect();  // 監視を完全に停止
+            this._pendingMutations = [];
+            this._isObserverSuspended = true;
+        }
+    };
+
+    current.resumeObserver = function() {
+        if (this.syncObserver && this._isObserverSuspended && this.container) {
+            const svgEl = this.container.querySelector('svg');
+            if (svgEl) {
+                this.syncObserver.observe(svgEl, {
+                    attributes: true, childList: true, characterData: true, subtree: true,
+                    attributeFilter: ['transform', 'd', 'points', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'width', 'height', 'fill', 'stroke', 'style', 'class', 'viewBox']
+                });
+                this._isObserverSuspended = false;
+            }
+        }
+    };
+
+    // 起動時に既存の全要素を即座にインタラクティブ化する処理を【軽量化】
     const initializeAllElements = () => {
         if (!draw) return;
-        const allNodes = svgElement.querySelectorAll('*');
-        allNodes.forEach(node => {
-            const rawTagName = node.tagName.toLowerCase();
-            if (['tspan', 'textpath', 'defs', 'style', 'marker', 'symbol', 'metadata', 'script'].includes(rawTagName)) return;
-            
+        
+        // ▼ 変更: 全ノードのループを廃止し、lazyInitHandler (遅延評価) に完全に委ねる。
+        // 起動直後に視覚的な崩れを防ぐ必要がある「テキスト付き図形」のみに絞る。
+        const textGroups = svgElement.querySelectorAll('g[data-tool-id="shape-text-group"]');
+        textGroups.forEach(node => {
             const el = node.instance || (typeof window.SVG === 'function' ? window.SVG(node) : null);
-            if (el && !el.remember('_shapeInstance')) {
-                if (el.hasClass('svg-canvas-proxy') || el.hasClass('svg-grid-line') || el.hasClass('svg-grid-lines') || el.hasClass('svg-ruler') || el.attr('data-internal') === 'true' || el.hasClass('svg-interaction-hitarea')) {
-                    return;
-                }
-                if (el.hasClass('svg_select_shape') || el.hasClass('svg_select_handle') || el.hasClass('svg_select_group') || el.hasClass('svg-select-group') ||
-                    (el.parent() && el.parent().hasClass('svg_select_handle_rot')) || el.hasClass('rotation-handle-group') || el.hasClass('radius-handle-group')) {
-                    return;
-                }
-                if (typeof makeInteractive === 'function') {
+            if (el) {
+                // 最低限のインスタンス化
+                if (!el.remember('_shapeInstance') && typeof makeInteractive === 'function') {
                     makeInteractive(el);
                 }
-            }
-        });
-
-        // [NEW] 初期ロード時に、shape-text-group のオートフィット (applyTextWrap) を適用する
-        allNodes.forEach(node => {
-            if (node.tagName.toLowerCase() === 'g' && node.getAttribute('data-tool-id') === 'shape-text-group') {
-                const el = node.instance;
-                if (el) {
-                    const inst = el.remember('_shapeInstance');
-                    if (inst && typeof inst.applyTextWrap === 'function') {
-                        // console.log(`[startSVGEdit] Applying initial text wrap to ${el.id()}`);
-                        inst.applyTextWrap();
-                    }
+                const inst = el.remember('_shapeInstance');
+                if (inst && typeof inst.applyTextWrap === 'function') {
+                    inst.applyTextWrap();
                 }
             }
         });
     };
     initializeAllElements();
+
+    // 【Phase 4】 リサイズ時の Canvas サイズ自動追従
+    if (typeof ResizeObserver !== 'undefined' && !current.resizeObserver) {
+        current.resizeObserver = new ResizeObserver(() => {
+            if (window.currentEditingSVG && window.currentEditingSVG.draw) {
+                requestAnimationFrame(() => {
+                    if (typeof updateGrid === 'function') updateGrid(window.currentEditingSVG.draw);
+                    if (typeof updateRulers === 'function') updateRulers(window.currentEditingSVG.draw);
+                });
+            }
+        });
+        current.resizeObserver.observe(container);
+    }
 
     // [NEW] Initialize Zoom and CSS Variables (RESTORED STATE)
     current.setZoom(current.zoom || 100);
@@ -1173,6 +1220,12 @@ function stopSVGEdit(skipRender = false) {
     if (window.currentEditingSVG.syncObserver) {
         window.currentEditingSVG.syncObserver.disconnect();
         window.currentEditingSVG.syncObserver = null;
+    }
+    
+    // 【Phase 4】 Canvasオブザーバーのクリーンアップ
+    if (window.currentEditingSVG.resizeObserver) {
+        window.currentEditingSVG.resizeObserver.disconnect();
+        window.currentEditingSVG.resizeObserver = null;
     }
 
     if (window.currentEditingSVG.expandedViewData && typeof closeSVGExpandedView === 'function') {
@@ -1205,10 +1258,12 @@ function stopSVGEdit(skipRender = false) {
 
     // [NEW] Remove grid lines before sync/cleanup
     if (draw) {
-        draw.find('.svg-grid-lines').remove();
-        draw.find('.svg-grid-line').remove();
-        draw.find('.svg-grid-pattern').remove();
-        draw.find('.svg-grid-rect').remove();
+        draw.find('.svg-grid-lines, .svg-grid-line, .svg-grid-pattern, .svg-grid-rect').remove();
+    }
+    
+    // 【Phase 4】ハイブリッド描画用のCanvasもクリーンアップ
+    if (container) {
+        container.querySelectorAll('canvas.svg-grid-canvas, canvas.svg-ruler-canvas').forEach(c => c.remove());
     }
 
     // Deselect everything quietly
@@ -1314,7 +1369,9 @@ function stopSVGEdit(skipRender = false) {
 
     if (window.currentEditingSVG.lazyInitHandler) {
         draw.node.removeEventListener('pointerover', window.currentEditingSVG.lazyInitHandler);
-        draw.node.removeEventListener('pointerdown', window.currentEditingSVG.lazyInitHandler);
+        draw.node.removeEventListener('pointerdown', window.currentEditingSVG.lazyInitHandler, { capture: true });
+        draw.node.removeEventListener('mouseover', window.currentEditingSVG.lazyInitHandler);
+        draw.node.removeEventListener('mousedown', window.currentEditingSVG.lazyInitHandler, { capture: true });
     }
 
     // Removed drop event cleanup
@@ -1535,230 +1592,210 @@ function handleContextMenu(e, container, svgIndex) {
     }
 }
 
+// 【Phase 4】 Canvas生成ヘルパー
+function getOrCreateCanvas(container, className, zIndex) {
+    let canvas = container.querySelector(`canvas.${className}`);
+    if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.className = className;
+        canvas.style.position = 'absolute';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        canvas.style.zIndex = zIndex;
+        canvas.style.pointerEvents = 'none';
+        container.insertBefore(canvas, container.firstChild);
+        
+        const svgEl = container.querySelector('svg');
+        if (svgEl) {
+            svgEl.style.position = 'relative';
+            svgEl.style.zIndex = '1';
+        }
+        container.style.position = 'relative';
+    }
+    
+    const dpr = window.devicePixelRatio || 1;
+    const rect = container.getBoundingClientRect();
+    if (canvas.width !== Math.floor(rect.width * dpr) || canvas.height !== Math.floor(rect.height * dpr)) {
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+    }
+    return canvas;
+}
+
 /**
- * [NEW] Update Grid Display using <pattern>
- * @param {Object} draw - SVG.js draw object
+ * [Phase 4] Update Grid Display using Canvas
  */
 function updateGrid(draw) {
     if (!draw) return;
 
+    // SVG DOM上の古いグリッド要素は完全削除
+    draw.find('.svg-grid-pattern, .svg-grid-lines, .svg-grid-line, .svg-grid-rect').remove();
+
+    const container = window.currentEditingSVG ? window.currentEditingSVG.container : draw.node.parentNode;
+    if (!container) return;
+
     const config = AppState.config.grid || { size: 15, showV: true, showH: true };
+    const canvas = getOrCreateCanvas(container, 'svg-grid-canvas', '0');
+    
     if (!config.showV && !config.showH) {
-        draw.find('.svg-grid-pattern').remove();
-        draw.find('.svg-grid-lines').remove();
+        canvas.style.display = 'none';
         return;
     }
+    canvas.style.display = 'block';
+
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    ctx.resetTransform();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, container.clientWidth, container.clientHeight);
 
     const size = config.size || 15;
     const majorInterval = config.majorInterval || 5;
-    const majorSize = size * majorInterval;
+    const cur = window.currentEditingSVG;
+    const vb = draw.node.viewBox.baseVal;
+    if (!vb || vb.width === 0) return;
+    
+    const rect = container.getBoundingClientRect();
+    const screenScale = rect.width / vb.width;
+    
+    const step = size * screenScale;
+    const majorStep = size * majorInterval * screenScale;
+    const offsetX = -(vb.x * screenScale);
+    const offsetY = -(vb.y * screenScale);
+    
+    const startX = (offsetX % step + step) % step;
+    const startY = (offsetY % step + step) % step;
 
-    let defs = draw.defs();
-    let pattern = defs.findOne('#svg-dynamic-grid-pattern');
-
-    // 設定やサイズが変更された場合はパターンを再構築
-    let needsRebuild = !pattern;
-    if (pattern) {
-        const pSize = parseFloat(pattern.attr('data-grid-size'));
-        const pV = pattern.attr('data-show-v') === 'true';
-        const pH = pattern.attr('data-show-h') === 'true';
-        if (pSize !== size || pV !== config.showV || pH !== config.showH) {
-            pattern.remove();
-            needsRebuild = true;
+    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.beginPath();
+    
+    if (config.showV) {
+        for (let x = startX; x <= rect.width; x += step) {
+            const gridIdx = Math.round((x - offsetX) / step);
+            if (gridIdx % majorInterval === 0) continue;
+            ctx.moveTo(x, 0); ctx.lineTo(x, rect.height);
         }
     }
-
-    if (needsRebuild) {
-        draw.find('.svg-grid-pattern').remove();
-        draw.find('.svg-grid-line').remove(); // 古いline要素の掃除
-        
-        pattern = draw.pattern(majorSize, majorSize, function(add) {
-            // 細かいグリッド (vector-effectで太さを固定)
-            for (let i = size; i < majorSize; i += size) {
-                if (config.showV) add.line(i, 0, i, majorSize).stroke({ color: '#ddd', width: 0.5 }).attr('vector-effect', 'non-scaling-stroke');
-                if (config.showH) add.line(0, i, majorSize, i).stroke({ color: '#ddd', width: 0.5 }).attr('vector-effect', 'non-scaling-stroke');
-            }
-            // 太いグリッド
-            if (config.showV) add.line(0, 0, 0, majorSize).stroke({ color: '#ccc', width: 1 }).attr('vector-effect', 'non-scaling-stroke');
-            if (config.showH) add.line(0, 0, majorSize, 0).stroke({ color: '#ccc', width: 1 }).attr('vector-effect', 'non-scaling-stroke');
-        }).id('svg-dynamic-grid-pattern').addClass('svg-grid-pattern');
-        
-        pattern.attr('data-grid-size', size);
-        pattern.attr('data-show-v', config.showV);
-        pattern.attr('data-show-h', config.showH);
-        pattern.attr('patternUnits', 'userSpaceOnUse'); // 空間に固定して自動タイリング
+    if (config.showH) {
+        for (let y = startY; y <= rect.height; y += step) {
+            const gridIdx = Math.round((y - offsetY) / step);
+            if (gridIdx % majorInterval === 0) continue;
+            ctx.moveTo(0, y); ctx.lineTo(rect.width, y);
+        }
     }
+    ctx.stroke();
 
-    // グリッドを敷き詰めるグループと巨大なRectの準備
-    let gridGroup = draw.findOne('.svg-grid-lines');
-    if (!gridGroup) {
-        gridGroup = draw.group().addClass('svg-grid-lines').back().attr({
-            'data-internal': 'true',
-            'pointer-events': 'none'
-        });
-    } else {
-        gridGroup.back();
-    }
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#cccccc';
+    ctx.beginPath();
+    const majorStartX = (offsetX % majorStep + majorStep) % majorStep;
+    const majorStartY = (offsetY % majorStep + majorStep) % majorStep;
 
-    let gridRect = gridGroup.findOne('.svg-grid-rect');
-    if (!gridRect) {
-        // キャンバスのパン移動に対応するため、非常に巨大なRectを置く
-        gridRect = gridGroup.rect(200000, 200000)
-            .move(-100000, -100000)
-            .addClass('svg-grid-rect')
-            .fill(pattern);
+    if (config.showV) {
+        for (let x = majorStartX; x <= rect.width; x += majorStep) {
+            ctx.moveTo(x, 0); ctx.lineTo(x, rect.height);
+        }
     }
+    if (config.showH) {
+        for (let y = majorStartY; y <= rect.height; y += majorStep) {
+            ctx.moveTo(0, y); ctx.lineTo(rect.width, y);
+        }
+    }
+    ctx.stroke();
 }
 window.updateGrid = updateGrid;
 
 /**
- * [NEW] Update Rulers Display
- * @param {Object} draw - SVG.js draw object
+ * [Phase 4] Update Rulers Display using Canvas
  */
 function updateRulers(draw) {
     if (!draw) return;
 
-    // 既存のルーラーを削除
     draw.find('.svg-ruler').remove();
 
-    // 設定を確認
-    if (!AppState.config || !AppState.config.showRuler) return;
+    const container = window.currentEditingSVG ? window.currentEditingSVG.container : draw.node.parentNode;
+    if (!container) return;
+
+    const canvas = getOrCreateCanvas(container, 'svg-ruler-canvas', '2');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    ctx.resetTransform();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, container.clientWidth, container.clientHeight);
+
+    if (!AppState.config || !AppState.config.showRuler) {
+        canvas.style.display = 'none';
+        return;
+    }
+    canvas.style.display = 'block';
 
     const vb = draw.node.viewBox.baseVal;
+    if (!vb || vb.width === 0) return;
+    
+    const rect = container.getBoundingClientRect();
+    const screenScale = rect.width / vb.width; 
+    
+    const RULER_PX = 20;
+    const FONT_PX = 10;
+    const TICK_MINOR_PX = 4, TICK_MEDIUM_PX = 8, TICK_MAJOR_PX = 12;
 
-    const x = vb.x;
-    const y = vb.y;
-    const w = vb.width;
-    const h = vb.height;
-
-    // コンテナのピクセルサイズを取得し、SVGユニット/スクリーンピクセル比率を逆算する
-    // これにより、ズームや大型SVGに関わらず常に画面上で同じピクセル幅に見える
-    const container = window.currentEditingSVG ? window.currentEditingSVG.container : draw.node.parentElement;
-    const containerW = container ? container.clientWidth  : 800;
-    const containerH = container ? container.clientHeight : 600;
-
-    // 1スクリーンピクセル = 何SVGユニットか（X/Y それぞれ算出し大きい方を採用）
-    const px2svgX = w / containerW;
-    const px2svgY = h / containerH;
-    const px2svg = Math.max(px2svgX, px2svgY);  // 歪み防止のため大きい方を基準にする
-
-    // ルーラーの固定スクリーンサイズ（ピクセル）をSVGユニットに変換
-    const RULER_PX       = 20;  // ルーラー幅・高さ（画面上のピクセル数）
-    const FONT_PX        = 10;  // フォントサイズ（画面上のピクセル数）
-    const STROKE_PX      = 1;   // 線幅（画面上のピクセル数）
-    const TICK_MINOR_PX  = 4;   // 小目盛り長さ
-    const TICK_MEDIUM_PX = 8;   // 中目盛り長さ
-    const TICK_MAJOR_PX  = 12;  // 大目盛り長さ
-
-    const rulerSize   = RULER_PX       * px2svg;
-    const fontSize    = FONT_PX        * px2svg;
-    const strokeWidth = STROKE_PX      * px2svg;
-    const tickMinor   = TICK_MINOR_PX  * px2svg;
-    const tickMedium  = TICK_MEDIUM_PX * px2svg;
-    const tickMajor   = TICK_MAJOR_PX  * px2svg;
-
-    // ルーラーグループ（常に最前面）
-    const rulerGroup = draw.group().addClass('svg-ruler').front().attr('data-internal', 'true');
-    rulerGroup.node.style.pointerEvents = 'none';
-
-    const tickColor  = '#999';
-    const labelColor = '#666';
-
-    // 目盛り間隔をスクリーン上で約40px以上になるよう動的に決定
-    // 目標: 1目盛りが画面上で40px程度の間隔になるSVGユニット幅
-    const idealMinorTarget = Math.max(1e-10, 40 * px2svg);
+    const idealMinorTarget = Math.max(1e-10, 40 / screenScale);
     const order = Math.pow(10, Math.floor(Math.log10(idealMinorTarget)));
     const normalized = idealMinorTarget / order;
 
     let baseMinor, mediumMult, majorMult;
-    if (normalized < 1.5) {
-        baseMinor = 1;
-        mediumMult = 5;
-        majorMult = 10;
-    } else if (normalized < 3.5) {
-        baseMinor = 2;
-        mediumMult = 5;
-        majorMult = 10;
-    } else if (normalized < 7.5) {
-        baseMinor = 5;
-        mediumMult = 2;
-        majorMult = 10;
-    } else {
-        baseMinor = 10;
-        mediumMult = 5;
-        majorMult = 10;
-    }
-
+    if (normalized < 1.5) { baseMinor = 1; mediumMult = 5; majorMult = 10; }
+    else if (normalized < 3.5) { baseMinor = 2; mediumMult = 5; majorMult = 10; }
+    else if (normalized < 7.5) { baseMinor = 5; mediumMult = 2; majorMult = 10; }
+    else { baseMinor = 10; mediumMult = 5; majorMult = 10; }
     const minorInterval = baseMinor * order;
 
-    // --- 水平ルーラー (H) ---
-    const hRulerHeight = rulerSize;
-    rulerGroup.rect(w, hRulerHeight).move(x, y).fill({ color: '#f5f5f5', opacity: 0.9 });
+    ctx.fillStyle = 'rgba(245, 245, 245, 0.9)';
+    ctx.fillRect(0, 0, rect.width, RULER_PX);
+    ctx.fillRect(0, 0, RULER_PX, rect.height);
+    
+    ctx.fillStyle = '#eee'; ctx.fillRect(0, 0, RULER_PX, RULER_PX);
+    ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, RULER_PX, RULER_PX);
 
-    const startXOffset = Math.floor(x / minorInterval);
-    const startX = startXOffset * minorInterval;
-    let tickIndexOffsetX = startXOffset;
+    ctx.strokeStyle = '#999'; ctx.fillStyle = '#666';
+    ctx.font = `${FONT_PX}px sans-serif`;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
 
-    for (let curX = startX; curX <= x + w; curX += minorInterval, tickIndexOffsetX++) {
-        if (curX < x) continue;
-        let tickH = tickMinor;
-        let isMajor = false;
-        let isMedium = false;
+    const startXOffset = Math.ceil(vb.x / minorInterval);
+    let tickIndexX = startXOffset;
+    ctx.beginPath();
+    for (let curX = startXOffset * minorInterval; curX <= vb.x + vb.width; curX += minorInterval, tickIndexX++) {
+        const cx = Math.floor((curX - vb.x) * screenScale) + 0.5;
+        if (cx < RULER_PX || cx > rect.width) continue;
 
-        if (tickIndexOffsetX % majorMult === 0) {
-            tickH = tickMajor;
-            isMajor = true;
-        } else if (tickIndexOffsetX % mediumMult === 0) {
-            tickH = tickMedium;
-            isMedium = true;
-        }
+        let tickH = tickIndexX % majorMult === 0 ? TICK_MAJOR_PX : (tickIndexX % mediumMult === 0 ? TICK_MEDIUM_PX : TICK_MINOR_PX);
+        ctx.moveTo(cx, RULER_PX); ctx.lineTo(cx, RULER_PX - tickH);
 
-        rulerGroup.line(curX, y, curX, y + tickH).stroke({ color: tickColor, width: strokeWidth });
+        if (tickIndexX % majorMult === 0) ctx.fillText((Math.round(curX * 1e6) / 1e6).toString(), cx + 2, 2);
+    }
+    ctx.stroke();
 
-        if (isMajor) {
-            const labelText = (Math.round(curX * 1e6) / 1e6).toString();
-            rulerGroup.text(labelText)
-                .font({ size: fontSize, family: 'sans-serif', fill: labelColor })
-                .move(curX + 2 * px2svg, y + 2 * px2svg);
+    const startYOffset = Math.ceil(vb.y / minorInterval);
+    let tickIndexY = startYOffset;
+    ctx.beginPath();
+    for (let curY = startYOffset * minorInterval; curY <= vb.y + vb.height; curY += minorInterval, tickIndexY++) {
+        const cy = Math.floor((curY - vb.y) * screenScale) + 0.5;
+        if (cy < RULER_PX || cy > rect.height) continue;
+
+        let tickW = tickIndexY % majorMult === 0 ? TICK_MAJOR_PX : (tickIndexY % mediumMult === 0 ? TICK_MEDIUM_PX : TICK_MINOR_PX);
+        ctx.moveTo(RULER_PX, cy); ctx.lineTo(RULER_PX - tickW, cy);
+
+        if (tickIndexY % majorMult === 0) {
+            ctx.save();
+            ctx.translate(2, cy + 2); ctx.rotate(-Math.PI / 2);
+            ctx.fillText((Math.round(curY * 1e6) / 1e6).toString(), 0, 0);
+            ctx.restore();
         }
     }
-
-    // --- 垂直ルーラー (V) ---
-    const vRulerWidth = rulerSize;
-    rulerGroup.rect(vRulerWidth, h).move(x, y).fill({ color: '#f5f5f5', opacity: 0.9 });
-
-    const startYOffset = Math.floor(y / minorInterval);
-    const startY = startYOffset * minorInterval;
-    let tickIndexOffsetY = startYOffset;
-
-    for (let curY = startY; curY <= y + h; curY += minorInterval, tickIndexOffsetY++) {
-        if (curY < y) continue;
-        let tickW = tickMinor;
-        let isMajor = false;
-        let isMedium = false;
-
-        if (tickIndexOffsetY % majorMult === 0) {
-            tickW = tickMajor;
-            isMajor = true;
-        } else if (tickIndexOffsetY % mediumMult === 0) {
-            tickW = tickMedium;
-            isMedium = true;
-        }
-
-        rulerGroup.line(x, curY, x + tickW, curY).stroke({ color: tickColor, width: strokeWidth });
-
-        if (isMajor) {
-            const labelText = (Math.round(curY * 1e6) / 1e6).toString();
-            rulerGroup.text(labelText)
-                .font({ size: fontSize, family: 'sans-serif', fill: labelColor })
-                .move(x + 2 * px2svg, curY + 2 * px2svg)
-                .attr('transform', `rotate(-90, ${x + 2 * px2svg}, ${curY + 2 * px2svg})`);
-        }
-    }
-
-    // --- コーナーボックス（左上の交差部分）---
-    rulerGroup.rect(vRulerWidth, hRulerHeight).move(x, y).fill({ color: '#eee' })
-        .stroke({ color: '#ccc', width: strokeWidth });
+    ctx.stroke();
 }
 window.updateRulers = updateRulers;
 

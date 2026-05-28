@@ -262,7 +262,24 @@ class MermaidErToolbar extends window.SVGToolbarBase {
             if (!newDiagramWrapper._selectedRelations) {
                 newDiagramWrapper._selectedRelations = new Set();
             }
-            newDiagramWrapper._selectedRelations.add(savedEdgeId);
+            
+            // プレフィックスの変動に対応するため、クリーンIDで一致する要素を探して新しいIDを特定する
+            let matchedNewId = savedEdgeId;
+            const cleanSavedId = savedEdgeId.replace(/^mermaid-\d+-\d+-/, '');
+            
+            const edges = newDiagramWrapper.querySelectorAll('.edgePath path:not(.mermaid-er-arrow-hitbox), path.relation:not(.mermaid-er-arrow-hitbox), .relationshipLine:not(.mermaid-er-arrow-hitbox)');
+            for (const edge of edges) {
+                const edgeId = edge.id || (edge.parentNode && edge.parentNode.id);
+                if (edgeId) {
+                    const cleanEdgeId = edgeId.replace(/^mermaid-\d+-\d+-/, '');
+                    if (cleanEdgeId === cleanSavedId) {
+                        matchedNewId = edgeId;
+                        break;
+                    }
+                }
+            }
+
+            newDiagramWrapper._selectedRelations.add(matchedNewId);
             if (window.MermaidErInteraction && typeof window.MermaidErInteraction._updateSelectionUI === 'function') {
                 window.MermaidErInteraction._updateSelectionUI(newDiagramWrapper);
             }

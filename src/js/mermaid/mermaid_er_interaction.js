@@ -18,90 +18,7 @@ window.MermaidErInteraction = {
         diagramContainer._mermaidAPI = {
             updateSelectionUI: () => this._updateSelectionUI(diagramContainer),
             deleteSelection: () => {
-                if (selectedNodes.size === 0) return;
-                
-                if (typeof getEditorText !== 'function' || typeof setEditorText !== 'function') return;
-                let dataLine = parseInt(diagramContainer.getAttribute('data-line'), 10);
-                if (!dataLine || isNaN(dataLine)) {
-                    const cbw = diagramContainer.closest('.code-block-wrapper');
-                    if (cbw) dataLine = parseInt(cbw.getAttribute('data-line'), 10);
-                }
-                if (!dataLine || isNaN(dataLine)) return;
-
-                const lines = getEditorText().split('\n');
-                const startIdx = dataLine - 1;
-                const fenceChar = (lines[startIdx] || '').trim().startsWith('~~~') ? '~~~' : '```';
-                let endIdx = -1;
-                for (let i = startIdx + 1; i < lines.length; i++) {
-                    if (lines[i].trimEnd() === fenceChar) { endIdx = i; break; }
-                }
-                if (endIdx === -1) return;
-
-                const newLines = [];
-                let insideDeletedBlock = false;
-                
-                for (let i = startIdx + 1; i < endIdx; i++) {
-                    const line = lines[i];
-                    
-                    // 削除対象のブロック内か？
-                    let isBlockStart = false;
-                    for (const mId of selectedNodes) {
-                        if (new RegExp(`^\\s*class\\s+${mId}\\s*\\{`).test(line)) {
-                            insideDeletedBlock = true;
-                            isBlockStart = true;
-                            break;
-                        }
-                    }
-                    if (isBlockStart) continue;
-
-                    if (insideDeletedBlock) {
-                        if (/^\s*\}/.test(line)) {
-                            insideDeletedBlock = false;
-                        }
-                        continue; // ブロック内はスキップ
-                    }
-
-                    // 単一行定義や接続をチェック
-                    let shouldDeleteLine = false;
-                    for (const mId of selectedNodes) {
-                        // 単一クラス定義やステレオタイプ定義
-                        if (new RegExp(`^\\s*class\\s+${mId}\\b(?!\\s*\\{)`).test(line) ||
-                            new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line) ||
-                            new RegExp(`^\\s*${mId}\\s*:\\s*`).test(line)) {
-                            shouldDeleteLine = true;
-                            break;
-                        }
-                        // 接続関係 (A --> B) の場合、AかBが含まれていたらその行ごと削除
-                        // 雑な判定だが、単語としてmIdが含まれていて、かつ関係記号が含まれていれば削除する
-                        if (new RegExp(`\\b${mId}\\b`).test(line) && line.match(/--|<\||\*|o|\.\./)) {
-                            shouldDeleteLine = true;
-                            break;
-                        }
-                    }
-
-                    if (!shouldDeleteLine) {
-                        newLines.push(line);
-                    }
-                }
-
-                lines.splice(startIdx + 1, endIdx - startIdx - 1, ...newLines);
-                
-                const savedCodeIndex = diagramContainer.closest('.code-block-wrapper')?.dataset?.codeIndex;
-                const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
-
-                setEditorText(lines.join('\n'));
-
-                selectedNodes.clear();
-                
-                setTimeout(() => {
-                    if (typeof window.render === 'function') window.render();
-                    setTimeout(() => {
-                        if (window.activeMermaidErToolbar) {
-                            window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                        }
-                    }, 100);
-                }, 50);
-                if (typeof showToast === 'function') showToast('削除しました', 'success');
+                this._deleteSelection(diagramContainer);
             },
             
             copySelection: () => {
@@ -124,37 +41,36 @@ window.MermaidErInteraction = {
                 }
                 if (endIdx === -1) return;
 
-                const copiedClasses = [];
+                const copiedEntities = [];
                 for (const mId of selectedNodes) {
-                    let classBlock = [];
+                    let entityBlock = [];
                     let insideBlock = false;
                     for (let i = startIdx + 1; i < endIdx; i++) {
                         const line = lines[i];
-                        if (new RegExp(`^\\s*class\\s+${mId}\\s*\\{`).test(line)) {
+                        if (new RegExp(`^\\s*(?:entity\\s+)?${mId}\\s*\\{`).test(line)) {
                             insideBlock = true;
-                            classBlock.push(line);
+                            entityBlock.push(line);
                             continue;
                         }
                         if (insideBlock) {
-                            classBlock.push(line);
+                            entityBlock.push(line);
                             if (/^\s*\}/.test(line)) {
                                 insideBlock = false;
                             }
                             continue;
                         }
-                        if (new RegExp(`^\\s*class\\s+${mId}\\b(?!\\s*\\{)`).test(line) ||
-                            new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line) ||
-                            new RegExp(`^\\s*${mId}\\s*:\\s*`).test(line)) {
-                            classBlock.push(line);
+                        if (new RegExp(`^\\s*(?:entity\\s+)?${mId}\\b\\s*(?!\\s*\\{)`).test(line) ||
+                            new RegExp(`^\\s*${mId}\\s*:`).test(line)) {
+                            entityBlock.push(line);
                         }
                     }
-                    if (classBlock.length > 0) {
-                        copiedClasses.push({ id: mId, lines: classBlock });
+                    if (entityBlock.length > 0) {
+                        copiedEntities.push({ id: mId, lines: entityBlock });
                     }
                 }
                 
-                diagramContainer._clipboard = copiedClasses;
-                if (typeof showToast === 'function') showToast(`コピーしました (${copiedClasses.length}件)`, 'success');
+                diagramContainer._clipboard = copiedEntities;
+                if (typeof showToast === 'function') showToast(`コピーしました (${copiedEntities.length}件)`, 'success');
             },
             
             pasteSelection: () => {
@@ -180,26 +96,26 @@ window.MermaidErInteraction = {
                 // 既存のIDを収集
                 const existingIds = new Set();
                 for (let i = startIdx + 1; i < endIdx; i++) {
-                    const match = lines[i].match(/^\s*class\s+([A-Za-z0-9_]+)/);
+                    const match = lines[i].match(/^\s*(?:entity\s+)?([A-Za-z0-9_]+)\s*\{/) || lines[i].match(/^\s*entity\s+([A-Za-z0-9_]+)\s*$/);
                     if (match) existingIds.add(match[1]);
                 }
 
                 const pastedLines = [];
                 const newSelectedIds = new Set();
 
-                diagramContainer._clipboard.forEach(cls => {
-                    let newId = `${cls.id}_copy`;
+                diagramContainer._clipboard.forEach(ent => {
+                    let newId = `${ent.id}_copy`;
                     let counter = 1;
                     while (existingIds.has(newId)) {
-                        newId = `${cls.id}_copy${counter}`;
+                        newId = `${ent.id}_copy${counter}`;
                         counter++;
                     }
                     existingIds.add(newId);
                     newSelectedIds.add(newId);
 
-                    cls.lines.forEach(line => {
+                    ent.lines.forEach(line => {
                         // ID部分を置換
-                        const newLine = line.replace(new RegExp(`\\b${cls.id}\\b`, 'g'), newId);
+                        const newLine = line.replace(new RegExp(`\\b${ent.id}\\b`, 'g'), newId);
                         pastedLines.push(newLine);
                     });
                 });
@@ -265,10 +181,10 @@ window.MermaidErInteraction = {
                     const newDir = getNextDir(currentDirection);
                     lines[directionLineIdx] = lines[directionLineIdx].replace(currentDirection, newDir);
                 } else {
-                    // classDiagram行の直後に direction LR を追加
+                    // erDiagram行の直後に direction LR を追加
                     let insertIdx = startIdx + 1;
                     for (let i = startIdx + 1; i < endIdx; i++) {
-                        if (/^\s*classDiagram\b/.test(lines[i])) {
+                        if (/^\s*erDiagram\b/.test(lines[i])) {
                             insertIdx = i + 1;
                             break;
                         }
@@ -336,7 +252,7 @@ window.MermaidErInteraction = {
                 .mermaid-er-edit-mode .node {
                     cursor: pointer !important;
                 }
-                .mermaid-er-edit-mode .mermaid-er-selected rect:not(.mermaid-er-hitbox-title):not(.mermaid-er-hitbox-members) {
+                .mermaid-er-edit-mode .mermaid-er-selected rect:not(.mermaid-er-hitbox-title):not(.mermaid-er-hitbox-attributes):not(.mermaid-er-hitbox-methods) {
                     stroke: #7c3aed !important;
                     stroke-width: 3px !important;
                     stroke-dasharray: 4,2 !important;
@@ -402,7 +318,7 @@ window.MermaidErInteraction = {
         let closestEdge = null;
         let minDist = Infinity;
         
-        const edges = wrapper.querySelectorAll('.er.relationshipLine:not(.mermaid-er-arrow-hitbox), .edgePath path:not(.mermaid-er-arrow-hitbox), path.relation:not(.mermaid-er-arrow-hitbox)');
+        const edges = wrapper.querySelectorAll('.relationshipLine:not(.mermaid-er-arrow-hitbox), .edgePath path:not(.mermaid-er-arrow-hitbox), path.relation:not(.mermaid-er-arrow-hitbox)');
         const svg = wrapper.querySelector('svg');
         
         edges.forEach(edge => {
@@ -443,8 +359,8 @@ window.MermaidErInteraction = {
         console.log('[_onClick] Target:', e.target, 'ER Edit Mode:', diagramContainer.classList.contains('mermaid-er-edit-mode'));
         if (!diagramContainer.classList.contains('mermaid-er-edit-mode')) return;
 
-        const node = e.target.closest('[id^="entity-"]');
-        let edgeHitbox = e.target.closest('.mermaid-er-arrow-hitbox, .edgePath path, path.relation, .er.relationshipLine');
+        const node = e.target.closest('g.node[id*="entity-"]');
+        let edgeHitbox = e.target.closest('.mermaid-er-arrow-hitbox, .edgePath path, path.relation, .relationshipLine');
         const labelNode = e.target.closest('.er.relationshipLabel, .er.relationshipLabelBox, text[class*="relationshipLabel"], text.edgeLabel, .edgeLabel');
         
         if (!node && !edgeHitbox && labelNode) {
@@ -461,7 +377,7 @@ window.MermaidErInteraction = {
             e.stopPropagation();
             let targetPath = edgeHitbox;
             if (edgeHitbox.classList.contains('mermaid-er-arrow-hitbox')) {
-                targetPath = edgeHitbox.previousSibling;
+                targetPath = edgeHitbox.previousElementSibling;
             }
             const mId = targetPath.id || (targetPath.parentNode && targetPath.parentNode.id);
             if (!mId) return;
@@ -503,8 +419,8 @@ window.MermaidErInteraction = {
         console.log('[_onDoubleClick] Target:', e.target, 'ER Edit Mode:', diagramContainer.classList.contains('mermaid-er-edit-mode'));
         if (!diagramContainer.classList.contains('mermaid-er-edit-mode')) return;
         
-        const node = e.target.closest('[id^="entity-"]');
-        let edgeHitbox = e.target.closest('.mermaid-er-arrow-hitbox, .edgePath path, path.relation, .er.relationshipLine');
+        const node = e.target.closest('g.node[id*="entity-"]');
+        let edgeHitbox = e.target.closest('.mermaid-er-arrow-hitbox, .edgePath path, path.relation, .relationshipLine');
         const labelNode = e.target.closest('.er.relationshipLabel, .er.relationshipLabelBox, text[class*="relationshipLabel"], text.edgeLabel, .edgeLabel');
         
         if (!node && !edgeHitbox && labelNode) {
@@ -521,7 +437,7 @@ window.MermaidErInteraction = {
             e.stopPropagation();
             let targetPath = edgeHitbox;
             if (edgeHitbox.classList.contains('mermaid-er-arrow-hitbox')) {
-                targetPath = edgeHitbox.previousSibling;
+                targetPath = edgeHitbox.previousElementSibling;
             }
             const mId = targetPath.id || (targetPath.parentNode && targetPath.parentNode.id);
             if (!mId) return;
@@ -534,8 +450,8 @@ window.MermaidErInteraction = {
         console.log('[_onContextMenu] Target:', e.target);
         if (!diagramContainer.classList.contains('mermaid-er-edit-mode')) return;
         
-        const node = e.target.closest('[id^="entity-"]');
-        let edgeHitbox = e.target.closest('.mermaid-er-arrow-hitbox, .edgePath path, path.relation, .er.relationshipLine');
+        const node = e.target.closest('g.node[id*="entity-"]');
+        let edgeHitbox = e.target.closest('.mermaid-er-arrow-hitbox, .edgePath path, path.relation, .relationshipLine');
         const labelNode = e.target.closest('.er.relationshipLabel, .er.relationshipLabelBox, text[class*="relationshipLabel"], text.edgeLabel, .edgeLabel');
         
         if (!node && !edgeHitbox && labelNode) {
@@ -564,7 +480,7 @@ window.MermaidErInteraction = {
 
             let targetPath = edgeHitbox;
             if (edgeHitbox.classList.contains('mermaid-er-arrow-hitbox')) {
-                targetPath = edgeHitbox.previousSibling;
+                targetPath = edgeHitbox.previousElementSibling;
             }
             const mId = targetPath.id || (targetPath.parentNode && targetPath.parentNode.id);
             if (mId && !selectedRelations.has(mId)) {
@@ -587,17 +503,19 @@ window.MermaidErInteraction = {
         
         const overlay = this._ensureOverlay(diagramContainer);
         
-        const nodes = diagramContainer.querySelectorAll('[id^="entity-"]');
+        const nodes = diagramContainer.querySelectorAll('g.node[id*="entity-"]');
         nodes.forEach(node => {
             const mId = this._getMermaidEntityId(node);
             if (mId && selectedNodes.has(mId)) {
                 node.classList.add('mermaid-er-selected');
-                const rect = node.getBoundingClientRect();
+                // 空の要素による枠ズレを防ぐため、outer-path要素があればそちらのバウンディングボックスを優先して使用する
+                const outerPath = node.querySelector('.outer-path');
+                const rect = outerPath ? outerPath.getBoundingClientRect() : node.getBoundingClientRect();
                 this._drawHandles(overlay, { el: node, id: mId, rect }, diagramContainer);
             }
         });
 
-        const edges = diagramContainer.querySelectorAll('.edgePath path:not(.mermaid-er-arrow-hitbox), path.relation:not(.mermaid-er-arrow-hitbox), .er.relationshipLine:not(.mermaid-er-arrow-hitbox)');
+        const edges = diagramContainer.querySelectorAll('.edgePath path:not(.mermaid-er-arrow-hitbox), path.relation:not(.mermaid-er-arrow-hitbox), .relationshipLine:not(.mermaid-er-arrow-hitbox)');
         const wRect = diagramContainer.getBoundingClientRect();
 
         edges.forEach(edge => {
@@ -789,7 +707,7 @@ window.MermaidErInteraction = {
 
     _getMermaidEntityId(el) {
         const id = el.id || '';
-        const m = id.match(/^entity-(.+?)(?:-[0-9a-fA-F\-]{36})?$/) || id.match(/^entityId-(.+?)(?:-[0-9a-fA-F\-]{36})?$/);
+        const m = id.match(/(?:^|-)entity-(.+?)(?:-[0-9a-fA-F\-]{36}|-\d+)?$/) || id.match(/(?:^|-)entityId-(.+?)(?:-[0-9a-fA-F\-]{36}|-\d+)?$/);
         if (m) return m[1];
         
         const titleEl = el.querySelector('.classTitle, .title, text');
@@ -952,7 +870,7 @@ window.MermaidErInteraction = {
 
     _collectNodes(svgEl) {
         const nodes = [];
-        const nodeEls = svgEl.querySelectorAll('g[id^="entity-"]');
+        const nodeEls = svgEl.querySelectorAll('g.node[id*="entity-"]');
         nodeEls.forEach(g => {
             const mId = this._getMermaidEntityId(g);
             if (!mId) return;
@@ -1631,7 +1549,7 @@ window.MermaidErInteraction = {
         existing.forEach(el => el.remove());
 
         // classDiagramの矢印（.edgePath path または path.relation など）
-        let edgePaths = Array.from(wrapper.querySelectorAll('.edgePath path:not(.mermaid-er-arrow-hitbox), path.relation:not(.mermaid-er-arrow-hitbox), .er.relationshipLine:not(.mermaid-er-arrow-hitbox)'));
+        let edgePaths = Array.from(wrapper.querySelectorAll('.edgePath path:not(.mermaid-er-arrow-hitbox), path.relation:not(.mermaid-er-arrow-hitbox), .relationshipLine:not(.mermaid-er-arrow-hitbox)'));
         
         // Dagre-D3のクラス図エッジなどでは marker-end を持つパスも対象にする
         const markerPaths = Array.from(wrapper.querySelectorAll('path[marker-end]:not(.mermaid-er-arrow-hitbox), path[marker-start]:not(.mermaid-er-arrow-hitbox)'));
@@ -1672,7 +1590,9 @@ window.MermaidErInteraction = {
         const classNodes = wrapper.querySelectorAll('.node, .node');
         classNodes.forEach(node => {
             try {
-                const bBox = node.getBBox();
+                // 空の要素による枠ズレを防ぐため、outer-path要素があればそちらのBBoxを優先して使用する
+                const outerPath = node.querySelector('.outer-path');
+                const bBox = outerPath ? outerPath.getBBox() : node.getBBox();
                 if (bBox.width === 0 || bBox.height === 0) return;
 
                 // 横線を探す
@@ -1784,13 +1704,12 @@ window.MermaidErInteraction = {
 
             // ノード削除チェック
             for (const mId of selectedNodes) {
-                if (new RegExp(`^\\s*class\\s+${mId}\\b\\s*\\{`).test(line)) {
+                if (new RegExp(`^\\s*(?:entity\\s+)?${mId}\\b\\s*\\{`).test(line)) {
                     insideBlockFor = mId;
                     shouldDelete = true;
                     break;
                 }
-                if (new RegExp(`^\\s*class\\s+${mId}\\b(?!\\s*\\{)`).test(line) ||
-                    new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line) ||
+                if (new RegExp(`^\\s*(?:entity\\s+)?${mId}\\b\\s*(?!\\s*\\{)`).test(line) ||
                     new RegExp(`^\\s*${mId}\\s*:`).test(line)) {
                     shouldDelete = true;
                     break;
@@ -1854,7 +1773,7 @@ window.MermaidErInteraction = {
         } else if (/^er-edge-(\d+)$/.test(mId)) {
             edgeIndexToFind = parseInt(mId.match(/^er-edge-(\d+)$/)[1], 10);
         } else {
-            const m = mId.match(/-(\d+)$/);
+            const m = mId.match(/[-_](\d+)$/);
             if (m) edgeIndexToFind = parseInt(m[1], 10);
         }
         console.log('[_getRelationFromText] パース対象:', mId, 'Index検索:', edgeIndexToFind);
@@ -1872,10 +1791,11 @@ window.MermaidErInteraction = {
                 if (edgeIndexToFind !== -1) {
                     isMatch = (currentEdgeIndex === edgeIndexToFind);
                 } else {
-                    const parts = mId.replace(/^classId-/, '').replace(/^classDiagram-/, '').replace(/-\d+$/, '').split('-');
-                    if (parts.length >= 2) {
-                        const from = parts[0];
-                        const to = parts[parts.length - 1];
+                    let cleanId = mId.replace(/-hitbox$/, '');
+                    const mNodeNames = cleanId.match(/L[-_]([A-Za-z0-9_-]+)[-_]([A-Za-z0-9_-]+)(?:[-_]\d+)?$/);
+                    if (mNodeNames) {
+                        const from = mNodeNames[1];
+                        const to = mNodeNames[2];
                         isMatch = ((mFrom === from && mTo === to) || (mFrom === to && mTo === from));
                     }
                 }

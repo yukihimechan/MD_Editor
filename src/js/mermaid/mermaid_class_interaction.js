@@ -385,10 +385,13 @@ window.MermaidClassInteraction = {
     },
 
     _onClick(e, diagramContainer) {
+        const targetDesc = e.target ? `${e.target.tagName} (class: ${e.target.className?.baseVal || e.target.className}, id: ${e.target.id})` : 'null';
+        console.log('[Class _onClick] Target:', targetDesc, 'Edit Mode:', diagramContainer.classList.contains('mermaid-class-edit-mode'));
         if (!diagramContainer.classList.contains('mermaid-class-edit-mode')) return;
 
         const classGroup = e.target.closest('.classGroup, .node');
         const edgeHitbox = e.target.closest('.mermaid-class-arrow-hitbox, .edgePath path, path.relation');
+        console.log('[Class _onClick] Found classGroup:', classGroup ? classGroup.tagName : 'null', 'Found edgeHitbox:', edgeHitbox ? edgeHitbox.tagName : 'null');
         const selectedNodes = diagramContainer._selectedNodes;
         const selectedRelations = diagramContainer._selectedRelations;
         
@@ -398,10 +401,14 @@ window.MermaidClassInteraction = {
             e.stopPropagation();
             let targetPath = edgeHitbox;
             if (edgeHitbox.classList.contains('mermaid-class-arrow-hitbox')) {
-                targetPath = edgeHitbox.previousSibling;
+                targetPath = edgeHitbox.previousElementSibling;
             }
             const mId = targetPath.id || (targetPath.parentNode && targetPath.parentNode.id);
-            if (!mId) return;
+            console.log('[Class _onClick] targetPath:', targetPath, 'computed mId:', mId);
+            if (!mId) {
+                console.log('[Class _onClick] mId is empty, skipping edge selection');
+                return;
+            }
 
             if (isMultiSelect) {
                 if (selectedRelations.has(mId)) selectedRelations.delete(mId);
@@ -490,7 +497,7 @@ window.MermaidClassInteraction = {
 
             let targetPath = edgeHitbox;
             if (edgeHitbox.classList.contains('mermaid-class-arrow-hitbox')) {
-                targetPath = edgeHitbox.previousSibling;
+                targetPath = edgeHitbox.previousElementSibling;
             }
             const mId = targetPath.id || (targetPath.parentNode && targetPath.parentNode.id);
             if (mId && !selectedRelations.has(mId)) {
@@ -1312,6 +1319,7 @@ window.MermaidClassInteraction = {
         markerPaths.forEach(p => {
             if (!edgePaths.includes(p)) edgePaths.push(p);
         });
+        console.log('[Class _enhanceRelationHitboxes] Found edgePaths:', edgePaths.length);
 
         edgePaths.forEach(path => {
             const isHitbox = path.classList.contains('mermaid-class-arrow-hitbox');
@@ -1537,10 +1545,35 @@ window.MermaidClassInteraction = {
                 if (edgeIndexToFind !== -1) {
                     isMatch = (currentEdgeIndex === edgeIndexToFind);
                 } else {
-                    const parts = mId.replace(/^classId-/, '').replace(/^classDiagram-/, '').replace(/-\d+$/, '').split('-');
-                    if (parts.length >= 2) {
-                        const from = parts[0];
-                        const to = parts[parts.length - 1];
+                    const cleanId = mId.replace(/-hitbox$/, '')
+                                       .replace(/^classId-/, '')
+                                       .replace(/^classDiagram-/, '');
+                    
+                    let from = '', to = '';
+                    
+                    // アンダースコア区切りパターン (L_A_B_0 もしくはプレフィックス付き)
+                    const matchUnderscore = cleanId.match(/L_([^_]+)_([^_]+)(?:_\d+)?$/) || cleanId.match(/([^_]+)_([^_]+)(?:_\d+)?$/);
+                    if (matchUnderscore) {
+                        from = matchUnderscore[1];
+                        to = matchUnderscore[2];
+                    } else {
+                        // ハイフン区切りパターン (L-A-B-0 もしくはプレフィックス付き)
+                        const matchHyphen = cleanId.match(/L-([^-]+)-([^-]+)(?:-\d+)?$/) || cleanId.match(/([^-]+)-([^-]+)(?:-\d+)?$/);
+                        if (matchHyphen) {
+                            from = matchHyphen[1];
+                            to = matchHyphen[2];
+                        } else {
+                            // フォールバック
+                            const parts = cleanId.replace(/-\d+$/, '').split('-');
+                            if (parts.length >= 2) {
+                                const startIdx = parts[0] === 'L' ? 1 : 0;
+                                from = parts[startIdx];
+                                to = parts[parts.length - 1];
+                            }
+                        }
+                    }
+
+                    if (from && to) {
                         isMatch = ((mFrom === from && mTo === to) || (mFrom === to && mTo === from));
                     }
                 }

@@ -511,11 +511,29 @@ class MermaidClassToolbar extends window.SVGToolbarBase {
 
         this.show(newDiagramWrapper);
 
+        // 色を付ける前に、再描画された線へ確実にIDとヒットボックスを割り当てる
+        if (window.MermaidClassInteraction && typeof window.MermaidClassInteraction._enhanceRelationHitboxes === 'function') {
+            window.MermaidClassInteraction._enhanceRelationHitboxes(newDiagramWrapper);
+        }
+
         if (savedEdgeId) {
             if (!newDiagramWrapper._selectedRelations) {
                 newDiagramWrapper._selectedRelations = new Set();
             }
-            newDiagramWrapper._selectedRelations.add(savedEdgeId);
+            // プレフィックスの変動に対応するため、クリーンIDで一致する要素を探して新しいIDを特定する
+            let matchedNewId = savedEdgeId;
+            const cleanSavedId = savedEdgeId.replace(/^mermaid-\d+-\d+-/, '');
+            
+            const edges = newDiagramWrapper.querySelectorAll('.edgePath path:not(.mermaid-class-arrow-hitbox), path.relation:not(.mermaid-class-arrow-hitbox)');
+            for (const edge of edges) {
+                const cleanId = edge.id ? edge.id.replace(/^mermaid-\d+-\d+-/, '') : '';
+                if (cleanId === cleanSavedId) {
+                    matchedNewId = edge.id;
+                    break;
+                }
+            }
+            
+            newDiagramWrapper._selectedRelations.add(matchedNewId);
             if (window.MermaidClassInteraction && typeof window.MermaidClassInteraction._updateSelectionUI === 'function') {
                 window.MermaidClassInteraction._updateSelectionUI(newDiagramWrapper);
             }

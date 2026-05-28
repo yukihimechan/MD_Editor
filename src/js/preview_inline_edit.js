@@ -1544,7 +1544,9 @@ const PreviewInlineEdit = {
             }
         } else if (tagName === 'LI') {
             // [FIX] ハイフンの後にスペースがない空のリスト記号にもマッチさせる
-            const match = originalSourceText.match(/^(\s*)([-*+]|\d+\.)(\s*(?:\[[x ]\]\s*)?)/i);
+            // ゼロ幅スペースを除去してからマッチさせることで末尾スペースを正確に抽出する
+            const cleanSourceText = originalSourceText.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+            const match = cleanSourceText.match(/^(\s*)([-*+]|\d+\.)(\s*(?:\[[x ]\]\s*)?)/i);
             let prefix = '';
             if (match) {
                 let space = match[3] || '';
@@ -1555,6 +1557,19 @@ const PreviewInlineEdit = {
                 let nextPrefix = prefix || '- ';
                 // 次の行のタスクリストは未完了状態([ ])で引き継ぐ
                 nextPrefix = nextPrefix.replace(/\[x\]/i, '[ ]');
+
+                // タスクリスト記号で終わる場合、末尾に半角スペースを保証する
+                if (nextPrefix.match(/\[[ xX]\]$/)) {
+                    nextPrefix += ' ';
+                }
+
+                // 新しい行が空になる場合、ゼロ幅スペースを補完してプレビューで正しく認識・フォーカスできるようにする
+                if (textAfter.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim() === '') {
+                    if (nextPrefix.match(/\[[ xX]\]\s+$/)) {
+                        nextPrefix += '\u200B';
+                    }
+                }
+
                 textBefore = prefix + textBefore;
                 newText = textBefore + '\n' + nextPrefix + textAfter;
                 this.pendingFocusNext = true;

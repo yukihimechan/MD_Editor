@@ -20,6 +20,12 @@ function makeInteractive(el) {
     const tagName = el.node.tagName.toLowerCase();
     if (['tspan', 'textpath'].includes(tagName)) return;
 
+    // [NEW] 別の図形に関連付けられたテキスト要素はインタラクティブ化しない（単独で選択させない）
+    if (tagName === 'text' && el.attr && el.attr('data-associated-shape-id')) {
+        el.css('pointer-events', 'none');
+        return;
+    }
+
     // すでにインタラクティブ化されている（SvgShape インスタンスが存在する）場合は重複処理を防止
     if (el.remember('_shapeInstance')) return;
 
@@ -85,6 +91,21 @@ function makeInteractive(el) {
     if (el.type === 'text') {
         // [REMOVED] Inline Editing dblclick now handled by SvgShape base class
     }
+
+    // 関連するテキスト要素がある場合は、そのテキストのポインターイベントを無効化してクリックを透過させる
+    if (el.attr) {
+        const assocTextId = el.attr('data-associated-text-id');
+        if (assocTextId) {
+            const root = el.root();
+            const assocText = root ? root.findOne('#' + assocTextId) : null;
+            if (assocText) {
+                assocText.css('pointer-events', 'none');
+                assocText.node.querySelectorAll('tspan').forEach(tspan => {
+                    tspan.style.pointerEvents = 'none';
+                });
+            }
+        }
+    }
 }
 window.makeInteractive = makeInteractive;
 
@@ -145,22 +166,32 @@ function selectElement(el, isMulti, silent = false, force = false) {
     const alreadySelected = window.currentEditingSVG.selectedElements.has(el);
     
     if (!force && !isMulti && alreadySelected && window.currentEditingSVG.selectedElements.size === 1) {
-        // 単一選択モードで自分のみが選択されている場合は何もしない
-        return;
+        // 単一選択モードで自分のみが選択されている場合は、選択リストの更新(deselectAll)はスキップするが、
+        // 以下の UI 適用処理 (shape.applySelectionUI 等) へは進むように早期 return を除去する。
     } else if (!isMulti) {
         deselectAll();
+        window.currentEditingSVG.selectedElements.add(el);
     } else if (isMulti && alreadySelected) {
         // マルチ選択モードで既に選択済みの場合は多重登録を防ぐためリターン
         return;
+    } else {
+        window.currentEditingSVG.selectedElements.add(el);
     }
-
-    window.currentEditingSVG.selectedElements.add(el);
     // ▲▲▲ ここまで ▲▲▲
     // [NEW] Update transform toolbar after adding element to selection
     updateTransformToolbarValues();
 
     // [NEW] Delegate Selection UI to SvgShape instance
-    const shape = el.remember('_shapeInstance');
+    let shape = el.remember('_shapeInstance');
+    if (!shape && typeof wrapShape === 'function') {
+        try {
+            shape = wrapShape(el);
+            shape.init();
+        } catch (e) {
+            console.warn('[selectElement] wrapShape failed:', e);
+        }
+    }
+
     if (shape && typeof shape.applySelectionUI === 'function') {
         try {
             shape.applySelectionUI();

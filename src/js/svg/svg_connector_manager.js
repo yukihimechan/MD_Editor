@@ -90,7 +90,7 @@ const SVGConnectorManager = {
 
         // 3. クラス名による除外 (UI/ハンドル/ツール関連を徹底排除)
         const classStr = (el.attr('class') || '').toLowerCase();
-        const excludedKeywords = ['handle', 'hitarea', 'select', 'overlay', 'interaction', 'proxy', 'grid'];
+        const excludedKeywords = ['handle', 'hitarea', 'select', 'overlay', 'interaction', 'proxy', 'grid', 'border', 'canvas'];
         if (excludedKeywords.some(key => classStr.includes(key))) return false;
 
         // 4. 親要素による除外 (ツール用グループの配下にある要素を除外)
@@ -110,6 +110,10 @@ const SVGConnectorManager = {
 
         // 5. 属性による除外
         if (el.attr('data-is-canvas') === 'true' || el.attr('data-is-proxy') === 'true' || el.attr('data-no-connector') === 'true') return false;
+
+        // 6. 線タイプ(line, arrow, polyline_arrow, freehand)の除外
+        const toolId = el.attr('data-tool-id');
+        if (['line', 'arrow', 'polyline_arrow', 'freehand'].includes(toolId)) return false;
 
         // [FIX] グループ要素(g)の除外について
         if (tagName === 'g') {
@@ -164,6 +168,66 @@ const SVGConnectorManager = {
 
     hideAllConnectors(draw) {
         draw.find('.svg-connector-overlay').remove();
+    },
+
+    /**
+     * すべての対象図形のコネクタポイントを事前に計算してキャッシュします。
+     */
+    cacheConnectorPoints(draw, excludeEl = null) {
+        const cache = [];
+        draw.find('*').each((el) => {
+            if (this.shouldShowConnectorsFor(el, excludeEl)) {
+                cache.push({
+                    id: el.id(),
+                    el: el,
+                    points: this.getConnectorPoints(el)
+                });
+            }
+        });
+        return cache;
+    },
+
+    /**
+     * 現在のマウス座標（ワールド座標）から、一定距離内にある図形のコネクタポイントのみを表示します。
+     */
+    updateConnectorDisplay(draw, cache, mousePt, zoom = 100) {
+        this.hideAllConnectors(draw);
+        if (!cache || cache.length === 0) return;
+
+        let group = draw.findOne('.svg-connector-overlay');
+        if (!group) {
+            group = draw.group().addClass('svg-connector-overlay').attr('pointer-events', 'none');
+        }
+
+        // 閾値をワールド座標系に換算 (画面上の 80px 程度)
+        const threshold = 80 / (zoom / 100);
+
+        cache.forEach(shape => {
+            // 各接続ポイントとの最小距離を求める
+            let minDistance = Infinity;
+            shape.points.forEach(p => {
+                const dist = Math.hypot(p.x - mousePt.x, p.y - mousePt.y);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                }
+            });
+
+            // 最小距離が閾値以下のとき、その図形のすべての接続ポイントを描画
+            if (minDistance <= threshold) {
+                console.log(`[SVG Connector DEBUG] Showing connectors for: ${shape.id} (type: ${shape.el ? shape.el.type : 'unknown'}, minDist: ${minDistance.toFixed(1)}, threshold: ${threshold.toFixed(1)})`);
+                shape.points.forEach(p => {
+                    const c = group.circle(8)
+                        .center(p.x, p.y)
+                        .fill('#0366d6')
+                        .stroke({ color: '#fff', width: 1.5 })
+                        .opacity(0.8);
+
+                    if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+                        window.SVGUtils.updateHandleScaling(c, zoom);
+                    }
+                });
+            }
+        });
     },
 
     /**
