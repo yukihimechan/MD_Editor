@@ -4648,3 +4648,22 @@ g[data-tool-id="shape-text-group"] text tspan {
     pointer-events: none !important;
 }
 
+/* グラデーション編集モード用すりガラス効果 */
+.svg-grad-blur-back {
+    filter: blur(4px) opacity(0.5) !important;
+    pointer-events: none !important;
+}
+
+.svg-grad-control-handle {
+    transition: transform 0.1s ease, stroke-width 0.1s ease;
+}
+
+.svg-grad-control-handle:hover {
+    stroke-width: 2.5px !important;
+}
+
+/* インジケータのスクロールバーを隠す */
+.svg-gradient-indicators::-webkit-scrollbar {
+    display: none;
+}
+
