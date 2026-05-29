@@ -86,6 +86,41 @@ class SvgShape {
             };
         }
 
+        // [NEW] グラデーション付き図形 (data-has-gradient="true") の場合、bbox/rbox/getBBox を輪郭線クローン基準にオーバーライドする
+        if (this.el.type === 'g' && this.el.attr('data-has-gradient') === 'true') {
+            const origBBox = this.el.bbox;
+            const origRBox = this.el.rbox;
+            const origGetBBox = this.el.node.getBBox;
+            
+            const getStrokeShape = () => {
+                return self.el.findOne('.svg-gradient-stroke');
+            };
+
+            this.el.bbox = function() {
+                const stroke = getStrokeShape();
+                if (stroke && typeof stroke.bbox === 'function') {
+                    return stroke.bbox();
+                }
+                return origBBox.apply(self.el, arguments);
+            };
+
+            this.el.rbox = function() {
+                const stroke = getStrokeShape();
+                if (stroke && typeof stroke.rbox === 'function') {
+                    return stroke.rbox.apply(stroke, arguments);
+                }
+                return origRBox.apply(self.el, arguments);
+            };
+
+            this.el.node.getBBox = function() {
+                const stroke = getStrokeShape();
+                if (stroke && stroke.node && typeof stroke.node.getBBox === 'function') {
+                    return stroke.node.getBBox();
+                }
+                return origGetBBox.apply(this, arguments);
+            };
+        }
+
         // [NEW] 同期のため、子要素のポインターイベントを制御（グループの場合）
         if (this.el.type === 'g') {
             // グループ全体でクリックを受け取るように調整
@@ -155,6 +190,7 @@ class SvgShape {
 
             // [NEW] ソースコードハイライト連携 (ホバー)
             this.el.on('mouseenter.svg_highlight', () => {
+                console.log('[SvgShape DEBUG] mouseenter.svg_highlight triggered on:', this.el.node);
                 let hoverTarget = this.el;
                 let p = this.el.parent();
                 while (p && p.type === 'g' && !p.hasClass('svg-canvas-proxy') && p.node !== this.el.root().node) {
@@ -170,6 +206,7 @@ class SvgShape {
                 }
             });
             this.el.on('mouseleave.svg_highlight', () => {
+                console.log('[SvgShape DEBUG] mouseleave.svg_highlight triggered on:', this.el.node);
                 let hoverTarget = this.el;
                 let p = this.el.parent();
                 while (p && p.type === 'g' && !p.hasClass('svg-canvas-proxy') && p.node !== this.el.root().node) {
@@ -192,6 +229,18 @@ class SvgShape {
         if (typeof this.syncStrokeTextScale === 'function') {
             this.syncStrokeTextScale();
         }
+    }
+
+    hideHandles() {
+        if (typeof this.el.select === 'function') this.el.select(false);
+        if (typeof this.el.resize === 'function') this.el.resize(false);
+        if (typeof this.el.draggable === 'function') this.el.draggable(false);
+        this.clearSelectionUI();
+    }
+
+    showHandles() {
+        this.applySelectionUI();
+        if (typeof this.el.draggable === 'function') this.el.draggable();
     }
 
     /**
@@ -807,6 +856,17 @@ class SvgShape {
             this.el.remember('_shapeInstance', this); // RE-REGISTER ourself to the new instance
         }
 
+        // [GRADIENT LOCK GUARD]
+        if (window.currentEditingSVG && window.currentEditingSVG._inGradientEditMode) {
+            if (typeof this.el.select === 'function') {
+                this.el.select(false);
+            }
+            if (typeof this.el.resize === 'function') {
+                this.el.resize(false);
+            }
+            return;
+        }
+
         if (typeof this.el.select === 'function') {
             // console.log(`[SVG Lib Call] ${this.el.id()}.select(`, options, `)`);
             this.el.select(options);
@@ -981,6 +1041,11 @@ class StandardShape extends SvgShape {
             el.node._getSnapCache = () => snapTargetsCache;
 
             el.on('beforedrag', (e) => {
+                // [GRADIENT LOCK GUARD]
+                if (window.currentEditingSVG && window.currentEditingSVG._inGradientEditMode) {
+                    e.preventDefault();
+                    return;
+                }
                 // ▼ 追加: ドラッグ中は監視を停止
                 if (window.currentEditingSVG && typeof window.currentEditingSVG.suspendObserver === 'function') {
                     window.currentEditingSVG.suspendObserver();
@@ -1345,6 +1410,13 @@ class StandardShape extends SvgShape {
      * For groups, calculates the union of visible children.
      */
     getCleanBBox() {
+        if (this.el.type === 'g' && this.el.attr('data-has-gradient') === 'true') {
+            const stroke = this.el.findOne('.svg-gradient-stroke');
+            if (stroke) {
+                return stroke.bbox().transform(stroke.matrix());
+            }
+        }
+
         if (this.el.type !== 'g') {
             let bbox;
             try {

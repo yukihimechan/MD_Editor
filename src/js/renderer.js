@@ -190,6 +190,75 @@ const cyrb53 = function(str, seed = 0) {
     return 4294967296 * (2097152 & h2) + (h1>>>0);
 };
 
+// [NEW] 小文字化されたインラインSVGタグ名を正しい大文字（キャメルケース）に復元する
+function restoreSvgCamelCaseTags(html) {
+    if (!html) return html;
+    const replacements = {
+        'clippath': 'clipPath',
+        'fegaussianblur': 'feGaussianBlur',
+        'feoffset': 'feOffset',
+        'fedropshadow': 'feDropShadow',
+        'feblend': 'feBlend',
+        'fecolormatrix': 'feColorMatrix',
+        'feflood': 'feFlood',
+        'femerge': 'feMerge',
+        'femergenode': 'feMergeNode',
+        'lineargradient': 'linearGradient',
+        'radialgradient': 'radialGradient',
+        'textpath': 'textPath'
+    };
+    let res = html;
+    for (const [lower, camel] of Object.entries(replacements)) {
+        res = res.replace(new RegExp(`<${lower}(\\s|/|>)`, 'gi'), `<${camel}$1`);
+        res = res.replace(new RegExp(`</${lower}>`, 'gi'), `</${camel}>`);
+    }
+    return res;
+}
+
+// [NEW] プレビュー内のすべてのインラインSVGタグ名をキャメルケースに修正・復元する
+function fixAllInlineSvgCamelCase(root) {
+    if (!root) return;
+    const svgs = root.querySelectorAll('svg');
+    svgs.forEach(svg => {
+        if (svg.getAttribute('data-svg-camel-fixed') === 'true') {
+            // すでに data-svg-camel-fixed="true" が付着して保存されている場合でも、実際には小文字タグが残っているなら修復を試みる
+            const hasLowercase = svg.querySelector('clippath, fegaussianblur, feoffset, fedropshadow, feblend, fecolormatrix, feflood, femerge, femergenode, lineargradient, radialgradient, textpath');
+            if (!hasLowercase) return;
+        }
+        
+        const originalHtml = svg.outerHTML;
+        const fixedHtml = restoreSvgCamelCaseTags(originalHtml);
+        if (originalHtml !== fixedHtml) {
+            const temp = document.createElement('div');
+            temp.innerHTML = fixedHtml;
+            const newSvg = temp.firstElementChild;
+            if (newSvg && svg.parentNode) {
+                newSvg.setAttribute('data-svg-camel-fixed', 'true');
+                if (svg.closest('.svg-editing')) {
+                    const defs = svg.querySelector('defs');
+                    if (defs) {
+                        const originalDefsHtml = defs.outerHTML;
+                        const fixedDefsHtml = restoreSvgCamelCaseTags(originalDefsHtml);
+                        if (originalDefsHtml !== fixedDefsHtml) {
+                            const tempDefs = document.createElement('div');
+                            tempDefs.innerHTML = `<svg>${fixedDefsHtml}</svg>`;
+                            const newDefs = tempDefs.firstElementChild ? tempDefs.firstElementChild.firstElementChild : null;
+                            if (newDefs && defs.parentNode) {
+                                defs.parentNode.replaceChild(newDefs, defs);
+                            }
+                        }
+                    }
+                    svg.setAttribute('data-svg-camel-fixed', 'true');
+                } else {
+                    svg.parentNode.replaceChild(newSvg, svg);
+                }
+            }
+        } else {
+            svg.setAttribute('data-svg-camel-fixed', 'true');
+        }
+    });
+}
+
 // [NEW] ブロック単位のDOMキャッシュ
 window._blockCache = window._blockCache || new Map();
 
@@ -432,8 +501,8 @@ async function render(force = false) {
                                     });
 
                                     const purifyConfigFast = {
-                                        ADD_TAGS: ['style', 'input', 'label', 'li', 'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'defs', 'use', 'text', 'tspan', 'textPath', 'math', 'annotation', 'semantics', 'mrow', 'msub', 'msup', 'msubsup', 'mover', 'munder', 'munderover', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'mtext', 'mi', 'mo', 'mn', 'mspace', 'ms', 'mglyph', 'mpadded', 'mphantom', 'menclose', 'mtable', 'mtr', 'mtd', 'maligngroup', 'malignmark', 'maction', 'marker', 'connector-data'],
-                                        ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'data-line', 'data-line-end', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-original-text', 'data-block-hash', 'vector-effect'],
+                                        ADD_TAGS: ['style', 'input', 'label', 'li', 'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'defs', 'use', 'text', 'tspan', 'textPath', 'math', 'annotation', 'semantics', 'mrow', 'msub', 'msup', 'msubsup', 'mover', 'munder', 'munderover', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'mtext', 'mi', 'mo', 'mn', 'mspace', 'ms', 'mglyph', 'mpadded', 'mphantom', 'menclose', 'mtable', 'mtr', 'mtd', 'maligngroup', 'malignmark', 'maction', 'marker', 'connector-data', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur', 'feOffset', 'feDropShadow', 'feBlend', 'feColorMatrix', 'feFlood', 'feMerge', 'feMergeNode'],
+                                        ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'data-line', 'data-line-end', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-original-text', 'data-block-hash', 'vector-effect', 'clip-path', 'clip-rule', 'fill-rule', 'offset', 'stop-color', 'stop-opacity', 'filter', 'gradientUnits', 'stdDeviation', 'in', 'result'],
                                         FORBID_TAGS: ['iframe', 'object', 'embed', 'base'],
                                         IN_PLACE: true,
                                         ADD_DATA_URI_TAGS: ['img']
@@ -514,6 +583,10 @@ async function render(force = false) {
                         let globalSvgIndex = 0;
                         DOM.preview.querySelectorAll('.svg-view-wrapper').forEach(el => el.setAttribute('data-svg-index', globalSvgIndex++));
 
+                        if (typeof fixAllInlineSvgCamelCase === 'function') {
+                            fixAllInlineSvgCamelCase(DOM.preview);
+                        }
+
                         if (typeof attachPreviewEvents === 'function') attachPreviewEvents();
                         if (typeof attachCopyButtonListeners === 'function') attachCopyButtonListeners();
                         if (typeof attachSVGSaveListeners === 'function') attachSVGSaveListeners();
@@ -569,8 +642,8 @@ async function render(force = false) {
                 const currentBlockHashes = new Set();
                 
                 const purifyConfig = {
-                    ADD_TAGS: ['style', 'input', 'label', 'li', 'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'defs', 'use', 'text', 'tspan', 'textPath', 'math', 'annotation', 'semantics', 'mrow', 'msub', 'msup', 'msubsup', 'mover', 'munder', 'munderover', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'mtext', 'mi', 'mo', 'mn', 'mspace', 'ms', 'mglyph', 'mpadded', 'mphantom', 'menclose', 'mtable', 'mtr', 'mtd', 'maligngroup', 'malignmark', 'maction', 'marker', 'connector-data'],
-                    ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'data-line', 'data-line-end', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-placeholder-id', 'data-original-text', 'data-block-hash', 'vector-effect'],
+                    ADD_TAGS: ['style', 'input', 'label', 'li', 'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'defs', 'use', 'text', 'tspan', 'textPath', 'math', 'annotation', 'semantics', 'mrow', 'msub', 'msup', 'msubsup', 'mover', 'munder', 'munderover', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'mtext', 'mi', 'mo', 'mn', 'mspace', 'ms', 'mglyph', 'mpadded', 'mphantom', 'menclose', 'mtable', 'mtr', 'mtd', 'maligngroup', 'malignmark', 'maction', 'marker', 'connector-data', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur', 'feOffset', 'feDropShadow', 'feBlend', 'feColorMatrix', 'feFlood', 'feMerge', 'feMergeNode'],
+                    ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'data-line', 'data-line-end', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-placeholder-id', 'data-original-text', 'data-block-hash', 'vector-effect', 'clip-path', 'clip-rule', 'fill-rule', 'offset', 'stop-color', 'stop-opacity', 'filter', 'gradientUnits', 'stdDeviation', 'in', 'result'],
                     FORBID_TAGS: ['iframe', 'object', 'embed', 'base'],
                     IN_PLACE: true,
                     ADD_DATA_URI_TAGS: ['img']
@@ -925,6 +998,10 @@ async function render(force = false) {
                         el.setAttribute('data-svg-index', globalSvgIndex++);
                     });
                     // ▲▲▲ インデックスの一括更新 ここまで ▲▲▲
+
+                    if (typeof fixAllInlineSvgCamelCase === 'function') {
+                        fixAllInlineSvgCamelCase(DOM.preview);
+                    }
 
                     // SVGエディタの復元
                     if (svgEditorNodes) {

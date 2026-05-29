@@ -643,6 +643,14 @@ function startSVGEdit(container, svgIndex) {
         });
     }
 
+    // Gradient Toolbar
+    if (typeof createGradientToolbar !== 'undefined') {
+        current.gradientToolbar = window.gradientToolbar = createGradientToolbar(container, SVGToolbar, {
+            position: getPos(13), // (-37, 410)
+            borderColor: '#E74BA8'
+        });
+    }
+
     // [NEW] Listen for global transformations to update toolbar
     draw.on('dragmove.global resize.global rotate.global', () => {
         if (typeof updateTransformToolbarValues === 'function') updateTransformToolbarValues();
@@ -971,13 +979,18 @@ function startSVGEdit(container, svgIndex) {
                             target = target.parentNode;
                             continue;
                         }
-                        if (el.hasClass('svg-canvas-proxy') || el.hasClass('svg-grid-line') || el.hasClass('svg-grid-lines') || el.hasClass('svg-ruler') || el.attr('data-internal') === 'true' || el.hasClass('svg-interaction-hitarea')) {
-                            target = target.parentNode;
-                            continue;
-                        }
-                        if (el.hasClass('svg_select_shape') || el.hasClass('svg_select_handle') || el.hasClass('svg_select_group') || el.hasClass('svg-select-group') ||
-                            (el.parent() && el.parent().hasClass('svg_select_handle_rot')) || el.hasClass('rotation-handle-group') || el.hasClass('radius-handle-group') ||
-                            (el.node.querySelector && el.node.querySelector('.svg_select_shape, .svg-select-shape, .svg_select_handle, .svg-select-handle, .rotation-handle, .radius-handle'))) {
+                        // 堅牢な判定: 自身または祖先要素に一時的な操作UI用のクラス/属性が1つでも含まれる場合は即座に除外して親要素を辿る
+                        const isInternalUI = target.closest(
+                            '.svg-canvas-proxy, .svg-grid-lines, .svg-grid-line, .svg-ruler, ' +
+                            '.svg-interaction-hitarea, .svg-grad-control-ui, .svg-grad-control-handle, ' +
+                            '.polyline-handle-group, .rotation-handle-group, .radius-handle-group, ' +
+                            '.bubble-handle-group, .svg-control-marker, .svg-snap-guides, ' +
+                            '.svg-canvas-border, .svg_select_group, .svg-select-group, ' +
+                            '.svg_select_handle_rot, [data-internal="true"], ' +
+                            '.polyline-handle, .midpoint-handle, .bez-control-point, .bez-control-line, .arrow-size-handle, ' +
+                            '.svg_select_shape, .svg_select_handle, .rotation-handle, .radius-handle'
+                        );
+                        if (isInternalUI) {
                             target = target.parentNode;
                             continue;
                         }
@@ -1255,6 +1268,10 @@ function stopSVGEdit(skipRender = false) {
     if (window.currentEditingSVG.fontToolbar) window.currentEditingSVG.fontToolbar.destroy();
     if (window.currentEditingSVG.lineToolbar) window.currentEditingSVG.lineToolbar.destroy();
     if (window.cssToolbar) window.cssToolbar.destroy();
+    if (window.gradientToolbar) {
+        window.gradientToolbar.destroy();
+        window.gradientToolbar = null;
+    }
 
     // [NEW] Remove grid lines before sync/cleanup
     if (draw) {

@@ -135,9 +135,23 @@ const SvgTextEditor = {
                 pt.y = forceSvgPt.y;
                 screenPt = pt.matrixTransform(rootCtm);
             } else {
-                pt.x = finalBbox.x;
-                pt.y = finalBbox.y;
-                // ローカル座標系の左上端に、自身の画面変換行列を適用することで、「画面上の確実な絶対座標」を得る
+                // アライメント（anchor）およびベースライン（baseline）に応じてローカル基準点を設定
+                const baseline = el.attr('dominant-baseline') || 'alphabetic';
+                if (anchor === 'middle') {
+                    pt.x = finalBbox.x + finalBbox.width / 2;
+                } else if (anchor === 'end') {
+                    pt.x = finalBbox.x + finalBbox.width;
+                } else {
+                    pt.x = finalBbox.x;
+                }
+
+                const isVerticalCenter = baseline === 'central' || baseline === 'middle';
+                if (isVerticalCenter) {
+                    pt.y = finalBbox.y + finalBbox.height / 2;
+                } else {
+                    pt.y = finalBbox.y;
+                }
+                // 画面変換行列を適用することで、「画面上の確実な絶対座標」を得る
                 screenPt = pt.matrixTransform(elScreenCtm);
             }
         } else {
@@ -199,9 +213,6 @@ const SvgTextEditor = {
         const fill = el.attr('fill') || '#000000';
 
         editor.style.position = 'fixed';
-        editor.style.transformOrigin = '0 0';
-        editor.style.left = `${screenPt.x}px`;
-        editor.style.top = `${screenPt.y}px`;
 
         let angle = 0;
         let scaleX = 1;
@@ -216,13 +227,52 @@ const SvgTextEditor = {
             }
         }
 
-        if (Math.abs(angle) > 0.1) {
-            editor.style.transform = `rotate(${angle}deg)`;
-        } else {
-            editor.style.transform = 'none';
+        // [NEW] アライメントおよびベースラインに応じた位置補正 (translate) と transform-origin の設定
+        let translateX = 0;
+        let translateY = 0;
+
+        if (anchor === 'middle') {
+            translateX = -50;
+        } else if (anchor === 'end') {
+            translateX = -100;
         }
 
-        editor.style.width = `${bbox.width * scaleX}px`;
+        const baseline = el.attr('dominant-baseline') || 'alphabetic';
+        const isVerticalCenter = forceSvgPt || (baseline === 'central' || baseline === 'middle');
+        if (isVerticalCenter) {
+            translateY = -50;
+        }
+
+        // transform-origin の設定
+        if (translateX === -50 && translateY === -50) {
+            editor.style.transformOrigin = 'center center';
+        } else if (translateX === -50) {
+            editor.style.transformOrigin = 'center 0';
+        } else if (translateX === -100) {
+            editor.style.transformOrigin = 'right 0';
+        } else {
+            editor.style.transformOrigin = '0 0';
+        }
+
+        let transformStr = '';
+        if (translateX !== 0 || translateY !== 0) {
+            transformStr += `translate(${translateX}%, ${translateY}%) `;
+        }
+        if (Math.abs(angle) > 0.1) {
+            transformStr += `rotate(${angle}deg)`;
+        }
+
+        editor.style.transform = transformStr || 'none';
+        editor.style.left = `${screenPt.x}px`;
+        editor.style.top = `${screenPt.y}px`;
+
+        // 幅・高さの設定（中央寄せの場合は幅 max-content で自動伸縮、それ以外は固定）
+        if (anchor === 'middle') {
+            editor.style.width = 'max-content';
+            editor.style.minWidth = '30px';
+        } else {
+            editor.style.width = `${bbox.width * scaleX}px`;
+        }
         editor.style.height = `${bbox.height * scaleY}px`;
 
         let screenFontSize = baseFontSize;

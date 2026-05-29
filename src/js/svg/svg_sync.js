@@ -137,7 +137,7 @@ function syncChanges(silent = true, overrideDims = null, addToHistory = true) {
                 const targetNode = mutation.target;
                 if (targetNode.nodeType !== 1) continue;
 
-                if (targetNode.closest('.svg-grid-lines, .svg-canvas-proxy, .svg-snap-guides, .svg-interaction-hitarea, .svg-control-marker, .svg-ruler, .svg_select_group')) {
+                if (targetNode.closest('.svg-grid-lines, .svg-canvas-proxy, .svg-snap-guides, .svg-interaction-hitarea, .svg-control-marker, .svg-ruler, .svg_select_group, .svg-grad-control-ui, .svg-grad-control-handle')) {
                     continue;
                 }
 
@@ -377,7 +377,8 @@ const IGNORE_CLASSES = new Set([
     'rotation-handle-group', 'radius-handle-group', 'polyline-handle-group', 
     'bubble-handle-group', 'svg-snap-guides', 'svg-control-marker', 
     'svg-canvas-border', 'svg-ruler', 'svg-select-handle', 'svg_select_handle',
-    'svg_select_shape', 'rotation-handle', 'svg_select_handle_rot'
+    'svg_select_shape', 'rotation-handle', 'svg_select_handle_rot',
+    'svg-grad-control-ui', 'svg-grad-control-handle'
 ]);
 
 function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
@@ -406,16 +407,23 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
 
     // If it's a container element (like g), check if it contains any internal editor elements
     if (tagName === 'g') {
-        const hasInternal = node.querySelector(
-            '.svg-interaction-hitarea, .svg_interaction, .svg-canvas-proxy, ' +
-            '.svg-grid-lines, .svg-grid-pattern, .svg-grid-rect, .svg-grid-line, ' +
-            '.svg_select_group, .svg-select-group, .svg-select-group-canvas, ' +
-            '.rotation-handle-group, .radius-handle-group, .polyline-handle-group, ' +
-            '.bubble-handle-group, .svg-snap-guides, .svg-control-marker, ' +
-            '.svg-canvas-border, .svg-ruler, .svg_select_shape, .svg-select-handle, ' +
-            '.svg_select_handle, .rotation-handle, .svg_select_handle_rot'
-        );
-        if (hasInternal) return '';
+        const toolId = node.getAttribute('data-tool-id');
+        const hasGradient = node.getAttribute('data-has-gradient') === 'true';
+        
+        // ユーザー作成グループ（グループ化、テキスト付き図形、グラデーション付きグループ、およびグラデーション内部のグループなど）は全体除外判定をスキップする
+        const isInsideGradient = !!node.closest('[data-has-gradient="true"]');
+        if (toolId !== 'group' && toolId !== 'shape-text-group' && !hasGradient && !isInsideGradient) {
+            const hasInternal = node.querySelector(
+                '.svg-interaction-hitarea, .svg_interaction, .svg-canvas-proxy, ' +
+                '.svg-grid-lines, .svg-grid-pattern, .svg-grid-rect, .svg-grid-line, ' +
+                '.svg_select_group, .svg-select-group, .svg-select-group-canvas, ' +
+                '.rotation-handle-group, .radius-handle-group, .polyline-handle-group, ' +
+                '.bubble-handle-group, .svg-snap-guides, .svg-control-marker, ' +
+                '.svg-canvas-border, .svg-ruler, .svg_select_shape, .svg-select-handle, ' +
+                '.svg_select_handle, .rotation-handle, .svg_select_handle_rot'
+            );
+            if (hasInternal) return '';
+        }
     }
 
     // Skip empty g tags
@@ -443,6 +451,7 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
 
     attrMap.forEach((val, name) => {
         // Remove internal attributes
+        if (name === 'data-svg-camel-fixed') return;
         if (['data-is-proxy', 'data-is-canvas', 'data-locked'].includes(name) && !isRoot && tagName !== 'g') return;
 
         if (!skipRounding && val !== undefined && val !== null) {

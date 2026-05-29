@@ -263,6 +263,7 @@ class PolyTool extends BaseTool {
 
 class LineTool extends BaseTool {
     mousedown(e, pt) {
+        this._hoverConnectorCache = null;
         // [NEW] Snap start point to connector
         const isAlt = SVGUtils.isSnapEnabled(e);
         let startConnect = null;
@@ -312,7 +313,21 @@ class LineTool extends BaseTool {
         this.toolbar.updateArrowMarkers(this.activeElement);
     }
     mousemove(e, pt) {
-        if (!this.activeElement) return;
+        if (!this.activeElement) {
+            // [NEW] ホバー時の近接接続表示
+            const isAlt = SVGUtils.isSnapEnabled(e);
+            if (!isAlt && window.SVGConnectorManager) {
+                if (!this._hoverConnectorCache) {
+                    this._hoverConnectorCache = window.SVGConnectorManager.cacheConnectorPoints(this.draw);
+                }
+                const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+                window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._hoverConnectorCache, pt, zoom);
+            } else if (window.SVGConnectorManager) {
+                window.SVGConnectorManager.hideAllConnectors(this.draw);
+                this._hoverConnectorCache = null;
+            }
+            return;
+        }
 
         // わずかな手ぶれをクリックとみなすため、移動距離のしきい値（3px）を設ける
         const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
@@ -381,6 +396,17 @@ class LineTool extends BaseTool {
             };
         }
 
+        const isShift = e.shiftKey || (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed);
+        if (isShift) {
+            const dx = Math.abs(targetPt.x - this.startPoint.x);
+            const dy = Math.abs(targetPt.y - this.startPoint.y);
+            if (dx < dy) {
+                targetPt = { x: this.startPoint.x, y: targetPt.y };
+            } else {
+                targetPt = { x: targetPt.x, y: this.startPoint.y };
+            }
+        }
+
         // [FIX] NaN Guard: Prevent setting invalid coordinates to path attributes
         if (isNaN(targetPt.x) || isNaN(targetPt.y)) {
             console.warn('[LineTool] Mousemove skipped due to NaN coordinates.');
@@ -437,6 +463,7 @@ const ToolIcons = {
 
 class PolylineArrowTool extends LineTool {
     mousedown(e, pt) {
+        this._hoverConnectorCache = null;
         // [NEW] Snap point
         const isAlt = SVGUtils.isSnapEnabled(e);
         if (!isAlt && window.SVGConnectorManager) {
@@ -449,6 +476,18 @@ class PolylineArrowTool extends LineTool {
                 x: Math.round(pt.x / snapSize) * snapSize,
                 y: Math.round(pt.y / snapSize) * snapSize
             };
+        }
+
+        const isShift = e.shiftKey || (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed);
+        if (isShift && this.points && this.points.length > 0) {
+            const lastPt = this.points[this.points.length - 1];
+            const dx = Math.abs(pt.x - lastPt.x);
+            const dy = Math.abs(pt.y - lastPt.y);
+            if (dx < dy) {
+                pt = { x: lastPt.x, y: pt.y, connector: pt.connector };
+            } else {
+                pt = { x: pt.x, y: lastPt.y, connector: pt.connector };
+            }
         }
 
         if (!this.activeElement) {
@@ -501,7 +540,21 @@ class PolylineArrowTool extends LineTool {
     }
 
     mousemove(e, pt) {
-        if (!this.activeElement) return;
+        if (!this.activeElement) {
+            // [NEW] ホバー時の近接接続表示
+            const isAlt = SVGUtils.isSnapEnabled(e);
+            if (!isAlt && window.SVGConnectorManager) {
+                if (!this._hoverConnectorCache) {
+                    this._hoverConnectorCache = window.SVGConnectorManager.cacheConnectorPoints(this.draw);
+                }
+                const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+                window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._hoverConnectorCache, pt, zoom);
+            } else if (window.SVGConnectorManager) {
+                window.SVGConnectorManager.hideAllConnectors(this.draw);
+                this._hoverConnectorCache = null;
+            }
+            return;
+        }
 
         const isAlt = SVGUtils.isSnapEnabled(e);
         let targetPt = pt;
@@ -542,6 +595,18 @@ class PolylineArrowTool extends LineTool {
                     x: Math.round(pt.x / snapSize) * snapSize,
                     y: Math.round(pt.y / snapSize) * snapSize
                 };
+            }
+        }
+
+        const isShift = e.shiftKey || (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed);
+        if (isShift && this.points.length > 0) {
+            const lastPt = this.points[this.points.length - 1];
+            const dx = Math.abs(targetPt.x - lastPt.x);
+            const dy = Math.abs(targetPt.y - lastPt.y);
+            if (dx < dy) {
+                targetPt = { x: lastPt.x, y: targetPt.y };
+            } else {
+                targetPt = { x: targetPt.x, y: lastPt.y };
             }
         }
 
@@ -995,6 +1060,79 @@ class LassoTool extends BaseTool {
     getCursor() { return 'crosshair'; }
 }
 
+class GradientTool extends BaseTool {
+    mousedown(e, pt) {
+        const gradToolbar = window.gradientToolbar;
+        if (!gradToolbar || !gradToolbar.isEditing || !gradToolbar.targetGroup) return;
+
+        const targetGroup = gradToolbar.targetGroup;
+
+        // メタデータグループと描画グループを取得
+        const metaGroup = targetGroup.findOne('.svg-gradient-meta');
+        const clipGroup = targetGroup.findOne('[clip-path]');
+        if (!metaGroup || !clipGroup) return;
+
+        const filterGroup = clipGroup.findOne('g');
+        if (!filterGroup) return;
+
+        // デフォルト値 (色: 赤 #ff0000, 太さ: 30)
+        const defaultColor = '#ff0000';
+        const defaultThickness = 30;
+
+        // 1. メタデータグループにパスを追加
+        const pathId = 'ctrl_p_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        const metaPath = metaGroup.element('path');
+        // 初期値として、引き延ばしやすくするために長さ20pxの線にする
+        const pathData = `M ${pt.x} ${pt.y} L ${pt.x + 20} ${pt.y + 20}`;
+        metaPath.attr({
+            'id': pathId,
+            'd': pathData,
+            'data-color': defaultColor,
+            'data-thickness': defaultThickness
+        });
+
+        // 2. ぼかし用フィルターグループにパスを追加
+        const drawPath = filterGroup.element('path');
+        drawPath.attr({
+            'd': pathData,
+            'fill': 'none',
+            'stroke': defaultColor,
+            'stroke-width': defaultThickness,
+            'stroke-linecap': 'round'
+        });
+
+        // 3. UIの更新
+        gradToolbar.renderControlHandles();
+        gradToolbar.syncIndicatorsFromMeta();
+
+        // 4. 配置と同時に ColorPicker を展開する
+        setTimeout(() => {
+            if (gradToolbar.controlUiGroup) {
+                const handles = gradToolbar.controlUiGroup.find('.svg-grad-control-handle');
+                const lastHandle = handles[handles.length - 1];
+                if (lastHandle && lastHandle.node) {
+                    gradToolbar.showPickerForPath(metaPath, lastHandle.node);
+                }
+            }
+        }, 50);
+
+        // 5. 配置後に自動的に選択ツールに戻す（ワンショット化）
+        if (gradToolbar.svgToolbar) {
+            gradToolbar.svgToolbar.setTool('select');
+        }
+        if (gradToolbar.addColorBtn) {
+            gradToolbar.addColorBtn.classList.remove('active');
+        }
+
+        if (window.syncChanges) window.syncChanges();
+    }
+    
+    finalize() {
+        // gradient_add ツールのままにするため、select に戻さない
+    }
+}
+
+
 class SVGMainToolbar extends SVGToolbarBase {
     constructor() {
         super({
@@ -1159,7 +1297,8 @@ class SVGMainToolbar extends SVGToolbarBase {
             'polyline_arrow': new PolylineArrowTool(this),
             'freehand': new FreehandTool(this),
             'bubble': new BubbleTool(this),
-            'text': new TextTool(this)
+            'text': new TextTool(this),
+            'gradient_add': new GradientTool(this)
         };
 
         this.activeToolInstance = this.toolMap['select'];
@@ -1210,6 +1349,14 @@ class SVGMainToolbar extends SVGToolbarBase {
     setTool(toolId) {
         if (this.currentTool === toolId) return;
 
+        // [NEW] 古いツールのホバー状態・接続表示をクリア
+        if (this.activeToolInstance) {
+            this.activeToolInstance._hoverConnectorCache = null;
+        }
+        if (window.SVGConnectorManager && this.draw) {
+            window.SVGConnectorManager.hideAllConnectors(this.draw);
+        }
+
         // Fallback for missing custom tool classes
         if (toolId.startsWith('custom_') && !this.toolMap[toolId]) {
             this.toolMap[toolId] = new CustomTool(this);
@@ -1246,11 +1393,13 @@ class SVGMainToolbar extends SVGToolbarBase {
         this.handleMouseUp = this.onMouseUp.bind(this);
         this.handleDblClick = this.onDblClick.bind(this);
         this.handleContextMenu = this.onContextMenu.bind(this);
+        this.handleMouseLeave = this.onMouseLeave.bind(this);
 
         if (this.draw && this.draw.node) {
             this.draw.node.addEventListener('mousedown', this.handleMouseDown, true);
             this.draw.node.addEventListener('dblclick', this.handleDblClick);
             this.draw.node.addEventListener('contextmenu', this.handleContextMenu);
+            this.draw.node.addEventListener('mouseleave', this.handleMouseLeave);
         }
 
         window.addEventListener('mousemove', this.handleMouseMove);
@@ -1262,6 +1411,7 @@ class SVGMainToolbar extends SVGToolbarBase {
             this.draw.node.removeEventListener('mousedown', this.handleMouseDown, true);
             this.draw.node.removeEventListener('dblclick', this.handleDblClick);
             this.draw.node.removeEventListener('contextmenu', this.handleContextMenu);
+            this.draw.node.removeEventListener('mouseleave', this.handleMouseLeave);
         }
         window.removeEventListener('mousemove', this.handleMouseMove);
         window.removeEventListener('mouseup', this.handleMouseUp);
@@ -1288,6 +1438,7 @@ class SVGMainToolbar extends SVGToolbarBase {
     onMouseDown(e) {
         if (e.button === 2) return;
 
+        console.log('[SVG Toolbar Debug] onMouseDown: currentTool =', this.currentTool);
 
         if (this.currentTool === 'select') {
             return;
@@ -1297,6 +1448,7 @@ class SVGMainToolbar extends SVGToolbarBase {
 
         const pt = this.draw.point(e.clientX, e.clientY);
         if (this.activeToolInstance) {
+            console.log('[SVG Toolbar Debug] activeToolInstance.mousedown is called for', this.currentTool);
             this.activeToolInstance.mousedown(e, pt);
         }
     }
@@ -1311,6 +1463,15 @@ class SVGMainToolbar extends SVGToolbarBase {
         if (e.button === 2 || this.currentTool === 'select' || !this.activeToolInstance || !this.draw) return;
         const pt = this.draw.point(e.clientX, e.clientY);
         this.activeToolInstance.mouseup(e, pt);
+    }
+
+    onMouseLeave(e) {
+        if (window.SVGConnectorManager && this.draw) {
+            window.SVGConnectorManager.hideAllConnectors(this.draw);
+        }
+        if (this.activeToolInstance) {
+            this.activeToolInstance._hoverConnectorCache = null;
+        }
     }
 
     refreshToolbar() {

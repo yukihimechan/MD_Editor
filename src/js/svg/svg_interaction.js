@@ -20,6 +20,14 @@ function makeInteractive(el) {
     const tagName = el.node.tagName.toLowerCase();
     if (['tspan', 'textpath'].includes(tagName)) return;
 
+    // [NEW] グラデーション内部の構成要素（輪郭線やクリップ背景など）はインタラクティブ化しない
+    if (el.hasClass('svg-gradient-stroke') || (el.node.closest && el.node.closest('[data-has-gradient="true"]'))) {
+        const gradParent = el.node.closest('[data-has-gradient="true"]');
+        if (gradParent && gradParent !== el.node) {
+            return;
+        }
+    }
+
     // [NEW] 別の図形に関連付けられたテキスト要素はインタラクティブ化しない（単独で選択させない）
     if (tagName === 'text' && el.attr && el.attr('data-associated-shape-id')) {
         el.css('pointer-events', 'none');
@@ -120,6 +128,11 @@ function selectElement(el, isMulti, silent = false, force = false) {
     // [FIX] CSS 編集モード中は、プレビュー以外の要素を選択させない
     if (window.currentEditingSVG._inCSSEditMode) {
         console.log(`[selectElement] BLOCKED: In CSS Edit Mode.`);
+        return;
+    }
+
+    // [FIX] グラデーション編集モード中は、選択変更をロックする
+    if (window.currentEditingSVG._inGradientEditMode) {
         return;
     }
 
@@ -249,6 +262,13 @@ function selectElement(el, isMulti, silent = false, force = false) {
             if (typeof window.styleToolbar.updateFromSelection === 'function') {
                 window.styleToolbar.updateFromSelection();
             }
+        }
+    }
+
+    if (window.gradientToolbar) {
+        window.gradientToolbar.show();
+        if (typeof window.gradientToolbar.updateFromSelection === 'function') {
+            window.gradientToolbar.updateFromSelection();
         }
     }
 
@@ -474,6 +494,10 @@ window.deselectElement = deselectElement;
 function deselectAll(silent = false) {
     if (!window.currentEditingSVG) return;
 
+    if (window.currentEditingSVG._inGradientEditMode) {
+        return;
+    }
+
     // [FIX] CSS 編集モード中は、選択を一斉解除させない（プレビュー選択を維持するため）
     if (window.currentEditingSVG._inCSSEditMode) {
         console.log(`[deselectAll] BLOCKED: In CSS Edit Mode.`);
@@ -508,6 +532,10 @@ function deselectAll(silent = false) {
     // [NEW] 同期ハイライトの更新呼び出し
     if (typeof window.updateSVGSourceHighlight === 'function') {
         window.updateSVGSourceHighlight();
+    }
+
+    if (window.gradientToolbar && typeof window.gradientToolbar.updateFromSelection === 'function') {
+        window.gradientToolbar.updateFromSelection();
     }
 
     // [NEW] SVGリスト情報の再構築

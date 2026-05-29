@@ -15,7 +15,12 @@ const SVGConnectorManager = {
         // [FIX] ctm() ではなく getScreenCTM() を使用して、ルートSVGのユーザー座標系への行列を計算します。
         // これにより、SVG全体のズーム（viewBox）やパンの影響を正しく排除できます。
         const node = el.node;
-        const root = el.root().node;
+        if (!node || typeof node.getScreenCTM !== 'function') return [];
+
+        const rootEl = el.root();
+        const root = rootEl ? rootEl.node : null;
+        if (!root || typeof root.getScreenCTM !== 'function') return [];
+
         const rootScreenCTM = root.getScreenCTM();
         const nodeScreenCTM = node.getScreenCTM();
 
@@ -75,7 +80,8 @@ const SVGConnectorManager = {
         const tagName = node.tagName.toLowerCase();
         const excludedTags = [
             'defs', 'style', 'marker', 'symbol', 'metadata', 'script', 'title', 'desc',
-            'svg', 'foreignobject', 'polyline', 'line', 'text', 'tspan', 'connector-data'
+            'svg', 'foreignobject', 'polyline', 'line', 'text', 'tspan', 'connector-data',
+            'clippath', 'filter', 'lineargradient', 'radialgradient', 'fegaussianblur', 'fe-gaussian-blur'
         ];
         if (excludedTags.includes(tagName)) return false;
 
@@ -190,7 +196,7 @@ const SVGConnectorManager = {
     /**
      * 現在のマウス座標（ワールド座標）から、一定距離内にある図形のコネクタポイントのみを表示します。
      */
-    updateConnectorDisplay(draw, cache, mousePt, zoom = 100) {
+    updateConnectorDisplay(draw, cache, mousePt, zoom = 100, excludeEl = null) {
         this.hideAllConnectors(draw);
         if (!cache || cache.length === 0) return;
 
@@ -201,8 +207,38 @@ const SVGConnectorManager = {
 
         // 閾値をワールド座標系に換算 (画面上の 80px 程度)
         const threshold = 80 / (zoom / 100);
+        // スナップ閾値もワールド座標系に換算 (画面上の 20px 程度)
+        const snapThreshold = 20 / (zoom / 100);
+
+        // 1. 全てのキャッシュポイントから、最も近いポイントを見つける
+        let nearestPt = null;
+        let minSnapDist = snapThreshold;
 
         cache.forEach(shape => {
+            if (excludeEl) {
+                if (shape.id === excludeEl.id()) return;
+                if (excludeEl.node && shape.el && shape.el.node && (excludeEl.node === shape.el.node || excludeEl.node.contains(shape.el.node))) {
+                    return;
+                }
+            }
+            shape.points.forEach(p => {
+                const dist = Math.hypot(p.x - mousePt.x, p.y - mousePt.y);
+                if (dist < minSnapDist) {
+                    minSnapDist = dist;
+                    nearestPt = p;
+                }
+            });
+        });
+
+        // 2. 描画処理
+        cache.forEach(shape => {
+            if (excludeEl) {
+                if (shape.id === excludeEl.id()) return;
+                if (excludeEl.node && shape.el && shape.el.node && (excludeEl.node === shape.el.node || excludeEl.node.contains(shape.el.node))) {
+                    return;
+                }
+            }
+
             // 各接続ポイントとの最小距離を求める
             let minDistance = Infinity;
             shape.points.forEach(p => {
@@ -214,13 +250,17 @@ const SVGConnectorManager = {
 
             // 最小距離が閾値以下のとき、その図形のすべての接続ポイントを描画
             if (minDistance <= threshold) {
-                console.log(`[SVG Connector DEBUG] Showing connectors for: ${shape.id} (type: ${shape.el ? shape.el.type : 'unknown'}, minDist: ${minDistance.toFixed(1)}, threshold: ${threshold.toFixed(1)})`);
                 shape.points.forEach(p => {
-                    const c = group.circle(8)
+                    const isNearest = (nearestPt && nearestPt.id === p.id && nearestPt.index === p.index);
+                    const size = isNearest ? 12 : 8;
+                    const fill = isNearest ? '#ff3b30' : '#0366d6';
+                    const opacity = isNearest ? 1.0 : 0.8;
+
+                    const c = group.circle(size)
                         .center(p.x, p.y)
-                        .fill('#0366d6')
+                        .fill(fill)
                         .stroke({ color: '#fff', width: 1.5 })
-                        .opacity(0.8);
+                        .opacity(opacity);
 
                     if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
                         window.SVGUtils.updateHandleScaling(c, zoom);

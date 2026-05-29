@@ -3,9 +3,10 @@
  * [最適化版] requestAnimationFrame と各種キャッシュ（DOM, CTM, データ）を導入
  */
 class SvgPolylineHandler {
-    constructor(container, onUpdate) {
+    constructor(container, onUpdate, options = {}) {
         this.container = container;
         this.onUpdate = onUpdate;
+        this.options = options;
         this.handleGroup = null;
         this.activeNode = null;
         this.overlayGroup = null;
@@ -150,7 +151,7 @@ class SvgPolylineHandler {
 
                 const handlePoint = this.getHandlePoint(midPt, node, this.overlayGroup, ctmCache);
                 const midCircleWrap = SVG(this.handleGroup).circle(6)
-                    .fill('#ffec3d').attr('fill-opacity', '0.5')
+                    .fill(this.options.customColor || '#ffec3d').attr('fill-opacity', '0.5')
                     .stroke({color: '#333', width: 1})
                     .attr('cursor', 'grab')
                     .addClass('midpoint-handle')
@@ -174,24 +175,43 @@ class SvgPolylineHandler {
         points.forEach((pt, index) => {
             const handlePoint = this.getHandlePoint(pt, node, this.overlayGroup, ctmCache);
             const circleWrap = SVG(this.handleGroup).circle(10)
-                .fill('#ffec3d')
+                .fill(this.options.customColor || '#ffec3d')
                 .stroke({color: '#333', width: 1})
                 .attr('cursor', 'move')
-                .addClass('polyline-handle')
-                .attr({
-                    'data-type': 'vertex',
-                    'data-index': index,
-                    'pointer-events': 'all',
-                    'cx': handlePoint.x,
-                    'cy': handlePoint.y
-                });
+                .addClass('polyline-handle');
+                
+            if (this.options.handleClass) {
+                circleWrap.addClass(this.options.handleClass);
+            }
+
+            circleWrap.attr({
+                'data-type': 'vertex',
+                'data-index': index,
+                'pointer-events': 'all',
+                'cx': handlePoint.x,
+                'cy': handlePoint.y
+            });
             const circle = circleWrap.node;
 
             if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
                 window.SVGUtils.updateHandleScaling(circle);
             }
+
+            // 【再調査デバッグログ】各マウスイベントのログ
+            circle.addEventListener('mouseenter', (e) => { console.log('[SvgPolylineHandler DEBUG] handle mouseenter. index:', index, 'node:', circle); });
+            circle.addEventListener('mouseleave', (e) => { console.log('[SvgPolylineHandler DEBUG] handle mouseleave. index:', index, 'node:', circle); });
+            circle.addEventListener('mouseover', (e) => { console.log('[SvgPolylineHandler DEBUG] handle mouseover. index:', index, 'node:', circle); });
+            circle.addEventListener('mouseout', (e) => { console.log('[SvgPolylineHandler DEBUG] handle mouseout. index:', index, 'node:', circle); });
+
             this.bindVertexDrag(circle, index);
             this.bindVertexDblClick(circle, index);
+            
+            if (this.options.onVertexClick) {
+                circle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.options.onVertexClick(e, index);
+                });
+            }
         });
 
         if (tagName === 'path') {
@@ -659,11 +679,11 @@ class SvgPolylineHandler {
             const currentCtmCache = this._createCTMCache(this.activeNode, this.overlayGroup);
 
             const isAlt = SVGUtils.isSnapEnabled(e);
-            if (!isAlt && window.SVGConnectorManager && this._connectorCache) {
+            if (!isAlt && window.SVGConnectorManager && this._connectorCache && !this.options.disableConnectors) {
                 const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
                 const worldPt = this._dragRootCTMInv ? new SVG.Point(e.clientX, e.clientY).transform(this._dragRootCTMInv) : draw.point(e.clientX, e.clientY);
                 window.SVGConnectorManager.updateConnectorDisplay(draw, this._connectorCache, worldPt, zoom);
-            } else if (window.SVGConnectorManager) {
+            } else if (window.SVGConnectorManager && !this.options.disableConnectors) {
                 window.SVGConnectorManager.hideAllConnectors(draw);
             }
 
@@ -672,7 +692,7 @@ class SvgPolylineHandler {
             const points = this._dragPoints;
             const endType = (vIdx === 0) ? 'start' : (vIdx === points.length - 1 ? 'end' : null);
 
-            if (!isAlt && endType && window.SVGConnectorManager) {
+            if (!isAlt && endType && window.SVGConnectorManager && !this.options.disableConnectors) {
                 // [NEW] getScreenCTM() の呼び出しを回避
                 const worldPt = this._dragRootCTMInv ? new SVG.Point(e.clientX, e.clientY).transform(this._dragRootCTMInv) : draw.point(e.clientX, e.clientY);
                 const nearest = window.SVGConnectorManager.findNearestConnector(draw, worldPt, 20, SVG(this.activeNode));
@@ -706,7 +726,7 @@ class SvgPolylineHandler {
                 } else {
                     window.SVGConnectorManager.disconnect(SVG(this.activeNode), endType);
                 }
-            } else if (endType && window.SVGConnectorManager) {
+            } else if (endType && window.SVGConnectorManager && !this.options.disableConnectors) {
                 window.SVGConnectorManager.disconnect(SVG(this.activeNode), endType);
             }
 
@@ -839,7 +859,7 @@ class SvgPolylineHandler {
             }
             this._isSnappedToClose = false;
 
-            if (window.SVGConnectorManager && this.activeNode) {
+            if (window.SVGConnectorManager && this.activeNode && !this.options.disableConnectors) {
                 const draw = SVG(this.activeNode.ownerSVGElement);
                 window.SVGConnectorManager.hideAllConnectors(draw);
             }
@@ -887,7 +907,7 @@ class SvgPolylineHandler {
             if (draw && draw.node) {
                 this._dragRootCTMInv = draw.node.getScreenCTM().inverse();
             }
-            if (window.SVGConnectorManager && draw) {
+            if (window.SVGConnectorManager && draw && !this.options.disableConnectors) {
                 this._connectorCache = window.SVGConnectorManager.cacheConnectorPoints(draw, SVG(this.activeNode));
             }
 
@@ -949,11 +969,11 @@ class SvgPolylineHandler {
 
             // ドラッグ中のリアルタイム近接接続表示
             const isAlt = SVGUtils.isSnapEnabled(e);
-            if (!isAlt && window.SVGConnectorManager && this._connectorCache && draw) {
+            if (!isAlt && window.SVGConnectorManager && this._connectorCache && draw && !this.options.disableConnectors) {
                 const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
                 const worldPt = this._dragRootCTMInv ? new SVG.Point(e.clientX, e.clientY).transform(this._dragRootCTMInv) : draw.point(e.clientX, e.clientY);
                 window.SVGConnectorManager.updateConnectorDisplay(draw, this._connectorCache, worldPt, zoom);
-            } else if (window.SVGConnectorManager && draw) {
+            } else if (window.SVGConnectorManager && draw && !this.options.disableConnectors) {
                 window.SVGConnectorManager.hideAllConnectors(draw);
             }
 
@@ -1032,7 +1052,7 @@ class SvgPolylineHandler {
 
             if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
 
-            if (window.SVGConnectorManager && this.activeNode) {
+            if (window.SVGConnectorManager && this.activeNode && !this.options.disableConnectors) {
                 const draw = SVG(this.activeNode.ownerSVGElement);
                 window.SVGConnectorManager.hideAllConnectors(draw);
             }
@@ -1072,7 +1092,7 @@ class SvgPolylineHandler {
             if (draw && draw.node) {
                 this._dragRootCTMInv = draw.node.getScreenCTM().inverse();
             }
-            if (window.SVGConnectorManager && draw) {
+            if (window.SVGConnectorManager && draw && !this.options.disableConnectors) {
                 this._connectorCache = window.SVGConnectorManager.cacheConnectorPoints(draw, SVG(this.activeNode));
             }
 
