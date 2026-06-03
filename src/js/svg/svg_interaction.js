@@ -272,6 +272,22 @@ function selectElement(el, isMulti, silent = false, force = false) {
         }
     }
 
+    // [NEW] エアブラシツールバーの選択状態を更新
+    if (window.airbrushToolbar) {
+        window.airbrushToolbar.show();
+        if (typeof window.airbrushToolbar.updateFromSelection === 'function') {
+            window.airbrushToolbar.updateFromSelection();
+        }
+    }
+
+    // [NEW] シャドウツールバーの選択状態を更新
+    if (window.shadowToolbar) {
+        window.shadowToolbar.show();
+        if (typeof window.shadowToolbar.updateFromSelection === 'function') {
+            window.shadowToolbar.updateFromSelection();
+        }
+    }
+
     // [NEW] CSSツールバーの選択状態を更新
     if (window.cssToolbar && typeof window.cssToolbar.updateFromSelection === 'function') {
         window.cssToolbar.updateFromSelection();
@@ -406,6 +422,7 @@ function selectElement(el, isMulti, silent = false, force = false) {
     });
 
     // [NEW] 回転時（rot）のリアルタイム追従（SVG.jsネイティブ）
+    el.off('rot');
     el.on('rot', (e) => {
         // [LOCK GUARD]
         const isLocked = el.attr('data-locked') === 'true' || el.attr('data-locked') === true;
@@ -422,6 +439,9 @@ function selectElement(el, isMulti, silent = false, force = false) {
     });
 
     // [NEW] 確実なトラッキングのためのMutationObserver (transform属性監視)
+    if (el.node._transformObserver) {
+        el.node._transformObserver.disconnect();
+    }
     const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
             if (mutation.type === 'attributes' && mutation.attributeName === 'transform') {
@@ -430,21 +450,20 @@ function selectElement(el, isMulti, silent = false, force = false) {
                 }
                 const shape = el.remember('_shapeInstance');
                 if (shape && typeof shape.syncSelectionHandlers === 'function') {
-                    // CTMが更新されるよう、少し遅延させるか同期実行
                     shape.syncSelectionHandlers();
                 }
             }
         }
     });
     observer.observe(el.node, { attributes: true, attributeFilter: ['transform'] });
-
-    // [REMOVED] Canvasのハンドル制限のための setTimeout を除去
-    // SvgShape.applySelectionUI 内で updateCanvasUI(true) を呼ぶようにしたため、この遅延実行は不要かつ
-    // 「行ったり来たり（Jumping）」の原因となる。
+    el.node._transformObserver = observer; // 参照を保存して重複を防ぐ
 
     // クリーンアップ処理を登録
     el.on('remove.selection cleanup.selection', () => {
-        observer.disconnect();
+        if (el.node._transformObserver) {
+            el.node._transformObserver.disconnect();
+            el.node._transformObserver = null;
+        }
     });
 
     // [NEW] SVGリスト情報の再構築（キャンバス選択を反映）
@@ -471,6 +490,12 @@ function deselectElement(el, silent = false) {
         if (typeof el.select === 'function') el.select(false);
         if (typeof el.resize === 'function') el.resize(false);
         el.off('.selection');
+
+        // [NEW] 監視プログラムを完全に停止
+        if (el.node && el.node._transformObserver) {
+            el.node._transformObserver.disconnect();
+            el.node._transformObserver = null;
+        }
 
         window.currentEditingSVG.selectedElements.delete(el);
 
@@ -536,6 +561,10 @@ function deselectAll(silent = false) {
 
     if (window.gradientToolbar && typeof window.gradientToolbar.updateFromSelection === 'function') {
         window.gradientToolbar.updateFromSelection();
+    }
+
+    if (window.shadowToolbar && typeof window.shadowToolbar.updateFromSelection === 'function') {
+        window.shadowToolbar.updateFromSelection();
     }
 
     // [NEW] SVGリスト情報の再構築

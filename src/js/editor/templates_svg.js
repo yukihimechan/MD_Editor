@@ -4,7 +4,7 @@
 const SVG_TEMPLATES = {
     'ja': [
         {
-            id: 'svg-system-arch',
+            id: 'svg-empty',
             title: '新規作成',
             content: '```svg\n<svg width="820" height="350" viewBox="0 0 820 350" xmlns="http://www.w3.org/2000/svg">\n  </svg>\n```\n'
         },

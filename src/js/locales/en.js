@@ -280,7 +280,8 @@ I18n.register('en', 'English', {
         "deleteCustomTool": "Are you sure you want to delete custom tool \\\"${toolId}\\\"?",
         "overwriteStyle": "<style> tag already exists. Overwrite?\\nSelect 'Cancel' to append instead.",
         "clearCanvas": "Are you sure you want to clear the entire canvas?",
-        "resizeCanvas": "Resize canvas to ${newW} × ${newH}?\\nCurrent content will be cleared."
+        "resizeCanvas": "Resize canvas to ${newW} × ${newH}?\\nCurrent content will be cleared.",
+        "renumberThisHeadingConfirm": "Are you sure you want to renumber headings below the heading: {{title}}?"
     },
     "contextMenuEditor": {
         "cut": "Cut",
@@ -322,6 +323,7 @@ I18n.register('en', 'English', {
         "svg": "SVG",
         "mermaid": "Mermaid",
         "renumberHeadings": "Renumber Headings",
+        "renumberThisHeading": "Renumber this heading",
         "editObject": "Edit Object",
         "deleteObject": "Delete"
     },

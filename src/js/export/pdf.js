@@ -224,12 +224,43 @@ async function exportPDFAsImage(orientation = 'portrait') {
                 // SVGをIMGタグに置き換え（html2canvasはIMGを正しくキャプチャできる）
                 const imgEl = document.createElement('img');
                 imgEl.src = cvs.toDataURL('image/png');
+                
+                // 元のSVGの属性（id, class, style等）をコピー。
+                // SVG固有の属性やサイズ計算に影響する属性は除外する。
+                const excludeAttrs = ['width', 'height', 'viewBox', 'xmlns', 'xmlns:xlink', 'version'];
+                for (const attr of svg.attributes) {
+                    if (!excludeAttrs.includes(attr.name) && !attr.name.startsWith('xmlns:')) {
+                        imgEl.setAttribute(attr.name, attr.value);
+                    }
+                }
+                
+                // 変換用のレイアウトスタイルを上書き適用（元のstyle.width/heightなどを上書き）
                 imgEl.style.width = targetW + 'px';
                 imgEl.style.height = targetH + 'px';
                 imgEl.style.display = 'block';
                 imgEl.style.margin = '0 auto';
                 imgEl.setAttribute('data-pdf-converted-svg', '1');
+
                 svg.parentNode.replaceChild(imgEl, svg);
+
+                // [FIX] SVG→IMG変換後、親ラッパー(svg-view-wrapper)のdata-computed-heightを更新する。
+                // PageSplitterはこの属性を参照してページ分割の高さ計算を行うため、
+                // 変換後のIMGの実際の高さに合わせないと、ページ分割が不正になり
+                // 見出しが消失したりコンテンツが途中で切れる原因になる。
+                const svgParent = imgEl.parentElement;
+                if (svgParent) {
+                    if (svgParent.hasAttribute('data-computed-height')) {
+                        svgParent.setAttribute('data-computed-height', String(targetH));
+                    }
+                    if (svgParent.hasAttribute('data-original-height')) {
+                        svgParent.setAttribute('data-original-height', String(targetH));
+                    }
+                    // 親の親（code-block-wrapper等）にも同じ属性があれば更新
+                    const grandParent = svgParent.parentElement;
+                    if (grandParent && grandParent.hasAttribute('data-computed-height')) {
+                        grandParent.setAttribute('data-computed-height', String(targetH));
+                    }
+                }
             } catch (e) {
                 console.warn('[PDF Fix] SVG変換中にエラー（スキップ）:', e);
             }
@@ -238,6 +269,15 @@ async function exportPDFAsImage(orientation = 'portrait') {
         // [FIX] Mermaid編集ボタンなど印刷不要なUI要素を非表示にする
         clonedPreview.querySelectorAll('.btn-save-mermaid, .btn-expand-mermaid, .code-edit-btn, .mermaid-edit-overlay').forEach(el => {
             el.style.display = 'none';
+        });
+        // [FIX] content-visibility: auto はパフォーマンス最適化のために
+        // ビューポート外の要素の高さを contain-intrinsic-size（デフォルト400px）で代替するが、
+        // PDF出力の計測コンテナ（visibility:hidden）内ではSVGの実際の高さが反映されず、
+        // PageSplitterが常に400pxの高さで計算してしまいページ分割が正しく行われない。
+        // クローン内では content-visibility を無効化して正確な高さ計測を保証する。
+        clonedPreview.querySelectorAll('.svg-view-wrapper').forEach(el => {
+            el.style.contentVisibility = 'visible';
+            el.style.containIntrinsicSize = 'none';
         });
 
         const pages = await PageSplitter.splitToPages(clonedPreview, pageHeightPx, elementWidthPx);

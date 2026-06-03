@@ -229,7 +229,11 @@ const SVGUtils = {
 
             // [FIX] Use getCTM() instead of getScreenCTM() to avoid browser zoom drift.
             const nodeMatrix = node.getCTM();
-            const overlayMatrix = (overlay && typeof overlay.getCTM === 'function') ? overlay.getCTM() : null;
+            // [FIX] overlay が SVG.js 要素の場合は .node から DOM の getCTM() を取得する
+            // SVG.js 要素には DOM メソッドの getCTM が直接存在しない場合があり、
+            // null が返されるとハンドル位置がパン後にずれる
+            const overlayNode = overlay && overlay.node ? overlay.node : overlay;
+            const overlayMatrix = (overlayNode && typeof overlayNode.getCTM === 'function') ? overlayNode.getCTM() : null;
 
             if (nodeMatrix) {
                 // Transform local point to SVG world coordinate
@@ -797,6 +801,311 @@ const SVGUtils = {
         }
         
         return lines;
+    },
+
+    // =========================================================================
+    // 線の交差ブリッジ（飛び越え）ユーティリティ
+    // =========================================================================
+
+    /**
+     * SVG要素（path/polyline/line）から直線セグメントの配列を抽出する。
+     * @param {SVGElement} node DOM要素
+     * @returns {Array<{x1:number,y1:number,x2:number,y2:number}>} セグメント配列
+     */
+    getLineSegments(node) {
+        if (!node) return [];
+        const tagName = node.tagName.toLowerCase();
+
+        if (tagName === 'line') {
+            return [{
+                x1: parseFloat(node.getAttribute('x1')) || 0,
+                y1: parseFloat(node.getAttribute('y1')) || 0,
+                x2: parseFloat(node.getAttribute('x2')) || 0,
+                y2: parseFloat(node.getAttribute('y2')) || 0
+            }];
+        }
+
+        // data-poly-pointsからポイントを取得
+        let pointsStr = node.getAttribute('data-poly-points') || node.getAttribute('points');
+        if (!pointsStr && tagName === 'path') {
+            // pathの場合はd属性からパース（フォールバック）
+            try {
+                const el = node.instance || (typeof SVG === 'function' ? SVG(node) : null);
+                if (el && typeof el.array === 'function') {
+                    const pts = [];
+                    el.array().forEach(seg => {
+                        const coords = seg.slice(1);
+                        if (coords.length >= 2) {
+                            pts.push([coords[coords.length - 2], coords[coords.length - 1]]);
+                        }
+                    });
+                    const segments = [];
+                    for (let i = 0; i < pts.length - 1; i++) {
+                        segments.push({
+                            x1: pts[i][0], y1: pts[i][1],
+                            x2: pts[i + 1][0], y2: pts[i + 1][1]
+                        });
+                    }
+                    return segments;
+                }
+            } catch (e) { }
+            return [];
+        }
+
+        if (!pointsStr) return [];
+
+        const parts = pointsStr.split(/\s+/).filter(s => s !== '');
+        const pts = [];
+        parts.forEach(p => {
+            const isM = p.startsWith('M');
+            const coord = (isM ? p.substring(1) : p).split(',');
+            const x = parseFloat(coord[0]);
+            const y = parseFloat(coord[1]);
+            if (!isNaN(x) && !isNaN(y)) pts.push({ x, y, isM });
+        });
+
+        const segments = [];
+        for (let i = 0; i < pts.length - 1; i++) {
+            // Mコマンド（移動）の場合は前のセグメントと繋がないためスキップ
+            if (pts[i + 1].isM) continue;
+            segments.push({
+                x1: pts[i].x, y1: pts[i].y,
+                x2: pts[i + 1].x, y2: pts[i + 1].y
+            });
+        }
+        return segments;
+    },
+
+    /**
+     * 2つのセグメント群の交差点を求める。
+     * クロス積ベースの線分交差アルゴリズムを使用。
+     * @param {Array} segmentsA 新しく引いた線のセグメント群
+     * @param {Array} segmentsB 既存の線のセグメント群
+     * @param {Object} options オプション { angleFilter: boolean, angleTolerance: number }
+     * @returns {Array<{x:number,y:number,segIdxA:number,t:number,angle:number}>}
+     */
+    findIntersections(segmentsA, segmentsB, options = {}) {
+        const results = [];
+        const angleFilter = options.angleFilter !== false; // デフォルトON
+        const angleTolerance = options.angleTolerance || 5; // 度
+
+        for (let i = 0; i < segmentsA.length; i++) {
+            const a = segmentsA[i];
+            const ax = a.x2 - a.x1, ay = a.y2 - a.y1;
+
+            for (let j = 0; j < segmentsB.length; j++) {
+                const b = segmentsB[j];
+                const bx = b.x2 - b.x1, by = b.y2 - b.y1;
+
+                // クロス積
+                const denom = ax * by - ay * bx;
+                if (Math.abs(denom) < 1e-10) continue; // 平行
+
+                const cx = b.x1 - a.x1, cy = b.y1 - a.y1;
+                const t = (cx * by - cy * bx) / denom;
+                const u = (cx * ay - cy * ax) / denom;
+
+                // 両セグメントの端点ちょうどは除外（端点は飛び越え不要なため）
+                const eps = 0.001;
+                if (t <= eps || t >= 1 - eps || u <= eps || u >= 1 - eps) continue;
+
+                // 交差角度を計算
+                const dotAB = ax * bx + ay * by;
+                const lenA = Math.hypot(ax, ay);
+                const lenB = Math.hypot(bx, by);
+                let angleDeg = Math.acos(Math.min(1, Math.abs(dotAB) / (lenA * lenB))) * (180 / Math.PI);
+
+                // 交差角度フィルタ: 90度 or 45度 に近い場合のみ
+                if (angleFilter) {
+                    const near90 = Math.abs(angleDeg - 90) <= angleTolerance;
+                    const near45 = Math.abs(angleDeg - 45) <= angleTolerance;
+                    if (!near90 && !near45) continue;
+                }
+
+                results.push({
+                    x: a.x1 + ax * t,
+                    y: a.y1 + ay * t,
+                    segIdxA: i,
+                    t: t,
+                    angle: angleDeg
+                });
+            }
+        }
+
+        // 同一セグメント上の交差点はtの昇順でソート
+        results.sort((a, b) => {
+            if (a.segIdxA !== b.segIdxA) return a.segIdxA - b.segIdxA;
+            return a.t - b.t;
+        });
+
+        return results;
+    },
+
+    /**
+     * 新しい線のバウンディングボックスと重なるSVG線要素のみを返す（事前フィルタリング）。
+     * @param {SVGElement} svgRoot SVGルート要素（DOMノード）
+     * @param {Array} newLineSegments 新しい線のセグメント配列
+     * @param {SVGElement} excludeNode 除外する要素（新しい線自体）
+     * @returns {Array<SVGElement>} 候補となる線要素の配列
+     */
+    filterCandidateLines(svgRoot, newLineSegments, excludeNode) {
+        if (!svgRoot || !newLineSegments || newLineSegments.length === 0) return [];
+
+        // 新しい線全体のバウンディングボックスを計算（マージン付き）
+        const margin = 10;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        newLineSegments.forEach(seg => {
+            minX = Math.min(minX, seg.x1, seg.x2);
+            minY = Math.min(minY, seg.y1, seg.y2);
+            maxX = Math.max(maxX, seg.x1, seg.x2);
+            maxY = Math.max(maxY, seg.y1, seg.y2);
+        });
+        minX -= margin; minY -= margin;
+        maxX += margin; maxY += margin;
+
+        const candidates = [];
+        // path, polyline, line 要素を走査
+        const allLines = svgRoot.querySelectorAll('path, polyline, line');
+        allLines.forEach(el => {
+            // 自身は除外
+            if (el === excludeNode) return;
+            // オーバーレイ要素やハンドル要素は除外
+            if (el.closest('.overlay-group') || el.closest('.polyline-handle-group') ||
+                el.closest('.svg-grad-skeleton-hitarea') || el.closest('.svg-grad-skeleton-line')) return;
+            // マーカー定義内の要素は除外
+            if (el.closest('defs') || el.closest('marker')) return;
+            // 非表示要素は除外
+            if (el.getAttribute('display') === 'none' || el.getAttribute('visibility') === 'hidden') return;
+            // fillがnoneでない閉じた図形（rect等のpath表現）は除外
+            const fill = el.getAttribute('fill');
+            const isClosed = el.getAttribute('data-poly-closed') === 'true';
+            if (isClosed && fill && fill !== 'none') return;
+
+            // getBBoxでAABB重複判定
+            try {
+                const bbox = el.getBBox();
+                if (bbox.width === 0 && bbox.height === 0) return;
+                // AABB重複判定
+                if (bbox.x + bbox.width < minX || bbox.x > maxX) return;
+                if (bbox.y + bbox.height < minY || bbox.y > maxY) return;
+                candidates.push(el);
+            } catch (e) {
+                // getBBoxが失敗する場合はスキップ
+            }
+        });
+
+        return candidates;
+    },
+
+    /**
+     * 交差点にブリッジ（飛び越え）用の頂点とベジェ制御点を挿入する。
+     * @param {Array} points 元のポイント配列 [[x,y], ...]
+     * @param {Array} bezData 元のベジェデータ配列
+     * @param {Array} intersections findIntersectionsの結果
+     * @param {number} bridgeRadius ブリッジの弧の半径（デフォルト6）
+     * @returns {{points: Array, bezData: Array}} 更新されたポイントとベジェデータ
+     */
+    generateBridgePoints(points, bezData, intersections, bridgeRadius = 6) {
+        if (!intersections || intersections.length === 0) return { points, bezData };
+
+        // 近接する交差点を重複排除（2*bridgeRadius以内の交差点は1つにまとめる）
+        // 既存の線が複数セグメントを持つ場合、同じ位置で複数回検出されることがある
+        const deduped = [];
+        for (const inter of intersections) {
+            let isDuplicate = false;
+            for (const existing of deduped) {
+                const dist = Math.hypot(inter.x - existing.x, inter.y - existing.y);
+                if (dist < bridgeRadius * 2) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+            if (!isDuplicate) deduped.push(inter);
+        }
+
+        // 逆順に処理（後ろの交差点からinserting すると、前のインデックスがずれない）
+        const sortedIntersections = [...deduped].sort((a, b) => {
+            if (a.segIdxA !== b.segIdxA) return b.segIdxA - a.segIdxA;
+            return b.t - a.t;
+        });
+
+        // ディープコピー
+        const newPoints = points.map(p => [...p]);
+        const newBezData = bezData.map(b => b ? { ...b, cpIn: b.cpIn ? [...b.cpIn] : null, cpOut: b.cpOut ? [...b.cpOut] : null } : { type: 0 });
+
+        // bezData の長さを points に合わせる
+        while (newBezData.length < newPoints.length) {
+            newBezData.push({ type: 0 });
+        }
+
+        for (const inter of sortedIntersections) {
+            const segIdx = inter.segIdxA;
+            // segIdx は points[segIdx] → points[segIdx+1] のセグメントを指す
+            if (segIdx < 0 || segIdx + 1 >= newPoints.length) continue;
+
+            const p1 = newPoints[segIdx];
+            const p2 = newPoints[segIdx + 1];
+
+            // セグメントの方向ベクトル
+            const dx = p2[0] - p1[0];
+            const dy = p2[1] - p1[1];
+            const len = Math.hypot(dx, dy);
+            if (len < bridgeRadius * 3) continue; // セグメントが短すぎる場合はスキップ
+
+            const dirX = dx / len;
+            const dirY = dy / len;
+
+            // 垂直ベクトル（弧の方向）— 常に「上」方向を優先
+            // 線が水平に近い場合は上(y負方向)、垂直に近い場合は右(x正方向)
+            let perpX = -dirY;
+            let perpY = dirX;
+            // 弧が上向き（y座標が小さい方）になるように調整
+            if (perpY > 0) {
+                perpX = -perpX;
+                perpY = -perpY;
+            }
+
+            // ブリッジの3点: before（直線上）, apex（半円の頂上）, after（直線上）
+            const beforeX = inter.x - dirX * bridgeRadius;
+            const beforeY = inter.y - dirY * bridgeRadius;
+            const afterX = inter.x + dirX * bridgeRadius;
+            const afterY = inter.y + dirY * bridgeRadius;
+            const apexX = inter.x + perpX * bridgeRadius;
+            const apexY = inter.y + perpY * bridgeRadius;
+
+            // apex のベジェハンドル: 線の方向(dir)に沿って ±radius 伸ばす
+            // before/after は type:0（ハンドルなし）なので、
+            // apex を消すだけで before→after が直線（Lコマンド）に戻る
+            const cpApexInX = apexX - dirX * bridgeRadius;
+            const cpApexInY = apexY - dirY * bridgeRadius;
+            const cpApexOutX = apexX + dirX * bridgeRadius;
+            const cpApexOutY = apexY + dirY * bridgeRadius;
+
+            // segIdx+1 の位置に3点を挿入（後ろから挿入してインデックスがずれないようにする）
+            const insertIdx = segIdx + 1;
+
+            // afterPoint を挿入（直線上、ハンドルなし）
+            newPoints.splice(insertIdx, 0, [afterX, afterY]);
+            newBezData.splice(insertIdx, 0, {
+                type: 0 // 角（ハンドルなし）→ apex削除後もL(直線)コマンドになる
+            });
+
+            // apexPoint を挿入（半円の頂上 — この1点を消すと直線に戻る）
+            newPoints.splice(insertIdx, 0, [apexX, apexY]);
+            newBezData.splice(insertIdx, 0, {
+                type: 2, // カスプ（ベジェハンドル付き）
+                cpIn: [cpApexInX, cpApexInY],
+                cpOut: [cpApexOutX, cpApexOutY]
+            });
+
+            // beforePoint を挿入（直線上、ハンドルなし）
+            newPoints.splice(insertIdx, 0, [beforeX, beforeY]);
+            newBezData.splice(insertIdx, 0, {
+                type: 0 // 角（ハンドルなし）→ apex削除後もL(直線)コマンドになる
+            });
+        }
+
+        return { points: newPoints, bezData: newBezData };
     }
 };
 

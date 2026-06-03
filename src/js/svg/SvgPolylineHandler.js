@@ -29,7 +29,8 @@ class SvgPolylineHandler {
         };
         try { cache.nodeCTM = node.getCTM(); } catch(e) {}
         try { 
-            const overlayCTM = overlay ? overlay.getCTM() : null; 
+            const overlayNode = overlay && overlay.node ? overlay.node : overlay;
+            const overlayCTM = overlayNode && typeof overlayNode.getCTM === 'function' ? overlayNode.getCTM() : null; 
             if (overlayCTM) cache.overlayCTMInv = overlayCTM.inverse();
         } catch(e) {}
         return cache;
@@ -122,6 +123,37 @@ class SvgPolylineHandler {
 
         // 構築前にCTMを1度だけ計算する（O(1)に削減）
         const ctmCache = this._createCTMCache(node, this.overlayGroup);
+
+        // 骨組み（コントロールポリゴン）線の表示
+        if (this.options.enableSkeleton) {
+            const overlayPts = points.map(pt => this.getHandlePoint(pt, node, this.overlayGroup, ctmCache));
+            let d = overlayPts.map((op, i) => (i === 0 ? 'M' : 'L') + ` ${op.x} ${op.y}`).join(' ');
+            if (isClosed && overlayPts.length > 1) {
+                d += ' Z';
+            }
+
+            // 選択中かどうかの判定（デフォルトは true）
+            const isSelected = this.options.isSelected !== false;
+
+            // 1. ドラッグ判定用の透明な太い線
+            const hitareaWrap = SVG(this.handleGroup).path(d)
+                .fill('none')
+                .stroke({ color: 'transparent', width: 32 }) // 32pxに拡張して合わせやすくする
+                .addClass('svg-grad-skeleton-hitarea')
+                .attr('cursor', isSelected ? 'move' : 'default')
+                .attr('pointer-events', isSelected ? 'stroke' : 'none'); // 選択中のパスのみドラッグ可能にする
+
+            this.bindSkeletonDrag(hitareaWrap.node);
+
+            // 2. 見た目用の細い点線
+            SVG(this.handleGroup).path(d)
+                .fill('none')
+                .stroke({ color: this.options.customColor || '#E74BA8', width: 1.5 })
+                .attr('stroke-dasharray', '4,3')
+                .attr('stroke-opacity', isSelected ? '1.0' : '0.4') // 非選択時は薄く表示して区別する
+                .addClass('svg-grad-skeleton-line')
+                .attr('pointer-events', 'none'); // マウスイベントを透過させる
+        }
 
         if (tagName !== 'line') {
             const loopEnd = isClosed ? points.length : points.length - 1;
@@ -483,7 +515,9 @@ class SvgPolylineHandler {
             let overlayMatrixInv = ctmCache ? ctmCache.overlayCTMInv : null;
 
             if (!ctmCache && overlay) {
-                const overlayMatrix = overlay.getCTM();
+                // [FIX] overlay が SVG.js 要素の場合は .node から DOM の getCTM() を取得する
+                const overlayNode = overlay.node ? overlay.node : overlay;
+                const overlayMatrix = (typeof overlayNode.getCTM === 'function') ? overlayNode.getCTM() : null;
                 if (overlayMatrix) {
                     try { overlayMatrixInv = overlayMatrix.inverse(); } catch (err) {}
                 }
@@ -1465,6 +1499,11 @@ class SvgPolylineHandler {
             }
         }
 
+        // [FIX] ズーム補正用のスケール値を事前計算（updateHandleScalingの再呼び出し用）
+        const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+        const handleScale = 100 / zoomVal;
+        const needsScaling = Math.abs(handleScale - 1) > 0.001;
+
         // 1. Vertex Handles
         const vertexHandles = this._handleCache.vertex;
         vertexHandles.forEach(h => {
@@ -1476,6 +1515,12 @@ class SvgPolylineHandler {
                     h.style.display = '';
                     h.setAttribute('cx', hp.x);
                     h.setAttribute('cy', hp.y);
+                    // [FIX] ズーム中はcx/cy変更後にtransformのtranslate部分を再計算
+                    if (needsScaling) {
+                        const dx = hp.x * (1 - handleScale);
+                        const dy = hp.y * (1 - handleScale);
+                        h.setAttribute('transform', `translate(${dx} ${dy}) scale(${handleScale})`);
+                    }
                 } else {
                     h.style.display = 'none';
                 }
@@ -1509,6 +1554,12 @@ class SvgPolylineHandler {
                         h.style.display = '';
                         h.setAttribute('cx', hp.x);
                         h.setAttribute('cy', hp.y);
+                        // [FIX] ズーム中はcx/cy変更後にtransformを再計算
+                        if (needsScaling) {
+                            const dx = hp.x * (1 - handleScale);
+                            const dy = hp.y * (1 - handleScale);
+                            h.setAttribute('transform', `translate(${dx} ${dy}) scale(${handleScale})`);
+                        }
                     } else {
                         h.style.display = 'none';
                     }
@@ -1529,6 +1580,12 @@ class SvgPolylineHandler {
                         h.style.display = '';
                         h.setAttribute('cx', hp.x);
                         h.setAttribute('cy', hp.y);
+                        // [FIX] ズーム中はcx/cy変更後にtransformを再計算
+                        if (needsScaling) {
+                            const dx = hp.x * (1 - handleScale);
+                            const dy = hp.y * (1 - handleScale);
+                            h.setAttribute('transform', `translate(${dx} ${dy}) scale(${handleScale})`);
+                        }
                     } else {
                         h.style.display = 'none';
                     }
@@ -1549,6 +1606,10 @@ class SvgPolylineHandler {
                         l.setAttribute('y1', hVertex.y);
                         l.setAttribute('x2', hCP.x);
                         l.setAttribute('y2', hCP.y);
+                        // [FIX] ズーム中はline端点変更後にstroke-widthを再計算
+                        if (needsScaling && window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+                            window.SVGUtils.updateHandleScaling(l, zoomVal);
+                        }
                     } else {
                         l.style.display = 'none';
                     }
@@ -1562,12 +1623,12 @@ class SvgPolylineHandler {
             const arrowSize = parseFloat(node.getAttribute('data-arrow-size')) || 10;
             const lastPt = points[points.length - 1];
             const prevPt = points[points.length - 2] || points[0];
-            const dx = lastPt[0] - prevPt[0];
-            const dy = lastPt[1] - prevPt[1];
-            const len = Math.sqrt(dx * dx + dy * dy) || 1;
+            const adx = lastPt[0] - prevPt[0];
+            const ady = lastPt[1] - prevPt[1];
+            const len = Math.sqrt(adx * adx + ady * ady) || 1;
             const sizePt = {
-                x: lastPt[0] - (dx / len) * arrowSize,
-                y: lastPt[1] - (dy / len) * arrowSize
+                x: lastPt[0] - (adx / len) * arrowSize,
+                y: lastPt[1] - (ady / len) * arrowSize
             };
             const hp = this.getHandlePoint([sizePt.x, sizePt.y], node, this.overlayGroup, ctmCache);
             // ▼ 追加: カリング
@@ -1575,10 +1636,115 @@ class SvgPolylineHandler {
                 sizeHandle.style.display = '';
                 sizeHandle.setAttribute('cx', hp.x);
                 sizeHandle.setAttribute('cy', hp.y);
+                // [FIX] ズーム中はcx/cy変更後にtransformを再計算
+                if (needsScaling) {
+                    const sdx = hp.x * (1 - handleScale);
+                    const sdy = hp.y * (1 - handleScale);
+                    sizeHandle.setAttribute('transform', `translate(${sdx} ${sdy}) scale(${handleScale})`);
+                }
             } else {
                 sizeHandle.style.display = 'none';
             }
         }
+
+        // 5. Skeleton Line Update
+        if (this.options.enableSkeleton) {
+            const overlayPts = points.map(pt => this.getHandlePoint(pt, node, this.overlayGroup, ctmCache));
+            let d = overlayPts.map((op, i) => (i === 0 ? 'M' : 'L') + ` ${op.x} ${op.y}`).join(' ');
+            const isClosed = node.getAttribute('data-poly-closed') === 'true';
+            if (isClosed && overlayPts.length > 1) {
+                d += ' Z';
+            }
+
+            const skeletonHitarea = this.handleGroup.querySelector('.svg-grad-skeleton-hitarea');
+            if (skeletonHitarea) {
+                skeletonHitarea.setAttribute('d', d);
+            }
+            const skeletonLine = this.handleGroup.querySelector('.svg-grad-skeleton-line');
+            if (skeletonLine) {
+                skeletonLine.setAttribute('d', d);
+            }
+        }
+    }
+
+    bindSkeletonDrag(handle) {
+        let isDragging = false;
+        let startLocalPt = { x: 0, y: 0 };
+        let rAF = null;
+        let lastEvent = null;
+
+        const performUpdate = () => {
+            rAF = null;
+            if (!this.activeNode || !lastEvent) return;
+            const e = lastEvent;
+
+            // ローカル座標を取得
+            const currentLocalPt = this.getLocalPoint(e);
+            const dx = currentLocalPt.x - startLocalPt.x;
+            const dy = currentLocalPt.y - startLocalPt.y;
+
+            if (this.options.onSkeletonDrag) {
+                this.options.onSkeletonDrag(dx, dy);
+            }
+
+            // 更新された座標を同期して、ハンドルの表示位置も更新する
+            const ctmCache = this._createCTMCache(this.activeNode, this.overlayGroup);
+            const points = this.getPoints(this.activeNode);
+            const bezData = this.activeNode.tagName.toLowerCase() === 'path' ? this.getBezData(this.activeNode) : [];
+            this.updateDragPositions(points, bezData, this.activeNode, ctmCache);
+
+            startLocalPt = currentLocalPt;
+        };
+
+        const onMouseMove = (e) => {
+            if (!isDragging) return;
+            lastEvent = e;
+            if (!rAF) {
+                rAF = requestAnimationFrame(performUpdate);
+            }
+        };
+
+        const onMouseUp = () => {
+            isDragging = false;
+            if (rAF) {
+                cancelAnimationFrame(rAF);
+                rAF = null;
+                performUpdate();
+            }
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = false;
+                if (typeof window.currentEditingSVG.resumeObserver === 'function') {
+                    window.currentEditingSVG.resumeObserver();
+                }
+            }
+
+            if (this.options.onSkeletonDragEnd) {
+                this.options.onSkeletonDragEnd();
+            }
+
+            if (window.syncChanges) window.syncChanges(true, null, true);
+        };
+
+        handle.addEventListener('mousedown', (e) => {
+            e.stopPropagation(); e.preventDefault();
+            if (this.activeNode.getAttribute('data-locked') === 'true' || this.activeNode.getAttribute('data-locked') === true) return;
+
+            if (window.currentEditingSVG) {
+                window.currentEditingSVG._isOperationInProgress = true;
+                if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
+                if (typeof window.currentEditingSVG.suspendObserver === 'function') {
+                    window.currentEditingSVG.suspendObserver();
+                }
+            }
+
+            isDragging = true;
+            startLocalPt = this.getLocalPoint(e);
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
     }
 
     hide() {

@@ -789,10 +789,20 @@ function initContextMenu() {
         },
         {
             label: t('contextMenuEditor.renumberHeadings') || '見出し番号振り直し',
+            id: 'menu-renumber-headings',
             children: [
                 { label: '1, 1.1', action: 'renumber-headings', format: 'dot' },
                 { label: '1., 1.1.', action: 'renumber-headings', format: 'trailing-dot' },
                 { label: '1, 1-1', action: 'renumber-headings', format: 'dash' }
+            ]
+        },
+        {
+            label: t('contextMenuEditor.renumberThisHeading') || 'この見出しの番号振り直し',
+            id: 'menu-renumber-this-heading',
+            children: [
+                { label: '1, 1.1', action: 'renumber-this-heading', format: 'dot' },
+                { label: '1., 1.1.', action: 'renumber-this-heading', format: 'trailing-dot' },
+                { label: '1, 1-1', action: 'renumber-this-heading', format: 'dash' }
             ]
         },
         { type: 'separator' },
@@ -918,14 +928,15 @@ function initContextMenu() {
     // Event Listener (Bind only once)
     if (!_contextMenuEventsBound) {
         document.addEventListener('contextmenu', (e) => {
-            // Close existing first
+            // 既存のメニューを閉じる
             closeContextMenu();
 
             const isEditor = e.target.closest('.cm-editor');
             let isPreviewSelectable = null;
             const isInPreview = DOM.preview && DOM.preview.contains(e.target);
+            const isOutlineItem = e.target.closest('.outline-item'); // アウトライン項目を検知
 
-            // Check if hovering over a selectable element in preview
+            // プレビュー内の選択可能要素の判定
             if (isInPreview) {
                 // まず.preview-selectableクラスを持つ要素を探す
                 isPreviewSelectable = e.target.closest('.preview-selectable');
@@ -953,13 +964,13 @@ function initContextMenu() {
                 }
             }
 
-            if (!isEditor && !isInPreview) {
-                return; // Default menu
+            if (!isEditor && !isInPreview && !isOutlineItem) {
+                return; // デフォルトメニューを表示
             }
 
             e.preventDefault();
 
-            // 0. Update dynamic labels
+            // 0. 動的なラベルの更新
             const hrMenuBtn = document.getElementById('menu-insert-hr');
             if (hrMenuBtn) {
                 const labelSpan = hrMenuBtn.querySelector('span');
@@ -970,7 +981,7 @@ function initContextMenu() {
                 }
             }
 
-            // 1. Update visibility of options
+            // 1. 各種メニュー項目の表示・非表示制御
             const editBtn = document.getElementById('menu-edit');
             const deleteBtn = document.getElementById('menu-delete');
 
@@ -979,62 +990,85 @@ function initContextMenu() {
             const copyBtn = document.getElementById('menu-copy');
             const pasteBtn = document.getElementById('menu-paste');
             const deleteSelectionBtn = document.getElementById('menu-delete-selection');
+            const renumberThisHeadingBtn = document.getElementById('menu-renumber-this-heading');
+            const renumberHeadingsBtn = document.getElementById('menu-renumber-headings');
+            const insertBtn = document.getElementById('menu-insert');
+            const sepDelete = deleteBtn ? deleteBtn.previousElementSibling : null;
 
-            if (isEditor) {
-                // エディタの場合、編集操作を表示、オブジェクト編集系メニューを非表示
-                if (cutBtn) cutBtn.style.display = 'flex';
-                if (copyBtn) copyBtn.style.display = 'flex';
-                if (pasteBtn) pasteBtn.style.display = 'flex';
-                if (deleteSelectionBtn) deleteSelectionBtn.style.display = 'flex';
+            if (isOutlineItem) {
+                // アウトライン項目の場合：「この見出しの番号振り直し」のみ表示
+                if (renumberThisHeadingBtn) renumberThisHeadingBtn.style.display = 'flex';
+                if (renumberHeadingsBtn) renumberHeadingsBtn.style.display = 'none';
+                if (cutBtn) cutBtn.style.display = 'none';
+                if (copyBtn) copyBtn.style.display = 'none';
+                if (pasteBtn) pasteBtn.style.display = 'none';
+                if (deleteSelectionBtn) deleteSelectionBtn.style.display = 'none';
                 const sepEditor = document.getElementById('menu-sep-editor');
-                if (sepEditor) sepEditor.style.display = 'block';
-
+                if (sepEditor) sepEditor.style.display = 'none';
+                if (insertBtn) insertBtn.style.display = 'none';
                 if (editBtn) {
                     editBtn.style.display = 'none';
-                    // 前の区切り線も非表示
                     if (editBtn.previousElementSibling && editBtn.previousElementSibling.classList.contains('context-menu-separator')) {
                         editBtn.previousElementSibling.style.display = 'none';
                     }
                 }
                 if (deleteBtn) deleteBtn.style.display = 'none';
-
-                // 選択範囲があるかどうかで、Cut/Copy/Deleteの有効/無効を切り替えるなど
-                // CodeMirrorの選択状態を取得
-                let hasSelection = false;
-                if (window.editorInstance) {
-                    const state = window.editorInstance.state;
-                    hasSelection = !state.selection.main.empty;
+                if (sepDelete && sepDelete.classList.contains('context-menu-separator')) {
+                    sepDelete.style.display = 'none';
                 }
-
-                // NOTE: システムのクリップボードアクセス権限によってはPasteが使えない場合もあるが
-                // 基本的には有効にしておく
             } else {
-                // プレビューの場合、編集操作を非表示（コピー以外）、オブジェクト編集系を表示
-                if (cutBtn) cutBtn.style.display = 'none';
-                if (copyBtn) copyBtn.style.display = 'flex';
-                if (pasteBtn) pasteBtn.style.display = 'flex';
-                if (deleteSelectionBtn) deleteSelectionBtn.style.display = 'none';
-                const sepEditor = document.getElementById('menu-sep-editor');
-                if (sepEditor) sepEditor.style.display = 'none';
+                // エディタまたはプレビューの場合：「この見出しの番号振り直し」は非表示
+                if (renumberThisHeadingBtn) renumberThisHeadingBtn.style.display = 'none';
+                if (renumberHeadingsBtn) renumberHeadingsBtn.style.display = 'flex';
 
-                if (editBtn) {
-                    editBtn.style.display = 'flex';
-                    // 前の区切り線を表示
-                    if (editBtn.previousElementSibling && editBtn.previousElementSibling.classList.contains('context-menu-separator')) {
-                        editBtn.previousElementSibling.style.display = 'block';
+                if (isEditor) {
+                    // エディタの場合、編集操作を表示、オブジェクト編集系メニューを非表示
+                    if (cutBtn) cutBtn.style.display = 'flex';
+                    if (copyBtn) copyBtn.style.display = 'flex';
+                    if (pasteBtn) pasteBtn.style.display = 'flex';
+                    if (deleteSelectionBtn) deleteSelectionBtn.style.display = 'flex';
+                    const sepEditor = document.getElementById('menu-sep-editor');
+                    if (sepEditor) sepEditor.style.display = 'block';
+
+                    if (editBtn) {
+                        editBtn.style.display = 'none';
+                        // 前の区切り線も非表示
+                        if (editBtn.previousElementSibling && editBtn.previousElementSibling.classList.contains('context-menu-separator')) {
+                            editBtn.previousElementSibling.style.display = 'none';
+                        }
+                    }
+                    if (deleteBtn) deleteBtn.style.display = 'none';
+                    if (sepDelete && sepDelete.classList.contains('context-menu-separator')) {
+                        sepDelete.style.display = 'none';
+                    }
+                } else {
+                    // プレビューの場合、編集操作を非表示（コピー以外）、オブジェクト編集系を表示
+                    if (cutBtn) cutBtn.style.display = 'none';
+                    if (copyBtn) copyBtn.style.display = 'flex';
+                    if (pasteBtn) pasteBtn.style.display = 'flex';
+                    if (deleteSelectionBtn) deleteSelectionBtn.style.display = 'none';
+                    const sepEditor = document.getElementById('menu-sep-editor');
+                    if (sepEditor) sepEditor.style.display = 'none';
+
+                    if (editBtn) {
+                        editBtn.style.display = 'flex';
+                        // 前の区切り線を表示
+                        if (editBtn.previousElementSibling && editBtn.previousElementSibling.classList.contains('context-menu-separator')) {
+                            editBtn.previousElementSibling.style.display = 'block';
+                        }
+                    }
+                    if (deleteBtn) deleteBtn.style.display = 'flex';
+                    if (sepDelete && sepDelete.classList.contains('context-menu-separator')) {
+                        sepDelete.style.display = 'block';
                     }
                 }
-                if (deleteBtn) deleteBtn.style.display = 'flex';
-
-                // プレビュー選択可能要素でない場合は、オブジェクト編集/削除は隠すべきかもしれないが、
-                // 既存ロジックに合わせて表示制御を行う（必要なら）
             }
 
-            // Store target for action reference
+            // アクションの参照先ターゲットを格納する
             // DOM再作成後も正しい要素を参照するため、毎回 getElementById で取得する
             const menu = document.getElementById('custom-context-menu');
             if (!menu) return;
-            menu.targetElement = isPreviewSelectable || isEditor || e.target;
+            menu.targetElement = isOutlineItem || isPreviewSelectable || isEditor || e.target;
 
             // Position
             let x = e.clientX;
@@ -1424,6 +1458,180 @@ function handleMenuAction(item, target) {
         performInsert(tocText, target);
 
         if (typeof showToast === 'function') showToast(t('toast.tocInserted'));
+    }
+    else if (item.action === 'renumber-this-heading') {
+        if (!window.editorInstance) return;
+        const targetOutlineItem = target ? target.closest('.outline-item') : null;
+        if (!targetOutlineItem) return;
+
+        const headingIndex = parseInt(targetOutlineItem.dataset.headingIndex, 10);
+        if (isNaN(headingIndex)) return;
+
+        // 見出しのテキストを取得し、確認メッセージを表示する
+        const headingText = targetOutlineItem.getAttribute('title') || '';
+        const confirmMsg = t('confirm.renumberThisHeadingConfirm', { title: headingText });
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        const format = item.format || 'dot'; // 'dot', 'trailing-dot', 'dash'
+        const doc = window.editorInstance.state.doc;
+        const slugCounter = {};
+
+        // getSlug ヘルパーの定義（既存と同じ）
+        const getSlug = (text, counter) => {
+            let slug = text.toLowerCase().trim()
+                .replace(/\s+/g, '-')
+                .replace(/[^\w\u0080-\uFFFF-]/g, '')
+                .replace(/^-+|-+$/g, '');
+
+            if (counter[slug] !== undefined) {
+                counter[slug]++;
+                slug += '-' + counter[slug];
+            } else {
+                counter[slug] = 0;
+            }
+            return slug;
+        };
+
+        // 1. 全見出し情報の走査とパース
+        const parsedHeadings = [];
+        const initialSlugCounter = {};
+        let inCodeBlock = false;
+
+        for (let i = 1; i <= doc.lines; i++) {
+            const line = doc.line(i);
+            const text = line.text;
+
+            if (text.trim().startsWith('```')) {
+                inCodeBlock = !inCodeBlock;
+                continue;
+            }
+            if (inCodeBlock) continue;
+
+            const match = text.match(/^(#{1,6})\s+(.*)$/);
+            if (match) {
+                const level = match[1].length;
+                const content = match[2];
+                // 既存の番号を除去
+                const cleanContent = content.replace(/^([0-9]+([.\-][0-9]+)*[.\-]?\s+)/, '').trim();
+                const oldSlug = getSlug(match[0].trim().substring(level).trim(), initialSlugCounter);
+
+                parsedHeadings.push({
+                    lineNum: i,
+                    level: level,
+                    content: cleanContent,
+                    oldSlug: oldSlug,
+                    originalText: text
+                });
+            }
+        }
+
+        if (headingIndex >= parsedHeadings.length) return;
+
+        // 右クリックされた見出しのレベルを L とする
+        const targetHeading = parsedHeadings[headingIndex];
+        const L = targetHeading.level;
+
+        // 2. カウンタを回しつつ、対象の見出しのみを書き換え対象とする
+        const counters = [0, 0, 0, 0, 0, 0];
+        const minLevel = 2; // H2を第1セグメントとする
+        const changes = [];
+        const newSlugCounter = {};
+        const slugMap = {}; // oldSlug -> newSlug
+        
+        let isAfterTarget = false;
+        let isFinished = false;
+
+        for (let i = 0; i < parsedHeadings.length; i++) {
+            const h = parsedHeadings[i];
+
+            // 右クリックされた見出しに到達したかをチェック
+            if (i === headingIndex) {
+                isAfterTarget = true;
+                // 右クリックされた見出し自体のカウンタは通常どおり進めるが、書き換えは行わない
+            }
+
+            // 右クリックされた見出しより後ろの見出しについての処理
+            if (isAfterTarget && i > headingIndex) {
+                if (isFinished) {
+                    continue; // 既に探索終了した場合は何もしない
+                }
+                if (h.level <= L) {
+                    isFinished = true; // 同じかそれ以上のレベルの見出しが出現したら終了
+                    continue;
+                }
+            }
+
+            // H1以外についてカウンタ管理
+            if (h.level === 1) {
+                // H1自体はカウンタに含まれない
+                // H1が書き換え対象エリアにある場合は通常あり得ないが（h.level <= L で終了するため）
+                // 念のため、書き換え対象ならH1も既存番号除去のみ行う
+                if (isAfterTarget && !isFinished && i > headingIndex) {
+                    const lineObj = doc.line(h.lineNum);
+                    changes.push({ from: lineObj.from, to: lineObj.to, insert: "# " + h.content });
+                    const newSlug = getSlug(h.content, newSlugCounter);
+                    slugMap[h.oldSlug] = newSlug;
+                }
+                continue;
+            }
+
+            // カウンタを更新
+            const currentIdx = h.level - minLevel;
+            counters[currentIdx]++;
+            for (let j = currentIdx + 1; j < 6; j++) counters[j] = 0;
+
+            // 書き換え対象エリア内の場合のみ、changes と slugMap に登録
+            if (isAfterTarget && !isFinished && i > headingIndex) {
+                // 番号文字列の生成
+                const activeCounters = counters.slice(0, currentIdx + 1);
+                let numStr = "";
+                if (format === 'dash') {
+                    numStr = activeCounters.join('-');
+                } else {
+                    numStr = activeCounters.join('.');
+                    if (format === 'trailing-dot') numStr += '.';
+                }
+
+                const newTitle = `${numStr} ${h.content}`;
+                const fullHeader = "#".repeat(h.level) + " " + newTitle;
+                const newSlug = getSlug(newTitle, newSlugCounter);
+
+                slugMap[h.oldSlug] = newSlug;
+
+                const lineObj = doc.line(h.lineNum);
+                changes.push({ from: lineObj.from, to: lineObj.to, insert: fullHeader });
+            }
+        }
+
+        // 3. リンクの更新（slugMapを使用）
+        const linkRegex = /\]\(#([^\)]+)\)/g;
+        for (let i = 1; i <= doc.lines; i++) {
+            const line = doc.line(i);
+            let lineText = line.text;
+            let match;
+
+            const lineChanges = [];
+            while ((match = linkRegex.exec(lineText)) !== null) {
+                const oldAnchor = match[1];
+                if (slugMap[oldAnchor] && slugMap[oldAnchor] !== oldAnchor) {
+                    const start = line.from + match.index + 3; // # の後
+                    const end = start + oldAnchor.length;
+                    lineChanges.push({ from: start, to: end, insert: slugMap[oldAnchor] });
+                }
+            }
+            lineChanges.forEach(c => changes.push(c));
+        }
+
+        // 変更をエディタに適用
+        if (changes.length > 0) {
+            window.editorInstance.dispatch({
+                changes: changes,
+                scrollIntoView: false
+            });
+            if (typeof showToast === 'function') showToast(t('toast.headingNumberingApplied'));
+        }
     }
     else if (item.action === 'renumber-headings') {
         if (!window.editorInstance) return;

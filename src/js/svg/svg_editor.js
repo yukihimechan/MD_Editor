@@ -511,6 +511,14 @@ function startSVGEdit(container, svgIndex) {
         });
     }
 
+    // [NEW] Initialize Shadow Toolbar
+    if (typeof createShadowToolbar !== 'undefined') {
+        window.shadowToolbar = createShadowToolbar(container, SVGToolbar, {
+            position: getPos(15), // (-37, 470)
+            borderColor: '#9C27B0'
+        });
+    }
+
     // [FIX] Ensure markers are not clipped
     svgElement.style.overflow = 'visible';
 
@@ -648,6 +656,14 @@ function startSVGEdit(container, svgIndex) {
         current.gradientToolbar = window.gradientToolbar = createGradientToolbar(container, SVGToolbar, {
             position: getPos(13), // (-37, 410)
             borderColor: '#E74BA8'
+        });
+    }
+
+    // [NEW] Airbrush Toolbar
+    if (typeof createAirbrushToolbar !== 'undefined') {
+        current.airbrushToolbar = window.airbrushToolbar = createAirbrushToolbar(container, SVGToolbar, {
+            position: getPos(14), // (-37, 440)
+            borderColor: '#7B68EE'
         });
     }
 
@@ -1271,6 +1287,11 @@ function stopSVGEdit(skipRender = false) {
     if (window.gradientToolbar) {
         window.gradientToolbar.destroy();
         window.gradientToolbar = null;
+    }
+    // [NEW] Airbrush Toolbar 破棄
+    if (window.airbrushToolbar) {
+        window.airbrushToolbar.destroy();
+        window.airbrushToolbar = null;
     }
 
     // [NEW] Remove grid lines before sync/cleanup

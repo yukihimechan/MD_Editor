@@ -467,7 +467,12 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
             }
         }
         // Basic escaping
-        val = String(val).replace(/"/g, '&quot;');
+        // [FIX] 属性値内の改行をXMLエンティティにエスケープする。
+        // formatSVGCode が \n で行分割してインデントを追加するため、
+        // エスケープしないと data-original-text 等の改行含み属性が
+        // スペース入りの壊れた値になってしまう。
+        // DOMParser は &#10; を自動的に \n にデコードするので読み取り側の変更は不要。
+        val = String(val).replace(/"/g, '&quot;').replace(/\n/g, '&#10;').replace(/\r/g, '&#13;');
         str += ` ${name}="${val}"`;
     });
 

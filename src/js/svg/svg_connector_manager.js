@@ -4,7 +4,8 @@
  */
 const SVGConnectorManager = {
     /**
-     * 要素の16個のコネクタポイントを絶対座標（SVGルート座標系）で計算します。
+     * 要素のコネクタポイントを図形の輪郭上の座標（SVGルート座標系）で計算します。
+     * BBox上の16点を基準方向とし、中心から各方向へのレイと図形輪郭の交点を求めます。
      */
     getConnectorPoints(el) {
         if (!el) return [];
@@ -12,8 +13,6 @@ const SVGConnectorManager = {
         el = SVG(el);
         if (!el || typeof el.bbox !== 'function') return [];
 
-        // [FIX] ctm() ではなく getScreenCTM() を使用して、ルートSVGのユーザー座標系への行列を計算します。
-        // これにより、SVG全体のズーム（viewBox）やパンの影響を正しく排除できます。
         const node = el.node;
         if (!node || typeof node.getScreenCTM !== 'function') return [];
 
@@ -22,13 +21,29 @@ const SVGConnectorManager = {
         if (!root || typeof root.getScreenCTM !== 'function') return [];
 
         const rootScreenCTM = root.getScreenCTM();
-        const nodeScreenCTM = node.getScreenCTM();
+        if (!rootScreenCTM) return [];
 
-        if (!rootScreenCTM || !nodeScreenCTM) return [];
+        const elId = el.id();
 
-        // ルートSVGのユーザー単位系への変換行列
-        const m = rootScreenCTM.inverse().multiply(nodeScreenCTM);
-        const bbox = el.bbox();
+        // グループの場合、背景図形のジオメトリを使用してコネクタポイントを計算
+        let targetEl = el;
+        const tagName = node.tagName.toLowerCase();
+        if (tagName === 'g') {
+            const bgShape = this._findBackgroundShape(el);
+            if (bgShape) {
+                targetEl = SVG(bgShape);
+            }
+        }
+
+        const targetNode = targetEl.node;
+        if (!targetNode || typeof targetNode.getScreenCTM !== 'function') return [];
+
+        const targetScreenCTM = targetNode.getScreenCTM();
+        if (!targetScreenCTM) return [];
+
+        // ルートSVGのユーザー単位系への変換行列（背景図形の座標系から変換）
+        const m = rootScreenCTM.inverse().multiply(targetScreenCTM);
+        const bbox = targetEl.bbox();
 
         const x = bbox.x;
         const y = bbox.y;
@@ -43,14 +58,23 @@ const SVGConnectorManager = {
             [0, 0.75], [0, 0.5], [0, 0.25]                      // Left
         ];
 
-        return relativeOffsets.map((off, index) => {
-            const localPt = new SVG.Point(x + w * off[0], y + h * off[1]);
-            const worldPt = localPt.transform(m);
+        // BBox上のローカル座標ポイント（方向の基準）
+        const bboxLocalPoints = relativeOffsets.map(off => ({
+            x: x + w * off[0],
+            y: y + h * off[1]
+        }));
+
+        // 図形の輪郭上に投影
+        const projectedPoints = this._projectPointsToOutline(targetEl, bboxLocalPoints, bbox);
+
+        // ワールド座標に変換して返す
+        return projectedPoints.map((pt, index) => {
+            const worldPt = new SVG.Point(pt.x, pt.y).transform(m);
             return {
                 x: worldPt.x,
                 y: worldPt.y,
                 index: index,
-                id: el.id()
+                id: elId
             };
         });
     },
@@ -117,9 +141,9 @@ const SVGConnectorManager = {
         // 5. 属性による除外
         if (el.attr('data-is-canvas') === 'true' || el.attr('data-is-proxy') === 'true' || el.attr('data-no-connector') === 'true') return false;
 
-        // 6. 線タイプ(line, arrow, polyline_arrow, freehand)の除外
+        // 6. 線タイプ(line, arrow, polyline_arrow, freehand, airbrush)の除外
         const toolId = el.attr('data-tool-id');
-        if (['line', 'arrow', 'polyline_arrow', 'freehand'].includes(toolId)) return false;
+        if (['line', 'arrow', 'polyline_arrow', 'freehand', 'airbrush'].includes(toolId)) return false;
 
         // [FIX] グループ要素(g)の除外について
         if (tagName === 'g') {
@@ -644,6 +668,222 @@ const SVGConnectorManager = {
         if (updatedLinesCount > 0) {
             console.log(`[SVG Connector] Successfully updated ${updatedLinesCount} line points connected to moved element(s)`);
         }
+    },
+
+    // =========================================================================
+    // 輪郭投影ヘルパーメソッド
+    // =========================================================================
+
+    /**
+     * グループ内の背景図形（最初の非テキスト・非メタデータ要素）を検索します。
+     */
+    _findBackgroundShape(groupEl) {
+        const children = groupEl.node.children;
+        for (let i = 0; i < children.length; i++) {
+            const tag = children[i].tagName.toLowerCase();
+            if (tag !== 'text' && tag !== 'defs' && tag !== 'title' && tag !== 'desc'
+                && tag !== 'style' && tag !== 'connector-data') {
+                return children[i];
+            }
+        }
+        return null;
+    },
+
+    /**
+     * BBox上のポイントを図形の輪郭上に投影します。
+     * 図形タイプに応じて最適な投影方法を選択します。
+     */
+    _projectPointsToOutline(el, bboxPoints, bbox) {
+        try {
+            const tagName = el.node.tagName.toLowerCase();
+
+            // rect / image → BBoxがそのまま輪郭
+            if (tagName === 'rect' || tagName === 'image') {
+                return bboxPoints;
+            }
+
+            // ellipse / circle → 楕円方程式による解析的計算
+            if (tagName === 'ellipse' || tagName === 'circle') {
+                return this._projectToEllipse(bboxPoints, el, bbox);
+            }
+
+            // polygon → 頂点間の線分交差判定
+            if (tagName === 'polygon') {
+                return this._projectToPolygonVertices(bboxPoints, el, bbox);
+            }
+
+            // path → SVGネイティブAPIでサンプリング + 線分交差判定
+            if (tagName === 'path') {
+                return this._projectToPathOutline(bboxPoints, el, bbox);
+            }
+        } catch (e) {
+            console.warn('[SVG Connector] _projectPointsToOutline error:', e);
+        }
+        return bboxPoints; // フォールバック
+    },
+
+    /**
+     * 楕円/円の輪郭に投影します（解析的計算、O(1)）。
+     * 楕円方程式: ((x-cx)/rx)² + ((y-cy)/ry)² = 1 との交点を求めます。
+     */
+    _projectToEllipse(bboxPoints, el, bbox) {
+        const tagName = el.node.tagName.toLowerCase();
+        const centerX = bbox.x + bbox.w / 2;
+        const centerY = bbox.y + bbox.h / 2;
+        let cx, cy, rx, ry;
+
+        if (tagName === 'circle') {
+            cx = parseFloat(el.attr('cx')) || centerX;
+            cy = parseFloat(el.attr('cy')) || centerY;
+            rx = ry = parseFloat(el.attr('r')) || 1;
+        } else {
+            cx = parseFloat(el.attr('cx')) || centerX;
+            cy = parseFloat(el.attr('cy')) || centerY;
+            rx = parseFloat(el.attr('rx')) || 1;
+            ry = parseFloat(el.attr('ry')) || 1;
+        }
+
+        return bboxPoints.map(pt => {
+            const dx = pt.x - cx;
+            const dy = pt.y - cy;
+            // 中心と一致する場合はフォールバック
+            if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return pt;
+
+            // t = 1 / sqrt((dx/rx)² + (dy/ry)²) で楕円上の交点を算出
+            const t = 1 / Math.sqrt((dx / rx) ** 2 + (dy / ry) ** 2);
+            return {
+                x: cx + dx * t,
+                y: cy + dy * t
+            };
+        });
+    },
+
+    /**
+     * ポリゴンの輪郭に投影します（頂点間の線分交差判定）。
+     */
+    _projectToPolygonVertices(bboxPoints, el, bbox) {
+        const pointsAttr = el.attr('points');
+        if (!pointsAttr) return bboxPoints;
+
+        // points属性を解析して頂点配列を構築
+        const vertices = [];
+        const parts = String(pointsAttr).trim().split(/[\s,]+/);
+        for (let i = 0; i < parts.length - 1; i += 2) {
+            const px = parseFloat(parts[i]);
+            const py = parseFloat(parts[i + 1]);
+            if (!isNaN(px) && !isNaN(py)) {
+                vertices.push({ x: px, y: py });
+            }
+        }
+        if (vertices.length < 3) return bboxPoints;
+
+        // 閉じたポリゴンの辺セグメントを構築
+        const segments = [];
+        for (let i = 0; i < vertices.length; i++) {
+            segments.push([vertices[i], vertices[(i + 1) % vertices.length]]);
+        }
+
+        const center = { x: bbox.x + bbox.w / 2, y: bbox.y + bbox.h / 2 };
+        return this._projectToSegments(bboxPoints, segments, center);
+    },
+
+    /**
+     * パスの輪郭に投影します（SVGネイティブAPIでサンプリング → 線分交差判定）。
+     * getPointAtLength() でパスをN点にサンプリングし、近似ポリゴンとして交差判定を行います。
+     */
+    _projectToPathOutline(bboxPoints, el, bbox) {
+        const node = el.node;
+        if (!node || typeof node.getTotalLength !== 'function') return bboxPoints;
+
+        let totalLength;
+        try {
+            totalLength = node.getTotalLength();
+        } catch (e) {
+            return bboxPoints;
+        }
+        if (totalLength <= 0) return bboxPoints;
+
+        // パスをN点でサンプリングして近似セグメントを構築
+        const N = 100;
+        const samples = [];
+        for (let i = 0; i <= N; i++) {
+            try {
+                const pt = node.getPointAtLength((i / N) * totalLength);
+                samples.push({ x: pt.x, y: pt.y });
+            } catch (e) {
+                break;
+            }
+        }
+        if (samples.length < 2) return bboxPoints;
+
+        // サンプル点間のセグメントを構築（最初と最後を閉じる）
+        const segments = [];
+        for (let i = 0; i < samples.length - 1; i++) {
+            segments.push([samples[i], samples[i + 1]]);
+        }
+
+        const center = { x: bbox.x + bbox.w / 2, y: bbox.y + bbox.h / 2 };
+        return this._projectToSegments(bboxPoints, segments, center);
+    },
+
+    /**
+     * 線分群との交点を求めて投影します（polygon / path 共通ロジック）。
+     * 中心からBBoxポイント方向へのレイと各セグメントの交点を求め、最も近い交点を採用します。
+     */
+    _projectToSegments(bboxPoints, segments, center) {
+        return bboxPoints.map(pt => {
+            const dx = pt.x - center.x;
+            const dy = pt.y - center.y;
+            if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return pt;
+
+            let closestPt = null;
+            let closestDist = Infinity;
+
+            for (const [a, b] of segments) {
+                const intersection = this._raySegmentIntersect(center, dx, dy, a, b);
+                if (intersection) {
+                    const dist = Math.hypot(intersection.x - center.x, intersection.y - center.y);
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closestPt = intersection;
+                    }
+                }
+            }
+
+            return closestPt || pt; // 交点が見つからない場合はBBoxポイントをフォールバック
+        });
+    },
+
+    /**
+     * レイ（origin から方向 (dx, dy) への半直線）と線分（A-B）の交点を求めます。
+     * @param {Object} origin - レイの始点 {x, y}
+     * @param {number} dx - レイの方向ベクトルX成分
+     * @param {number} dy - レイの方向ベクトルY成分
+     * @param {Object} a - 線分の始点 {x, y}
+     * @param {Object} b - 線分の終点 {x, y}
+     * @returns {Object|null} 交点座標 {x, y} または null
+     */
+    _raySegmentIntersect(origin, dx, dy, a, b) {
+        const ex = b.x - a.x;
+        const ey = b.y - a.y;
+
+        const denom = dx * ey - dy * ex;
+        if (Math.abs(denom) < 1e-10) return null; // 平行
+
+        const fx = a.x - origin.x;
+        const fy = a.y - origin.y;
+
+        const t = (fx * ey - fy * ex) / denom; // レイ上のパラメータ
+        const u = (fx * dy - fy * dx) / denom; // セグメント上のパラメータ
+
+        // t >= 0（レイの正方向）かつ 0 <= u <= 1（セグメント上）
+        if (t >= 0 && u >= -1e-10 && u <= 1 + 1e-10) {
+            return {
+                x: origin.x + t * dx,
+                y: origin.y + t * dy
+            };
+        }
+        return null;
     }
 };
 

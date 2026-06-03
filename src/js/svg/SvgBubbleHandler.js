@@ -234,7 +234,8 @@ class SvgBubbleHandler {
             p.y = ptArr[1];
 
             const nodeMatrix = this.activeNode.getCTM();
-            const overlayMatrix = this.overlayGroup ? this.overlayGroup.getCTM() : null;
+            const overlayNode = this.overlayGroup && this.overlayGroup.node ? this.overlayGroup.node : this.overlayGroup;
+            const overlayMatrix = overlayNode && typeof overlayNode.getCTM === 'function' ? overlayNode.getCTM() : null;
 
             if (nodeMatrix) {
                 const worldP = p.matrixTransform(nodeMatrix);

@@ -136,7 +136,7 @@ function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions) 
         const el = selected[0];
         const tagName = el.node.tagName.toLowerCase();
         const toolId = el.attr('data-tool-id');
-        const isPathTool = ['line', 'arrow', 'polyline', 'freehand'].includes(toolId);
+        const isPathTool = ['line', 'arrow', 'polyline', 'freehand', 'airbrush'].includes(toolId);
 
         if (tagName === 'polyline' || (tagName === 'path' && isPathTool)) {
             menuItems.push({ type: 'separator' });

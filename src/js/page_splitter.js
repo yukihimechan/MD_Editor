@@ -904,6 +904,10 @@ const PageSplitter = {
             return element;
         }
 
+        // 既存の transform から translateY(...) 部分を除去したベースの transform を取得する（scale 等を消さないため）
+        let baseTransform = targetElement.style.transform || '';
+        baseTransform = baseTransform.replace(/translateY\([^)]+\)/gi, '').trim();
+
         // [FIX No.5(B)] コンテンツ全体の高さを取得
         // data-computed-height 属性が存在する場合（processSVGBlocksで計算済みのSVG等）は
         // それを優先使用して offsetHeight の呼び出し（Layout Thrashing）を回避する。
@@ -990,8 +994,8 @@ const PageSplitter = {
             targetElement.style.marginTop = '0';
             targetElement.style.marginBottom = '0';
 
-            // 初回オフセットは 0 なので transform なし
-            targetElement.style.transform = '';
+            // 既存のベース transform を維持する（scale 等の縮尺を消さないため）
+            targetElement.style.transform = baseTransform;
             targetElement.dataset.splitOffset = '0'; // 初期値を明示記録
 
             // コンテナ内の element の直前にラッパーを挿入し、element をその中に移動
@@ -1020,7 +1024,8 @@ const PageSplitter = {
         // translateY で内容を上にずらして「続き」を表示
         // （position:relative + translateY はレイアウトに影響しないためスペースが生じるが、
         //  ラッパーの height と overflowY:hidden でクリップするため問題ない）
-        nextInner.style.transform = `translateY(-${nextOffset}px)`;
+        // 既存のベース transform の後ろに translateY を追加して適用する（縮尺を維持しながらスライドさせる）
+        nextInner.style.transform = `${baseTransform} translateY(-${nextOffset}px)`.trim();
         nextInner.style.marginTop = '0'; // 念のためリセット
 
         // [FIX] 次ページに送られるはみ出しコンテンツの暫定高さをセットし、隠す

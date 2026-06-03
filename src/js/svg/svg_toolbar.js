@@ -43,6 +43,90 @@ class BaseTool {
         this.activeElement = null;
         this.toolbar.setTool('select');
     }
+    /**
+     * [NEW] 線の交差ブリッジ処理を適用する共通ヘルパー。
+     * finalize() の直前に呼び出す。
+     * activeElement のパス上に他の線との交差点がある場合、
+     * ベジェ曲線による飛び越え弧を挿入する。
+     */
+    applyLineBridge() {
+        if (!this.activeElement || !window.SVGUtils) return;
+        const node = this.activeElement.node || this.activeElement;
+        const tagName = node.tagName ? node.tagName.toLowerCase() : '';
+        if (tagName !== 'path' && tagName !== 'polyline' && tagName !== 'line') return;
+
+        // 新しい線のセグメントを取得
+        const newSegments = SVGUtils.getLineSegments(node);
+        if (newSegments.length === 0) return;
+
+        // SVGルート要素を取得
+        const svgRoot = node.ownerSVGElement;
+        if (!svgRoot) return;
+
+        // 候補線をバウンディングボックスでフィルタリング
+        const candidates = SVGUtils.filterCandidateLines(svgRoot, newSegments, node);
+        if (candidates.length === 0) return;
+
+        // 全候補線との交差点を集約
+        let allIntersections = [];
+        candidates.forEach(candidateNode => {
+            const candidateSegments = SVGUtils.getLineSegments(candidateNode);
+            if (candidateSegments.length === 0) return;
+            const hits = SVGUtils.findIntersections(newSegments, candidateSegments);
+            allIntersections = allIntersections.concat(hits);
+        });
+
+        if (allIntersections.length === 0) return;
+
+        // 同一セグメント上のtでソート
+        allIntersections.sort((a, b) => {
+            if (a.segIdxA !== b.segIdxA) return a.segIdxA - b.segIdxA;
+            return a.t - b.t;
+        });
+
+        // ポイントとベジェデータを取得
+        let points, bezData;
+        if (typeof SvgPolylineHandler !== 'undefined') {
+            const handler = new SvgPolylineHandler(null, null);
+            points = handler.getPoints(node);
+            bezData = (tagName === 'path') ? handler.getBezData(node) : [];
+        } else {
+            // フォールバック: data-poly-pointsから直接取得
+            const polyPts = node.getAttribute('data-poly-points');
+            if (!polyPts) return;
+            points = polyPts.split(/\s+/).filter(s => s).map(p => {
+                const isM = p.startsWith('M');
+                const coord = (isM ? p.substring(1) : p).split(',');
+                return [parseFloat(coord[0]), parseFloat(coord[1])];
+            });
+            bezData = [];
+        }
+
+        if (points.length < 2) return;
+
+        // bezData を points の長さに合わせる
+        while (bezData.length < points.length) {
+            bezData.push({ type: 0 });
+        }
+
+        // ブリッジ頂点を生成
+        const bridgeRadius = 6;
+        const result = SVGUtils.generateBridgePoints(points, bezData, allIntersections, bridgeRadius);
+
+        // 結果を要素に反映
+        const pointsStr = result.points.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
+        node.setAttribute('data-poly-points', pointsStr);
+        node.setAttribute('data-bez-points', JSON.stringify(result.bezData));
+
+        // パスのd属性を再生成
+        if (typeof SvgPolylineHandler !== 'undefined') {
+            const handler = new SvgPolylineHandler(null, null);
+            handler.activeNode = node;
+            handler.generatePath(node);
+        }
+
+        console.log(`[LineBridge] ${allIntersections.length}箇所の交差にブリッジを適用しました`);
+    }
     getCursor() { return 'crosshair'; }
 }
 
@@ -61,6 +145,8 @@ class ShapeTool extends BaseTool {
         this.activeElement = this.createShape(pt);
         if (this.activeElement) {
             this.activeElement.fill(fill).stroke({ color, width });
+            // [FIX] 描画中もズームに依存しない線幅を維持
+            this.activeElement.attr('vector-effect', 'non-scaling-stroke');
         }
     }
     createShape(pt) {
@@ -155,6 +241,8 @@ class PolyTool extends BaseTool {
         this.activeElement = this.createShape(pt);
         if (this.activeElement) {
             this.activeElement.fill(fill).stroke({ color, width });
+            // [FIX] 描画中もズームに依存しない線幅を維持
+            this.activeElement.attr('vector-effect', 'non-scaling-stroke');
         }
     }
     createShape(pt) {
@@ -296,7 +384,8 @@ class LineTool extends BaseTool {
                 'data-arrow-start': 'false',
                 'data-arrow-end': 'false',
                 'data-arrow-size': '10',
-                'data-poly-points': `${pt.x},${pt.y} ${pt.x},${pt.y}`
+                'data-poly-points': `${pt.x},${pt.y} ${pt.x},${pt.y}`,
+                'vector-effect': 'non-scaling-stroke'
             });
 
         // [NEW] Save initial connection
@@ -435,6 +524,8 @@ class LineTool extends BaseTool {
             this.activeElement.plot(`M ${this.startPoint.x} ${this.startPoint.y} L ${endX} ${this.startPoint.y}`);
             this.activeElement.attr('data-poly-points', `${this.startPoint.x},${this.startPoint.y} ${endX},${this.startPoint.y}`);
         }
+        // [NEW] ブリッジ処理: 他の線との交差点にベジェ曲線で飛び越え弧を挿入
+        this.applyLineBridge();
         this.finalize();
     }
 }
@@ -650,6 +741,9 @@ class PolylineArrowTool extends LineTool {
             // 最終確定前にパスを固定頂点のみに更新 (プレビュー点を除去)
             this.updatePath([...this.points]);
 
+            // [NEW] ブリッジ処理: 他の線との交差点にベジェ曲線で飛び越え弧を挿入
+            this.applyLineBridge();
+
             // コネクタを隠す
             if (window.SVGConnectorManager) window.SVGConnectorManager.hideAllConnectors(this.draw);
             this._connectorCache = null;
@@ -681,7 +775,8 @@ class FreehandTool extends BaseTool {
         this.startPoint = pt;
         const color = this.getProp('stroke', '#000000');
         const width = this.getProp('stroke-width', 1);
-        this.activeElement = this.draw.polyline([[pt.x, pt.y]]).fill('none').stroke({ color, width });
+        this.activeElement = this.draw.polyline([[pt.x, pt.y]]).fill('none').stroke({ color, width })
+            .attr('vector-effect', 'non-scaling-stroke');
     }
     mousemove(e, pt) {
         if (!this.activeElement) return;
@@ -741,7 +836,8 @@ class BubbleTool extends BaseTool {
             return "M " + (parseFloat(p1) + pt.x) + " " + (parseFloat(p2) + pt.y);
         });
 
-        this.activeElement = this.draw.path(shiftedPath).fill(fill).stroke({ color, width });
+        this.activeElement = this.draw.path(shiftedPath).fill(fill).stroke({ color, width })
+            .attr('vector-effect', 'non-scaling-stroke');
 
         // 吹き出し固有の初期属性を付与
         this.activeElement.attr({
@@ -1105,15 +1201,9 @@ class GradientTool extends BaseTool {
         gradToolbar.renderControlHandles();
         gradToolbar.syncIndicatorsFromMeta();
 
-        // 4. 配置と同時に ColorPicker を展開する
+        // 4. 配置と同時に選択状態にする（ColorPickerは自動展開しない）
         setTimeout(() => {
-            if (gradToolbar.controlUiGroup) {
-                const handles = gradToolbar.controlUiGroup.find('.svg-grad-control-handle');
-                const lastHandle = handles[handles.length - 1];
-                if (lastHandle && lastHandle.node) {
-                    gradToolbar.showPickerForPath(metaPath, lastHandle.node);
-                }
-            }
+            gradToolbar.selectPath(pathId);
         }, 50);
 
         // 5. 配置後に自動的に選択ツールに戻す（ワンショット化）
@@ -1377,6 +1467,7 @@ class SVGMainToolbar extends SVGToolbarBase {
         }
 
         if (window.customToolbar) window.customToolbar.setTool(toolId);
+        if (window.airbrushToolbar && typeof window.airbrushToolbar.onToolChanged === 'function') window.airbrushToolbar.onToolChanged(toolId);
         this.updateCursor();
         if (toolId !== 'select' && window.deselectAll) window.deselectAll();
     }

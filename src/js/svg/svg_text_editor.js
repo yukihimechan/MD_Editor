@@ -48,8 +48,7 @@ const SvgTextEditor = {
             this.saveAndClose();
         }
 
-        // [NEW] インラインエディタ起動時のドラッグ状態強制解除
-        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+
 
         this.targetElement = el;
 
@@ -375,14 +374,7 @@ const SvgTextEditor = {
     saveAndClose: function (skipSelect = false) {
         if (!this.activeEditor || !this.targetElement) return;
 
-        // [FIX] 確定操作に伴い発生している可能性があるドラッグ状態を強制終了する
-        // ドラッグ移動量が0になるよう、現在のクリックイベントのマウス座標(clientX/clientY)を引き継ぐ。
-        const ev = window.event;
-        window.dispatchEvent(new MouseEvent('mouseup', {
-            bubbles: true,
-            clientX: ev ? ev.clientX : 0,
-            clientY: ev ? ev.clientY : 0
-        }));
+
 
         const newText = this.activeEditor.innerText || '';
         console.log('[SvgTextEditor] saveAndClose newText:', JSON.stringify(newText));
@@ -703,14 +695,7 @@ const SvgTextEditor = {
         if (!this.activeEditor || !this.targetElement) return;
         // console.log('[SvgTextEditor] cancelAndClose called');
 
-        // [FIX] キャンセル操作に伴い発生している可能性があるドラッグ状態を強制終了する
-        // ドラッグ移動量が0になるよう、現在のクリックイベントのマウス座標(clientX/clientY)を引き継ぐ。
-        const ev = window.event;
-        window.dispatchEvent(new MouseEvent('mouseup', {
-            bubbles: true,
-            clientX: ev ? ev.clientX : 0,
-            clientY: ev ? ev.clientY : 0
-        }));
+
 
         if ((this._originalText || '').trim() === '') {
             const target = this.targetElement;
@@ -766,7 +751,6 @@ const SvgTextEditor = {
     },
 
     cleanup: function () {
-        // console.log('[SvgTextEditor] cleanup called');
         if (this.activeEditor) {
             const editor = this.activeEditor;
             const onPointerDown = this.onPointerDown;
@@ -776,7 +760,6 @@ const SvgTextEditor = {
             const onKeyDown = this.onKeyDown;
             const onWheelBlock = this.onWheelBlock;
 
-            // エディタDOMは即座に削除し、多重確定を防ぐために状態も即座にクリアする
             editor.removeEventListener('keydown', onKeyDown);
             editor.remove();
             this.activeEditor = null;
@@ -786,17 +769,14 @@ const SvgTextEditor = {
                 window.currentEditingSVG.isInlineEditing = false;
             }
 
-            // 確定クリックの後続イベント（mousedown, mouseup, click）を確実にブロックし終わるまで、
-            // イベントリスナーの解除を200ms遅延させる
-            setTimeout(() => {
-                document.removeEventListener('pointerdown', onPointerDown, true);
-                document.removeEventListener('mousedown', onMouseDown, true);
-                document.removeEventListener('mouseup', onMouseUp, true);
-                document.removeEventListener('click', onClick, true);
-                if (onWheelBlock) {
-                    document.removeEventListener('wheel', onWheelBlock, { capture: true, passive: false });
-                }
-            }, 200);
+            // [FIX] リスナーの解除を遅延させず、即座に解除して次のダブルクリックを妨害しないようにする
+            document.removeEventListener('pointerdown', onPointerDown, true);
+            document.removeEventListener('mousedown', onMouseDown, true);
+            document.removeEventListener('mouseup', onMouseUp, true);
+            document.removeEventListener('click', onClick, true);
+            if (onWheelBlock) {
+                document.removeEventListener('wheel', onWheelBlock, { capture: true, passive: false });
+            }
 
             this.onPointerDown = null;
             this.onMouseDown = null;
@@ -821,17 +801,13 @@ const SvgTextEditor = {
 
     handlePointerDown: function (e) {
         if (this.activeEditor && !this.activeEditor.contains(e.target)) {
-            e.stopPropagation();
-            e.preventDefault();
             this._isCommittingClick = true;
             this.saveAndClose();
         }
     },
 
     handleMouseDown: function (e) {
-        if (this._isCommittingClick || (this.activeEditor && !this.activeEditor.contains(e.target))) {
-            e.stopPropagation();
-            e.preventDefault();
+        if (this.activeEditor && !this.activeEditor.contains(e.target)) {
             if (!this._isCommittingClick) {
                 this._isCommittingClick = true;
                 this.saveAndClose();
@@ -840,17 +816,11 @@ const SvgTextEditor = {
     },
 
     handleMouseUp: function (e) {
-        if (this._isCommittingClick) {
-            e.stopPropagation();
-            e.preventDefault();
-        }
+        // イベントブロックを解除
     },
 
     handleClick: function (e) {
-        if (this._isCommittingClick) {
-            e.stopPropagation();
-            e.preventDefault();
-        }
+        // イベントブロックを解除
     },
 
     handleKeyDown: function (e) {

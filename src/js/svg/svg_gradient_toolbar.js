@@ -396,7 +396,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
 
     // キャンバス上の制御UIを描画
     renderControlHandles() {
-        this.clearControlHandles();
+        this.clearControlHandles(true); // 選択状態を維持したままハンドルUIのみ再生成する
         if (!this.targetGroup || !window.currentEditingSVG || !window.currentEditingSVG.draw) return;
 
         const draw = window.currentEditingSVG.draw;
@@ -410,6 +410,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
 
         metaGroup.children().forEach((pathEl, idx) => {
             const color = pathEl.attr('data-color') || '#FF0000';
+            const isSelected = (pathEl.id() === this.selectedPathId);
 
             // 各色パスに対して SvgPolylineHandler を作成
             const handler = new SvgPolylineHandler(window.currentEditingSVG.container, () => {
@@ -428,8 +429,37 @@ class SVGGradientToolbar extends SVGToolbarBase {
                 handleClass: 'svg-grad-control-handle', // テストや互換性のためのカスタムクラス
                 disableConnectors: true, // グラデーション点移動時はコネクタ接続を無効化
                 onVertexClick: (e, vertexIdx) => {
-                    // マーカーをクリックしたときにカラーピッカーを表示
-                    this.showPickerForPath(pathEl, e.target);
+                    // 頂点クリック時はColorPickerは表示せず、選択状態にするだけにする
+                    this.selectPath(pathEl.id());
+                },
+                enableSkeleton: true,
+                isSelected: isSelected, // 選択中かどうかを渡す
+                onSkeletonDrag: (dx, dy) => {
+                    // 骨組み線をドラッグしたときに、選択している色の図形（PATH）をローカル平行移動させる
+                    if (this.targetGroup) {
+                        const currentD = pathEl.attr('d');
+                        const coords = this.parsePathCoords(currentD);
+                        if (coords.length > 0) {
+                            const newCoords = coords.map(pt => ({
+                                x: pt.x + dx,
+                                y: pt.y + dy
+                            }));
+                            const newD = newCoords.map((pt, i) => (i === 0 ? 'M' : 'L') + ` ${pt.x} ${pt.y}`).join(' ');
+                            pathEl.attr('d', newD);
+
+                            // レンダリング用描画グループの対応パスも更新
+                            this.updateRenderingPath(idx, newD);
+
+                            // インジケータ（ツールバーの四角）を同期
+                            this.syncIndicatorsFromMeta();
+
+                            // 変更をエディタに同期
+                            if (window.syncChanges) window.syncChanges();
+                        }
+                    }
+                },
+                onSkeletonDragEnd: () => {
+                    this.renderControlHandles();
                 }
             });
 
@@ -442,8 +472,10 @@ class SVGGradientToolbar extends SVGToolbarBase {
     }
 
     // 制御UIのクリア
-    clearControlHandles() {
-        this.clearSelection();
+    clearControlHandles(keepSelection = false) {
+        if (!keepSelection) {
+            this.clearSelection();
+        }
         if (this.polylineHandlers) {
             this.polylineHandlers.forEach(h => {
                 try { h.hide(); } catch (e) {}
@@ -628,6 +660,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
             return;
         }
 
+        const prevSelectedId = this.selectedPathId;
         this.selectedPathId = pathId;
         const color = pathEl.attr('data-color') || '#FF0000';
         const thickness = parseInt(pathEl.attr('data-thickness') || '30', 10);
@@ -652,9 +685,15 @@ class SVGGradientToolbar extends SVGToolbarBase {
 
         // インジケータの表示更新（アクティブ枠線の適用）
         this.updateIndicatorHighlight();
+
+        // 選択されたパスが変わった場合のみ、制御UIハンドルを再描画する
+        if (prevSelectedId !== pathId) {
+            this.renderControlHandles();
+        }
     }
 
     clearSelection() {
+        const prevSelectedId = this.selectedPathId;
         this.selectedPathId = null;
 
         // 枠線とトグルボタンの色をデフォルトに戻す
@@ -676,6 +715,11 @@ class SVGGradientToolbar extends SVGToolbarBase {
         }
 
         this.updateIndicatorHighlight();
+
+        // 選択が解除された場合のみ、制御UIハンドルを再描画する
+        if (prevSelectedId !== null) {
+            this.renderControlHandles();
+        }
     }
 
     updateIndicatorHighlight() {
@@ -739,7 +783,19 @@ class SVGGradientToolbar extends SVGToolbarBase {
         const svgNode = this.targetGroup.node.ownerSVGElement;
         const defsNode = svgNode ? svgNode.querySelector('defs') : null;
         if (defsNode) {
-            const filterEl = defsNode.querySelector('filter');
+            // 現在のグラデーション対応グループが使用しているフィルターIDを一意に特定する
+            let filterId = null;
+            const clipGroup = this.targetGroup.findOne('[clip-path]');
+            if (clipGroup) {
+                const filterGroup = clipGroup.findOne('g');
+                if (filterGroup) {
+                    const filterAttr = filterGroup.attr('filter');
+                    if (filterAttr) {
+                        filterId = filterAttr.replace(/url\(#([^)]+)\)/, '$1');
+                    }
+                }
+            }
+            const filterEl = filterId ? defsNode.querySelector('#' + filterId) : defsNode.querySelector('filter');
             if (filterEl) {
                 // ぼかし量 stdDeviation も太さに応じて滑らかに拡張する (最小15)
                 const stdDev = Math.max(15, Math.round(maxThickness * 0.4));

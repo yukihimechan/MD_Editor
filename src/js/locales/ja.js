@@ -273,7 +273,8 @@ I18n.register('ja', '日本語', {
         "deleteCustomTool": "カスタムツール「${toolId}」を削除しますか？",
         "overwriteStyle": "<style>タグが既に存在します。上書きしますか？\\n「キャンセル」を選ぶと追記します。",
         "clearCanvas": "キャンバスをすべて消去しますか？",
-        "resizeCanvas": "キャンバスを ${newW} × ${newH} にリサイズしますか？\\n現在の内容は消去されます。"
+        "resizeCanvas": "キャンバスを ${newW} × ${newH} にリサイズしますか？\\n現在の内容は消去されます。",
+        "renumberThisHeadingConfirm": "見出し：{{title}}より下の階層の見出しについて、見出し番号を振り直します。よろしいですか？"
     },
     "contextMenuEditor": {
         "cut": "切り取り",
@@ -315,6 +316,7 @@ I18n.register('ja', '日本語', {
         "svg": "SVG",
         "mermaid": "マーメイド",
         "renumberHeadings": "見出し番号振り直し",
+        "renumberThisHeading": "この見出しの番号振り直し",
         "editObject": "オブジェクト編集",
         "deleteObject": "削除"
     },

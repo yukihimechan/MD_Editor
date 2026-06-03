@@ -149,6 +149,14 @@ class SvgShape {
             self.onMouseDown(e);
         });
 
+        // [FIX] ブラウザ標準のネイティブ dblclick イベントで安全に起動する
+        this.el.off('dblclick.svg_interaction');
+        this.el.on('dblclick.svg_interaction', (e) => {
+            if (typeof self.onDoubleClick === 'function') {
+                self.onDoubleClick(e);
+            }
+        });
+
         // [NEW] キャプチャフェーズで mousedown を監視し、draggable などのプラグインが
         // transform を書き換える前に、安定状態の transform を確実に保存する
         if (this._nativeMouseDownHandler) {
@@ -307,32 +315,19 @@ class SvgShape {
      * Handling selection start
      */
     onMouseDown(e) {
-        console.log(`[SvgShape onMouseDown] element: ${this.el.type}#${this.el.id()}, target: ${e.target.tagName}#${e.target.id}`);
-        // [FIX] Ignore events on hidden elements
         if (!this.el.visible()) return;
 
-        // [FIX] Robust manual double-click detection that ignores micro-shakes and dragmove cancellations
-        const now = Date.now();
-        if (this._lastMasterMouseDownTime && (now - this._lastMasterMouseDownTime < 500)) {
-            this._lastMasterMouseDownTime = 0; // Reset to avoid triple-click registering as 2 dblclicks
-            // [FIX] ダブルクリックの mousedown 時、同一要素上の他のリスナー（特に draggable リスナー）が
-            // 実行されてドラッグが開始されてしまうのを完全に防ぐため、即座にイベント伝播を停止する。
-            if (e && typeof e.stopImmediatePropagation === 'function') {
-                e.stopImmediatePropagation();
-            }
-            if (e && typeof e.stopPropagation === 'function') {
-                e.stopPropagation();
-            }
-            if (e && typeof e.preventDefault === 'function') {
-                e.preventDefault();
-            }
-            this.onDoubleClick(e);
-            return; // ダブルクリック時は通常のMouseDown選択処理をスキップ
-        } else {
-            this._lastMasterMouseDownTime = now;
+        // インラインエディタが起動中または編集中の場合はスキップ
+        const isEditing = window.SvgTextEditor && (window.SvgTextEditor.activeEditor || window.SvgTextEditor.isOpening);
+        if (isEditing) {
+            if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            return;
         }
 
-        // [NEW] グループ選択を優先するため、親を遡る
+        // ▼ 危険な手動ダブルクリック検知（_lastMasterMouseDownTime）を完全削除 ▼
+        // ネイティブの dblclick イベントに処理を委譲し、フリーズを100%回避します。
+
         let selectionTarget = this.el;
         let p = this.el.parent();
 
@@ -343,25 +338,15 @@ class SvgShape {
             p = p.parent();
         }
 
-        // [FIX] Prevent event from bubbling to canvas proxy (which would trigger deselectAll)
-        // [FIX-REVERT] e.preventDefault() をコメントアウト。フォーカスやブラウザの標準挙動を壊す可能性があるため。
-        // e.preventDefault();
-        e.stopPropagation();
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
 
-        // [FIX] Detect if element is detached (Ghost element call from leaked listener)
         if (!this.el.node.isConnected) {
-            this.el.off('.svg_interaction'); // Suicide listener
+            this.el.off('.svg_interaction'); 
             return;
         }
 
-        // [FIX] Allow bubbling so that preview area listeners can see the interaction
-        // e.preventDefault(); 
-        // e.stopPropagation(); 
-
-        // エディタコンテキストが存在しない（注釈モード無効化後など）場合は処理しない
         if (!window.currentEditingSVG) return;
 
-        // Right click logic
         if (e.button === 2) {
             const isSelected = window.currentEditingSVG.selectedElements.has(this.el);
             if (isSelected) return;
@@ -387,58 +372,17 @@ class SvgShape {
             selectElement(selectionTarget, isMulti);
         }
 
-        // [FIX] Force clear resize state on any new interaction to prevent data persistence
         this._resizeState = null;
     }
 
-    /**
-     * [NEW] Handle double click for text editing
-     */
     onDoubleClick(e) {
-        e.stopPropagation();
-        e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (e && e.preventDefault) e.preventDefault();
         this._lastDblClickTime = Date.now();
 
-        // [NEW] ドラッグプラグインのドラッグ状態を同期的かつ強制的に終了させる
-        const draggable = this.el.remember('_draggable');
-        if (draggable && typeof draggable.endDrag === 'function') {
-            // console.log(`[SvgShape DEBUG] Forcefully ending drag for ${this.el.id()} on double click`);
-            try {
-                const clientX = e ? e.clientX : 0;
-                const clientY = e ? e.clientY : 0;
-                draggable.endDrag({
-                    clientX: clientX,
-                    clientY: clientY,
-                    preventDefault: () => {},
-                    stopPropagation: () => {}
-                });
-            } catch (err) {
-                // console.error('[SvgShape] Failed to force endDrag:', err);
-            }
-        }
-
-        // 1. ドラッグ移動量が0になるよう、現在のmousedownイベントのマウス座標を引き継いでmouseupを同期的に実行
-        const clientX = e ? e.clientX : 0;
-        const clientY = e ? e.clientY : 0;
-        window.dispatchEvent(new MouseEvent('mouseup', {
-            bubbles: true,
-            clientX: clientX,
-            clientY: clientY
-        }));
-        if (window.PointerEvent) {
-            window.dispatchEvent(new PointerEvent('pointerup', {
-                bubbles: true,
-                clientX: clientX,
-                clientY: clientY,
-                pointerId: e ? e.pointerId : 1,
-                pointerType: e ? e.pointerType : 'mouse'
-            }));
-        }
-
-        // イベントオブジェクトの必要なプロパティを退避
         const savedEvent = {
-            clientX: clientX,
-            clientY: clientY,
+            clientX: e ? e.clientX : 0,
+            clientY: e ? e.clientY : 0,
             shiftKey: e ? e.shiftKey : false,
             ctrlKey: e ? e.ctrlKey : false,
             altKey: e ? e.altKey : false,
@@ -446,11 +390,24 @@ class SvgShape {
             button: e ? e.button : 0
         };
 
-        // 2. グループ化やエディタ起動などのDOM操作を1フレーム遅延させて実行する
-        setTimeout(() => {
-            if (!this.el || !this.el.node || !this.el.node.isConnected) return;
-            this._doDoubleClickProcessing(savedEvent);
-        }, 16);
+        // [FIX] ブラウザのネイティブ dblclick から呼ばれるため、DOM・イベント状態は完全に安定しています
+        // 不要な setTimeout の遅延を削除し、即時実行します
+        if (!this.el || !this.el.node || !this.el.node.isConnected) {
+            const id = this.el ? this.el.id() : null;
+            if (id && window.currentEditingSVG && window.currentEditingSVG.draw) {
+                const newEl = window.currentEditingSVG.draw.findOne('#' + id);
+                if (newEl && newEl.node && newEl.node.isConnected) {
+                    this.el = newEl;
+                    this.node = newEl.node;
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
+        
+        this._doDoubleClickProcessing(savedEvent);
     }
 
     /**
@@ -459,10 +416,6 @@ class SvgShape {
     _doDoubleClickProcessing(e) {
         let targetTextEl = null;
 
-        // [NEW] ドラッグ状態を強制終了し、1回目のmousedown時点の transform を復元して微小移動を打ち消す
-        if (typeof this.el.draggable === 'function') {
-            try { this.el.draggable(false); } catch(err){}
-        }
         if (window.currentEditingSVG) {
             window.currentEditingSVG._isOperationInProgress = false;
             if (typeof window.currentEditingSVG.hideGuides === 'function') {
@@ -470,31 +423,40 @@ class SvgShape {
             }
         }
 
-        const savedAttrs = this._preDblClickAttributes;
-        if (savedAttrs) {
-            const node = this.el.node;
-            // 現在の属性のうち、保存されたものにないものを削除（idは除外）
-            for (const attr of Array.from(node.attributes)) {
-                if (attr.name !== 'id' && !(attr.name in savedAttrs)) {
-                    node.removeAttribute(attr.name);
+        // [FIX] 既にテキスト付きグループの場合は属性復元をスキップする。
+        // dragend の bakeTransformation で transform が子要素の幾何属性（cx/cy等）に焼き込まれた後に、
+        // 古い transform（bake前のもの）を復元すると移動量が二重適用され、図形が移動してしまうため。
+        const isExistingTextGroup = this.el.type === 'g' &&
+            this.el.attr('data-tool-id') === 'shape-text-group' &&
+            this.el.find('text').length > 0;
+
+        if (!isExistingTextGroup) {
+            const savedAttrs = this._preDblClickAttributes;
+            if (savedAttrs) {
+                const node = this.el.node;
+                // 現在の属性のうち、保存されたものにないものを削除（idは除外）
+                for (const attr of Array.from(node.attributes)) {
+                    if (attr.name !== 'id' && !(attr.name in savedAttrs)) {
+                        node.removeAttribute(attr.name);
+                    }
                 }
-            }
-            // 保存された属性を設定（idは除外）
-            for (const [name, value] of Object.entries(savedAttrs)) {
-                if (name !== 'id') {
-                    node.setAttribute(name, value);
+                // 保存された属性を設定（idは除外）
+                for (const [name, value] of Object.entries(savedAttrs)) {
+                    if (name !== 'id') {
+                        node.setAttribute(name, value);
+                    }
                 }
-            }
-            if (typeof clearBoxCache === 'function') {
-                clearBoxCache(this.el);
-            }
-        } else {
-            const savedTransform = this.el.node ? this.el.node.getAttribute('data-pre-dblclick-transform') : this._preDblClickTransform;
-            if (savedTransform !== undefined && savedTransform !== null) {
-                if (savedTransform === '') {
-                    this.el.node.removeAttribute('transform');
-                } else {
-                    this.el.attr('transform', savedTransform);
+                if (typeof clearBoxCache === 'function') {
+                    clearBoxCache(this.el);
+                }
+            } else {
+                const savedTransform = this.el.node ? this.el.node.getAttribute('data-pre-dblclick-transform') : this._preDblClickTransform;
+                if (savedTransform !== undefined && savedTransform !== null) {
+                    if (savedTransform === '') {
+                        this.el.node.removeAttribute('transform');
+                    } else {
+                        this.el.attr('transform', savedTransform);
+                    }
                 }
             }
         }
@@ -2048,7 +2010,9 @@ class StandardShape extends SvgShape {
                         }
                     }
                 } else if (!child.hasClass('svg-interaction-hitarea') && child.type !== 'g') {
-                    if (maintain) {
+                    const toolId = child.attr('data-tool-id') || el.attr('data-tool-id');
+                    const isPaintTool = toolId === 'airbrush' || toolId === 'freehand';
+                    if (maintain && !isPaintTool) {
                         child.attr('vector-effect', 'non-scaling-stroke');
                     } else {
                         child.attr('vector-effect', null);
@@ -2057,7 +2021,9 @@ class StandardShape extends SvgShape {
             });
         } else if (el.type !== 'g' && !el.hasClass('svg-interaction-hitarea')) {
             // 単体の図形要素の場合
-            if (maintain) {
+            const toolId = el.attr('data-tool-id');
+            const isPaintTool = toolId === 'airbrush' || toolId === 'freehand';
+            if (maintain && !isPaintTool) {
                 el.attr('vector-effect', 'non-scaling-stroke');
             } else {
                 el.attr('vector-effect', null);
@@ -2557,7 +2523,9 @@ class StandardShape extends SvgShape {
                     } else if (!child.hasClass('svg-interaction-hitarea') && childType !== 'g') {
                         const success = this._updateAttributesUsingMatrix(matrix, child);
                         if (!success) successAll = false;
-                        if (maintain) {
+                        const toolId = child.attr('data-tool-id') || el.attr('data-tool-id');
+                        const isPaintTool = toolId === 'airbrush' || toolId === 'freehand';
+                        if (maintain && !isPaintTool) {
                             child.attr('vector-effect', 'non-scaling-stroke');
                         } else {
                             child.attr('vector-effect', null);
@@ -2717,7 +2685,7 @@ class StandardShape extends SvgShape {
 
                 if (transformedArr) {
                     el.plot(transformedArr);
-                    if (['polyline', 'freehand', 'line', 'polyline_arrow', 'line_arrow', 'arrow'].includes(toolId) && typeof SvgPolylineHandler !== 'undefined') {
+                    if (['polyline', 'freehand', 'line', 'polyline_arrow', 'line_arrow', 'arrow', 'airbrush'].includes(toolId) && typeof SvgPolylineHandler !== 'undefined') {
                         const handler = new SvgPolylineHandler(null, null);
                         const newPoints = handler.getPoints(el.node).map(pt => {
                             const p = new SVG.Point(pt[0], pt[1]).transform(matrix);
@@ -3043,15 +3011,22 @@ class StandardShape extends SvgShape {
             const ev = e.nativeEvent || e;
             if (!ev || typeof ev.clientX === 'undefined') return;
 
-            const clonedEvent = new MouseEvent('mousedown', {
-                clientX: ev.clientX, clientY: ev.clientY,
-                screenX: ev.screenX, screenY: ev.screenY,
-                button: ev.button, buttons: ev.buttons,
-                shiftKey: ev.shiftKey, ctrlKey: ev.ctrlKey,
-                altKey: ev.altKey, metaKey: ev.metaKey,
-                bubbles: true, cancelable: true
-            });
-            el.node.dispatchEvent(clonedEvent);
+            // [FIX] 危険な dispatchEvent を使わず、直接関数を呼ぶことでイベントループを保護
+            const shapeInstance = el.remember('_shapeInstance');
+            if (shapeInstance && typeof shapeInstance.onMouseDown === 'function') {
+                shapeInstance.onMouseDown(ev);
+            }
+        });
+
+        // ヒットエリア（透明な当たり判定）へのダブルクリックも本体に流す
+        this.hitArea.on('dblclick.svg_interaction', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const ev = e.nativeEvent || e;
+            const shapeInstance = el.remember('_shapeInstance');
+            if (shapeInstance && typeof shapeInstance.onDoubleClick === 'function') {
+                shapeInstance.onDoubleClick(ev);
+            }
         });
     }
 
@@ -3806,7 +3781,7 @@ function wrapShape(el) {
     }
 
     // [NEW] Use PolylineShape for line/polyline elements
-    if (tagName === 'polyline' || tagName === 'line' || (tagName === 'path' && ['polyline', 'line', 'arrow', 'freehand', 'polyline_arrow'].includes(arrowToolId))) {
+    if (tagName === 'polyline' || tagName === 'line' || (tagName === 'path' && ['polyline', 'line', 'arrow', 'freehand', 'polyline_arrow', 'airbrush'].includes(arrowToolId))) {
         console.log(`[wrapShape DEBUG] Successfully mapped ${id} to PolylineShape`);
         return new PolylineShape(el);
     }
