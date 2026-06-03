@@ -251,7 +251,9 @@
             this._renderPalette();
 
             // 初期状態を発火
-            this.onChange(this.color.clone());
+            if (!this.options.skipInitialChange) {
+                this.onChange(this.color.clone());
+            }
         }
 
         render() {
