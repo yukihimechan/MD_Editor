@@ -135,6 +135,10 @@ const InlineCodeEditor = {
 
         this.activeWrapper = wrapper;
         this.codeIndex = parseInt(wrapper.dataset.codeIndex, 10);
+        const dataLineEl = wrapper.hasAttribute('data-line') ? wrapper : wrapper.closest('[data-line]');
+        this.dataLine = dataLineEl ? parseInt(dataLineEl.getAttribute('data-line'), 10) : NaN;
+        const dataLineEnd = dataLineEl ? dataLineEl.getAttribute('data-line-end') : null;
+        this.dataLineEnd = dataLineEnd ? parseInt(dataLineEnd, 10) : this.dataLine;
 
         const dialog = document.getElementById('dialog-language-select');
         const langLabel = wrapper.querySelector('.language-label');
@@ -155,41 +159,35 @@ const InlineCodeEditor = {
     },
 
     updateLanguage(newLang) {
-        if (this.codeIndex === -1) return;
+        if (isNaN(this.dataLine) || this.dataLine <= 0) return;
 
-        const text = AppState.text;
-        const lines = text.split('\n');
-        let currentCodeIndex = 0;
-        let inCodeBlock = false;
+        const doc = window.editorInstance.state.doc;
+        const startLineObj = doc.line(this.dataLine);
+        const lineText = startLineObj.text;
+        
+        // 言語タグを置換
+        const indentation = lineText.match(/^\s*/)[0];
+        const newLineText = `${indentation}\`\`\`${newLang}`;
 
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-
-            if (line.match(/^\s*```/)) {
-                if (!inCodeBlock) {
-                    if (currentCodeIndex === this.codeIndex) {
-                        // Replace the language tag
-                        const indentation = line.match(/^\s*/)[0];
-                        lines[i] = `${indentation}\`\`\`${newLang}`;
-
-                        const newText = lines.join('\n');
-                        // CM6 の dispatch() が履歴を自動管理するため、独自スタックへの push は不要
-
-                        AppState.text = newText;
-                        if (typeof setEditorText === 'function') setEditorText(newText);
-                        if (typeof render === 'function') render();
-                        break;
-                    }
-                    inCodeBlock = true;
-                } else {
-                    inCodeBlock = false;
-                    currentCodeIndex++;
-                }
+        window.editorInstance.dispatch({
+            changes: {
+                from: startLineObj.from,
+                to: startLineObj.to,
+                insert: newLineText
             }
-        }
+        });
+
+        // AppState の更新
+        AppState.text = window.editorInstance.state.doc.toString();
+        AppState.isModified = true;
+        AppState.hasUnsavedChanges = true;
+
+        if (typeof render === 'function') render();
 
         this.activeWrapper = null;
         this.codeIndex = -1;
+        this.dataLine = -1;
+        this.dataLineEnd = -1;
     },
 
     startEdit(wrapper) {
@@ -199,6 +197,10 @@ const InlineCodeEditor = {
 
         this.activeWrapper = wrapper;
         this.codeIndex = parseInt(wrapper.dataset.codeIndex, 10);
+        const dataLineEl = wrapper.hasAttribute('data-line') ? wrapper : wrapper.closest('[data-line]');
+        this.dataLine = dataLineEl ? parseInt(dataLineEl.getAttribute('data-line'), 10) : NaN;
+        const dataLineEnd = dataLineEl ? dataLineEl.getAttribute('data-line-end') : null;
+        this.dataLineEnd = dataLineEnd ? parseInt(dataLineEnd, 10) : this.dataLine;
 
         // [NEW] If language is SVG, use SVG Editor instead of CM6 inline editor
         const langLabel = wrapper.querySelector('.language-label');
@@ -331,60 +333,51 @@ const InlineCodeEditor = {
     },
 
     saveAndExit() {
-        if (!this.activeEditorView || !this.activeWrapper || this.codeIndex === -1) return;
+        console.log('[InlineEditor] saveAndExit called:', {
+            activeEditorView: !!this.activeEditorView,
+            activeWrapper: !!this.activeWrapper,
+            dataLine: this.dataLine,
+            dataLineEnd: this.dataLineEnd
+        });
+        if (!this.activeEditorView || !this.activeWrapper || isNaN(this.dataLine) || this.dataLine <= 0) return;
 
         const newCode = this.activeEditorView.state.doc.toString();
+        const doc = window.editorInstance.state.doc;
+        
+        try {
+            const startLineObj = doc.line(this.dataLine);
+            const endLineObj = doc.line(Math.min(this.dataLineEnd, doc.lines));
+            
+            const startLineText = startLineObj.text;
+            const endLineText = endLineObj.text;
+            
+            // 開始タグと終了タグを維持して中のコードを置換
+            const replacementText = startLineText + '\n' + newCode + (newCode.endsWith('\n') ? '' : '\n') + endLineText;
 
-        // Update markdown source
-        const text = AppState.text;
-        const lines = text.split('\n');
-
-        let currentCodeIndex = 0;
-        let inCodeBlock = false;
-        let blockStartLine = -1;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-
-            if (line.match(/^\s*```/)) {
-                if (!inCodeBlock) {
-                    if (currentCodeIndex === this.codeIndex) {
-                        blockStartLine = i;
-                    }
-                    inCodeBlock = true;
-                } else {
-                    if (currentCodeIndex === this.codeIndex) {
-                        const blockEndLine = i;
-                        const before = lines.slice(0, blockStartLine + 1).join('\n');
-                        const after = lines.slice(blockEndLine).join('\n');
-                        // Ensure inner code ends with a single newline or no newline before the closing tag, 
-                        // but actually just join it properly
-                        const newText = before + '\n' + newCode + (newCode.endsWith('\n') ? '' : '\n') + after;
-
-                        // CM6 の dispatch() が履歴を自動管理するため、独自スタックへの push は不要
-                        AppState.text = newText;
-                        if (typeof setEditorText === 'function') setEditorText(newText);
-
-                        // We will call full render() which destroys this DOM element completely.
-                        this.activeEditorView.destroy();
-                        this.activeEditorView = null;
-                        this.activeWrapper = null;
-                        this.codeIndex = -1;
-
-                        if (typeof render === 'function') render();
-                        return;
-                    }
-                    inCodeBlock = false;
-                    currentCodeIndex++;
+            window.editorInstance.dispatch({
+                changes: {
+                    from: startLineObj.from,
+                    to: endLineObj.to,
+                    insert: replacementText
                 }
-            }
+            });
+
+            // AppState の更新
+            AppState.text = window.editorInstance.state.doc.toString();
+            AppState.isModified = true;
+            AppState.hasUnsavedChanges = true;
+        } catch (e) {
+            console.error('[InlineEditor] saveAndExit direct replacement failed:', e);
         }
 
-        // If we reach here, codeblock wasn't found (maybe deleted in parallel?)
+        // クリーンアップ
         this.activeEditorView.destroy();
         this.activeEditorView = null;
         this.activeWrapper = null;
         this.codeIndex = -1;
+        this.dataLine = -1;
+        this.dataLineEnd = -1;
+
         if (typeof render === 'function') render();
     },
 
@@ -403,6 +396,9 @@ const InlineCodeEditor = {
 
         this.activeMermaidWrapper = codeBlockWrapper;
         this.codeIndex = parseInt(codeBlockWrapper.dataset.codeIndex, 10);
+        this.dataLine = parseInt(codeBlockWrapper.getAttribute('data-line'), 10);
+        const dataLineEnd = codeBlockWrapper.getAttribute('data-line-end');
+        this.dataLineEnd = dataLineEnd ? parseInt(dataLineEnd, 10) : this.dataLine;
 
         // mermaid-diagram-wrapperを探す（code-block-wrapper内）
         const diagramWrapper = codeBlockWrapper.querySelector('.mermaid-diagram-wrapper');

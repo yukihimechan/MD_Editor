@@ -16,6 +16,15 @@ const PreviewInlineEdit = {
     lastTabDirection: 1,
     _focusedParent: null, // [NEW] li フォーカス時に背景色を付与する親 ul/ol 要素
 
+    activePromise: Promise.resolve(), // [NEW] 非同期タスク直列化用の Promise
+
+    enqueueTask(task) {
+        this.activePromise = this.activePromise.then(() => task()).catch(err => {
+            console.error('[PreviewInlineEdit] Task failed:', err);
+        });
+        return this.activePromise;
+    },
+
     // [NEW] 複数選択関連
     selectedElements: new Set(),
     selectionAnchorElement: null,
@@ -1342,7 +1351,7 @@ const PreviewInlineEdit = {
             return;
         }
 
-        // 遅延を入れてボタンクリック等との競合を防ぐ
+        // 遅延を極小にして、クリックイベントなどのフォーカス遷移完了直後に実行されるようにする
         setTimeout(() => {
             if (this.isEditing) {
                 if (typeof window.SlashCommandPreview !== 'undefined' && window.SlashCommandPreview.isActive) return;
@@ -1350,7 +1359,7 @@ const PreviewInlineEdit = {
                 if (this.editTargetElement && !this.editTargetElement.isConnected) return; // DOMから切り離された場合
                 this.saveEditing();
             }
-        }, 150);
+        }, 50);
     },
 
     /**
@@ -1396,6 +1405,12 @@ const PreviewInlineEdit = {
     },
 
     async saveEditing() {
+        return this.enqueueTask(async () => {
+            await this._saveEditingImpl();
+        });
+    },
+
+    async _saveEditingImpl() {
         console.log(`[PreviewEdit][Debug] saveEditing called: isEditing=${this.isEditing}`);
         if (!this.isEditing || !this.selectedElement) return;
 
@@ -2086,6 +2101,12 @@ const PreviewInlineEdit = {
      * @param {HTMLElement} element 
      */
     async deleteBlock(element) {
+        return this.enqueueTask(async () => {
+            await this._deleteBlockImpl(element);
+        });
+    },
+
+    async _deleteBlockImpl(element) {
         // [FIX] 排他制御: 前の削除処理（render含む）が完了するまで次の削除をスキップ
         // Deleteキー連打時にdeleteBlockが並行実行され、古いAppState.textで不正な操作が行われるのを防止
         if (this._isDeletePending) {
@@ -2330,6 +2351,12 @@ const PreviewInlineEdit = {
 
     // [NEW] クリップボードのテキストを選択ブロックの前または後ろに貼り付ける
     async pasteBlocks(pastedText = null) {
+        return this.enqueueTask(async () => {
+            await this._pasteBlocksImpl(pastedText);
+        });
+    },
+
+    async _pasteBlocksImpl(pastedText = null) {
         if (!this.focusedElement && (!this.selectedElements || this.selectedElements.size === 0)) return false;
 
         const targets = this.selectedElements && this.selectedElements.size > 0 

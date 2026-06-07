@@ -76,60 +76,78 @@ window.MermaidBase = {
     },
 
     /**
+     * ソーステキストを更新し、再描画(render)の完了と、対象となる新しいDOM要素の出現を待つ
+     * @param {Element} wrapper
+     * @param {string} newText
+     * @returns {Promise<{ newDiagramWrapper: Element|null, newCodeBlockWrapper: Element|null }>}
+     */
+    async updateTextAndRender(wrapper, newText) {
+        const savedCodeIndex = wrapper.closest('.code-block-wrapper')?.dataset?.codeIndex;
+        const savedDataLine  = wrapper.getAttribute('data-line')
+            || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
+
+        if (typeof setEditorText === 'function') {
+            setEditorText(newText);
+        }
+
+        if (typeof window.render === 'function') {
+            await window.render();
+        }
+
+        let newDiagramWrapper = null;
+        let newCodeBlockWrapper = null;
+
+        // 最大10回（20ms間隔、計200ms）ループして要素を探す
+        for (let i = 0; i < 10; i++) {
+            if (savedCodeIndex !== undefined) {
+                newCodeBlockWrapper = document.querySelector(`.code-block-wrapper[data-code-index="${savedCodeIndex}"]`);
+                if (newCodeBlockWrapper) {
+                    newDiagramWrapper = newCodeBlockWrapper.querySelector('.mermaid-diagram-wrapper');
+                }
+            }
+            if (!newDiagramWrapper && savedDataLine) {
+                newDiagramWrapper = document.querySelector(`.mermaid-diagram-wrapper[data-line="${savedDataLine}"]`);
+                if (newDiagramWrapper && !newCodeBlockWrapper) {
+                    newCodeBlockWrapper = newDiagramWrapper.closest('.code-block-wrapper');
+                }
+            }
+
+            if (newDiagramWrapper) {
+                break;
+            }
+            await new Promise(r => setTimeout(r, 20));
+        }
+
+        return { newDiagramWrapper, newCodeBlockWrapper };
+    },
+
+    /**
      * テキストを書き換えて再描画し、Mermaidの編集モード状態を復元する
      * @param {Element} wrapper 
      * @param {string[]} newTextLines 
      * @param {string} modeClass - 'mermaid-edit-mode', 'mermaid-sequence-edit-mode', etc.
      * @param {Object} toolbar - window.activeMermaidToolbar 等
      */
-    applyEditorTextAndRestore(wrapper, newTextLines, modeClass = 'mermaid-edit-mode', toolbar = null, options = {}) {
-        // 再描画前に編集状態情報を保存
-        const savedCodeIndex = wrapper.closest('.code-block-wrapper')?.dataset?.codeIndex;
-        const savedDataLine  = wrapper.getAttribute('data-line')
-            || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
+    async applyEditorTextAndRestore(wrapper, newTextLines, modeClass = 'mermaid-edit-mode', toolbar = null, options = {}) {
+        const { newDiagramWrapper, newCodeBlockWrapper } = await this.updateTextAndRender(wrapper, newTextLines.join('\n'));
 
-        if (typeof setEditorText === 'function') {
-            setEditorText(newTextLines.join('\n'));
+        if (newDiagramWrapper) {
+            newDiagramWrapper.classList.add(modeClass);
+            if (typeof InlineCodeEditor !== 'undefined' && InlineCodeEditor.activeMermaidWrapper) {
+                InlineCodeEditor._activeMermaidDiagram = newDiagramWrapper;
+                if (newCodeBlockWrapper) InlineCodeEditor.activeMermaidWrapper = newCodeBlockWrapper;
+            }
+            if (newCodeBlockWrapper) {
+                window.MermaidBase.updateEditButtonToDoneMode(newCodeBlockWrapper);
+            }
+            if (toolbar && typeof toolbar.show === 'function') {
+                toolbar.show(newDiagramWrapper);
+            }
         }
 
-        setTimeout(() => {
-            if (typeof window.render === 'function') window.render();
-            setTimeout(() => {
-                // 編集モードを復元
-                const preview = document.getElementById('preview');
-                if (!preview) return;
-
-                let newDiagramWrapper = null;
-                let newCodeBlockWrapper = null;
-
-                if (savedCodeIndex !== undefined) {
-                    newCodeBlockWrapper = document.querySelector(`.code-block-wrapper[data-code-index="${savedCodeIndex}"]`);
-                    if (newCodeBlockWrapper) newDiagramWrapper = newCodeBlockWrapper.querySelector('.mermaid-diagram-wrapper');
-                }
-                if (!newDiagramWrapper && savedDataLine) {
-                    newDiagramWrapper = document.querySelector(`.mermaid-diagram-wrapper[data-line="${savedDataLine}"]`);
-                    if (newDiagramWrapper && !newCodeBlockWrapper) newCodeBlockWrapper = newDiagramWrapper.closest('.code-block-wrapper');
-                }
-
-                if (newDiagramWrapper) {
-                    newDiagramWrapper.classList.add(modeClass);
-                    if (typeof InlineCodeEditor !== 'undefined' && InlineCodeEditor.activeMermaidWrapper) {
-                        InlineCodeEditor._activeMermaidDiagram = newDiagramWrapper;
-                        if (newCodeBlockWrapper) InlineCodeEditor.activeMermaidWrapper = newCodeBlockWrapper;
-                    }
-                    if (newCodeBlockWrapper) {
-                        window.MermaidBase.updateEditButtonToDoneMode(newCodeBlockWrapper);
-                    }
-                    if (toolbar && typeof toolbar.show === 'function') {
-                        toolbar.show(newDiagramWrapper);
-                    }
-                }
-
-                // 復元完了後のコールバック（拡大ビューのリセット等に使用）
-                if (typeof options.onAfterRestore === 'function') {
-                    options.onAfterRestore(newDiagramWrapper);
-                }
-            }, 100);
-        }, 50);
+        // 復元完了後のコールバック（拡大ビューのリセット等に使用）
+        if (typeof options.onAfterRestore === 'function') {
+            options.onAfterRestore(newDiagramWrapper);
+        }
     }
 };

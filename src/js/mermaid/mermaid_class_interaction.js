@@ -89,18 +89,12 @@ window.MermaidClassInteraction = {
                 const savedCodeIndex = diagramContainer.closest('.code-block-wrapper')?.dataset?.codeIndex;
                 const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-                setEditorText(lines.join('\n'));
-
-                selectedNodes.clear();
-                
-                setTimeout(() => {
-                    if (typeof window.render === 'function') window.render();
-                    setTimeout(() => {
-                        if (window.activeMermaidClassToolbar) {
-                            window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                        }
-                    }, 100);
-                }, 50);
+                (async () => {
+                    await window.MermaidBase.updateTextAndRender(diagramContainer, lines.join('\n'));
+                    if (window.activeMermaidClassToolbar) {
+                        window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+                    }
+                })();
                 if (typeof showToast === 'function') showToast('削除しました', 'success');
             },
             
@@ -209,18 +203,12 @@ window.MermaidClassInteraction = {
                 const savedCodeIndex = diagramContainer.closest('.code-block-wrapper')?.dataset?.codeIndex;
                 const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-                setEditorText(lines.join('\n'));
-
-                selectedNodes.clear();
-                newSelectedIds.forEach(id => selectedNodes.add(id));
-                
-                setTimeout(() => {
-                    setTimeout(() => {
-                        if (window.activeMermaidClassToolbar) {
-                            window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                        }
-                    }, 100);
-                }, 50);
+                (async () => {
+                    await window.MermaidBase.updateTextAndRender(diagramContainer, lines.join('\n'));
+                    if (window.activeMermaidClassToolbar) {
+                        window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+                    }
+                })();
             },
             
             toggleDirection: () => {
@@ -279,21 +267,17 @@ window.MermaidClassInteraction = {
                 const savedCodeIndex = diagramContainer.closest('.code-block-wrapper')?.dataset?.codeIndex;
                 const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-                setEditorText(lines.join('\n'));
-
-                setTimeout(() => {
-                    if (typeof window.render === 'function') window.render();
-                    setTimeout(() => {
-                        if (window.activeMermaidClassToolbar) {
-                            window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                        }
-                        if (window.MermaidExpandedManager &&
-                            (window.MermaidExpandedManager.activeCodeIndex != null ||
-                             window.MermaidExpandedManager.activeWrapperLine != null)) {
-                            window.MermaidExpandedManager.resetView();
-                        }
-                    }, 100);
-                }, 50);
+                (async () => {
+                    await window.MermaidBase.updateTextAndRender(diagramContainer, lines.join('\n'));
+                    if (window.activeMermaidClassToolbar) {
+                        window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+                    }
+                    if (window.MermaidExpandedManager &&
+                        (window.MermaidExpandedManager.activeCodeIndex != null ||
+                         window.MermaidExpandedManager.activeWrapperLine != null)) {
+                        window.MermaidExpandedManager.resetView();
+                    }
+                })();
                 if (typeof showToast === 'function') showToast(`縦横(TB/LR/BT/RL)を切り替えました`, 'success');
             }
         };
@@ -940,16 +924,12 @@ window.MermaidClassInteraction = {
         const savedCodeIndex = wrapper.closest('.code-block-wrapper')?.dataset?.codeIndex;
         const savedDataLine  = wrapper.getAttribute('data-line') || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-        setEditorText(lines.join('\n'));
-
-        setTimeout(() => {
-            if (typeof window.render === 'function') window.render();
-            setTimeout(() => {
-                if (window.activeMermaidClassToolbar) {
-                    window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                }
-            }, 100);
-        }, 50);
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(wrapper, lines.join('\n'));
+            if (window.activeMermaidClassToolbar) {
+                window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+            }
+        })();
 
         if (typeof showToast === 'function') showToast(`${fromId} と ${toId} を接続しました`, 'success');
     },
@@ -1293,17 +1273,12 @@ window.MermaidClassInteraction = {
         const savedCodeIndex = wrapper.closest('.code-block-wrapper')?.dataset?.codeIndex;
         const savedDataLine  = wrapper.getAttribute('data-line') || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-        if (typeof setEditorText === 'function') {
-            setEditorText(lines.join('\n'));
-            setTimeout(() => {
-                if (typeof window.render === 'function') window.render();
-                setTimeout(() => {
-                    if (window.activeMermaidClassToolbar) {
-                        window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                    }
-                }, 100);
-            }, 50);
-        }
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(wrapper, lines.join('\n'));
+            if (window.activeMermaidClassToolbar) {
+                window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+            }
+        })();
     },
 
     _enhanceRelationHitboxes(wrapper) {
@@ -1491,19 +1466,15 @@ window.MermaidClassInteraction = {
         const savedCodeIndex = wrapper.closest('.code-block-wrapper')?.dataset?.codeIndex;
         const savedDataLine  = wrapper.getAttribute('data-line') || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-        setEditorText(lines.join('\n'));
-
         selectedNodes.clear();
         selectedRelations.clear();
 
-        setTimeout(() => {
-            if (typeof window.render === 'function') window.render();
-            setTimeout(() => {
-                if (window.activeMermaidClassToolbar) {
-                    window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                }
-            }, 100);
-        }, 50);
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(wrapper, lines.join('\n'));
+            if (window.activeMermaidClassToolbar) {
+                window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+            }
+        })();
 
         if (typeof showToast === 'function') showToast('削除しました', 'success');
     },
@@ -1645,16 +1616,12 @@ window.MermaidClassInteraction = {
         const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
         const savedEdgeId    = mId;
 
-        setEditorText(lines.join('\n'));
-
-        setTimeout(() => {
-            if (typeof window.render === 'function') window.render();
-            setTimeout(() => {
-                if (window.activeMermaidClassToolbar) {
-                    window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
-                }
-            }, 100);
-        }, 50);
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(diagramContainer, lines.join('\n'));
+            if (window.activeMermaidClassToolbar) {
+                window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
+            }
+        })();
     },
 
     _applyRelationSwap(diagramContainer) {
@@ -1664,7 +1631,10 @@ window.MermaidClassInteraction = {
         
         const mId = Array.from(diagramContainer._selectedRelations)[0];
         const rel = this._getRelationFromText(diagramContainer, mId);
-        if (!rel) return;
+        if (!rel) {
+            if (typeof showToast === 'function') showToast('対象のリレーションが見つかりませんでした。', 'error');
+            return;
+        }
 
         const lines = getEditorText().split('\n');
         
@@ -1686,15 +1656,11 @@ window.MermaidClassInteraction = {
         const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
         const savedEdgeId    = mId;
 
-        setEditorText(lines.join('\n'));
-
-        setTimeout(() => {
-            if (typeof window.render === 'function') window.render();
-            setTimeout(() => {
-                if (window.activeMermaidClassToolbar) {
-                    window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
-                }
-            }, 100);
-        }, 50);
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(diagramContainer, lines.join('\n'));
+            if (window.activeMermaidClassToolbar) {
+                window.activeMermaidClassToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
+            }
+        })();
     }
 };

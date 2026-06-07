@@ -959,24 +959,18 @@ window.MermaidSequenceInteraction = {
 
         if (replaced) {
             const newText = lines.join('\n');
-            // CM6 の dispatch() が履歴を自動管理するため、独自スタックへの push は不要
-            setEditorText(newText);
-
-            // ツールバー等に選択解除を伝達
             this._clearSelection(container);
 
-            if (typeof render === 'function') {
-                setTimeout(() => {
-                    render();
-                    setTimeout(() => {
-                        // MermaidSequenceToolbar._restoreEditModeを呼ぶ（存在する場合）
-                        if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                            window.activeMermaidSequenceToolbar._lastEditedLine = dataLine;
-                            window.activeMermaidSequenceToolbar._restoreEditMode();
-                        }
-                    }, 100);
-                }, 50);
-            }
+            (async () => {
+                const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
+                if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
+                    const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
+                    window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
+                    window.activeMermaidSequenceToolbar._restoreEditMode();
+                }
+            })();
+        } else {
+            if (typeof showToast === 'function') showToast('指定されたメッセージの編集に失敗しました。ソースコードを確認してください。', 'error');
         }
     },
 
@@ -1560,20 +1554,17 @@ window.MermaidSequenceInteraction = {
         if (replaced) {
             this._clearSelection(container);
             const newText = lines.join('\n');
-            // CM6 の dispatch() が履歴を自動管理するため、独自スタックへの push は不要
-            setEditorText(newText);
-            if (typeof render === 'function') {
-                setTimeout(() => {
-                    render();
-                    setTimeout(() => {
-                        if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                            window.activeMermaidSequenceToolbar._lastEditedLine = dataLine;
-                            window.activeMermaidSequenceToolbar._restoreEditMode();
-                        }
-                    }, 100);
-                }, 50);
-            }
+            (async () => {
+                const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
+                if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
+                    const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
+                    window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
+                    window.activeMermaidSequenceToolbar._restoreEditMode();
+                }
+            })();
             if (typeof showToast === 'function') showToast('削除しました', 'success');
+        } else {
+            if (typeof showToast === 'function') showToast('削除対象が見つかりませんでした。', 'error');
         }
     },
 
@@ -1683,22 +1674,16 @@ window.MermaidSequenceInteraction = {
         });
 
         const newText = lines.join('\n');
-        // CM6 の dispatch() が履歴を自動管理するため、独自スタックへの push は不要
-        setEditorText(newText);
-        
         if (typeof showToast === 'function') showToast(`${this._clipboard.length}個の要素を貼り付けました`, 'success');
         
-        if (typeof render === 'function') {
-            setTimeout(() => {
-                render();
-                setTimeout(() => {
-                    if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                        window.activeMermaidSequenceToolbar._lastEditedLine = dataLine;
-                        window.activeMermaidSequenceToolbar._restoreEditMode();
-                    }
-                }, 100);
-            }, 50);
-        }
+        (async () => {
+            const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
+            if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
+                const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
+                window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
+                window.activeMermaidSequenceToolbar._restoreEditMode();
+            }
+        })();
     },
 
     /**
@@ -1843,20 +1828,14 @@ window.MermaidSequenceInteraction = {
             ...lines.slice(endIdx)
         ].join('\n');
 
-        // CM6 の dispatch() が履歴を自動管理するため、独自スタックへの push は不要
-        setEditorText(newText);
-        
-        if (typeof render === 'function') {
-            setTimeout(() => {
-                render();
-                setTimeout(() => {
-                    if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                        window.activeMermaidSequenceToolbar._lastEditedLine = dataLine;
-                        window.activeMermaidSequenceToolbar._restoreEditMode();
-                    }
-                }, 100);
-            }, 50);
-        }
+        (async () => {
+            const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
+            if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
+                const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
+                window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
+                window.activeMermaidSequenceToolbar._restoreEditMode();
+            }
+        })();
     },
 
     /**
@@ -2120,24 +2099,18 @@ window.MermaidSequenceInteraction = {
         lines.splice(insertAt, 0, newMsgLine);
 
         const newText = lines.join('\n');
-        // CM6 の dispatch() が履歴を自動管理するため、独自スタックへの push は不要
-        setEditorText(newText);
-        // キャッシュを無効化
         this._lifelineCache = null;
 
         if (typeof showToast === 'function') showToast('矢印を追加しました', 'success');
 
-        if (typeof render === 'function') {
-            setTimeout(() => {
-                render();
-                setTimeout(() => {
-                    if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                        window.activeMermaidSequenceToolbar._lastEditedLine = dataLine;
-                        window.activeMermaidSequenceToolbar._restoreEditMode();
-                    }
-                }, 100);
-            }, 50);
-        }
+        (async () => {
+            const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
+            if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
+                const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
+                window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
+                window.activeMermaidSequenceToolbar._restoreEditMode();
+            }
+        })();
     },
 
     // ============================================================
@@ -2448,8 +2421,6 @@ window.MermaidSequenceInteraction = {
         lines.splice(startSrcLine + 1, 0, `    activate ${actorId}`);
 
         const newText = lines.join('\n');
-        // CM6 の dispatch() が履歴を自動管理するため、独自スタックへの push は不要
-        setEditorText(newText);
         this._lifelineCache = null;
 
         if (typeof showToast === 'function') showToast('activateを追加しました', 'success');
@@ -2460,16 +2431,13 @@ window.MermaidSequenceInteraction = {
             if (cbw) dataLine = parseInt(cbw.getAttribute('data-line'), 10);
         }
 
-        if (typeof render === 'function') {
-            setTimeout(() => {
-                render();
-                setTimeout(() => {
-                    if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                        window.activeMermaidSequenceToolbar._lastEditedLine = dataLine;
-                        window.activeMermaidSequenceToolbar._restoreEditMode();
-                    }
-                }, 100);
-            }, 50);
-        }
+        (async () => {
+            const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(container, newText);
+            if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
+                const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
+                window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
+                window.activeMermaidSequenceToolbar._restoreEditMode();
+            }
+        })();
     }
 };

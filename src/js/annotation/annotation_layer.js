@@ -331,6 +331,13 @@ window.AnnotationLayer = (function () {
                 // 【修正】大量のRectではなく、1つのPathデータで描画するよう初期化
                 _activeShape.markerPath = _activeShape.path('').fill(color).stroke('none');
 
+                // 【追加】ドラッグ中のプレビュー用の一時的な太線
+                _activeShape.previewLine = _activeShape.line(x, y, x, y).stroke({
+                    color: color,
+                    width: 16,
+                    opacity: 0.5,
+                    linecap: 'round'
+                });
             } else if (_currentTool === 'freehand') {
                 _freehandPoints = [[x, y]];
                 _activeShape = _draw.polyline([[x, y]])
@@ -374,41 +381,13 @@ window.AnnotationLayer = (function () {
         if (_currentTool === 'marker') {
             if (!_markerStartNode || !_activeShape) return;
             
-            // 毎フレームの pointerEvents の切り替えを削除
-            let currentRange = null;
-            if (document.caretRangeFromPoint) {
-                currentRange = document.caretRangeFromPoint(e.clientX, e.clientY);
-            } else if (document.caretPositionFromPoint) {
-                const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
-                if (pos) {
-                    currentRange = document.createRange();
-                    currentRange.setStart(pos.offsetNode, pos.offset);
-                    currentRange.setEnd(pos.offsetNode, pos.offset);
-                }
+            // 【修正】ドラッグ中は getClientRects を行わず、単純なプレビュー線の座標更新のみ行う
+            if (_activeShape.previewLine) {
+                _activeShape.previewLine.plot(_startPt.x, _startPt.y, pt.x, pt.y);
             }
-
-            if (currentRange) {
-                const range = _getSafeRange(_markerStartNode, _markerStartOffset, currentRange.startContainer, currentRange.startOffset);
-                const rects = range.getClientRects();
-                const svgRect = _svgRectCache;
-                
-                // 【追加】ユーザーから要望のあったドラッグ時のログ出力
-                console.log(`[AnnotationLayer] マーカー描画中 | rects:${rects.length}個 | x:${e.clientX}, y:${e.clientY}`);
-
-                // 【修正】clear() をやめ、文字列 (d属性) だけで描画を完結（レイアウトスラッシング消滅）
-                let pathStr = '';
-                for (let i = 0; i < rects.length; i++) {
-                    const r = rects[i];
-                    if (r.width > 0 && r.height > 0) {
-                        const rx = r.left - svgRect.left;
-                        const ry = r.top - svgRect.top;
-                        pathStr += `M${rx},${ry} h${r.width} v${r.height} h-${r.width} Z `;
-                    }
-                }
-                if (_activeShape.markerPath) {
-                    _activeShape.markerPath.plot(pathStr);
-                }
-            }
+            
+            // 【追加】ユーザーから要望のあったドラッグ時のログ出力
+            console.log(`[AnnotationLayer] マーカー描画中 (プレビュー) | x:${e.clientX}, y:${e.clientY}`);
         } else if (_currentTool === 'freehand') {
             _freehandPoints.push([pt.x, pt.y]);
             _activeShape.plot(_freehandPoints);
@@ -441,7 +420,7 @@ window.AnnotationLayer = (function () {
         }
     }
 
-    function _onMouseUp() {
+    function _onMouseUp(e) {
         if (_currentTool === 'select') return;
 
         if (!_isDrawing) return;
@@ -452,6 +431,45 @@ window.AnnotationLayer = (function () {
         if (_activeShape) {
             let keep = true;
             if (_currentTool === 'marker') {
+                // 【追加】一時的なプレビュー線を削除
+                if (_activeShape.previewLine) {
+                    _activeShape.previewLine.remove();
+                    _activeShape.previewLine = null;
+                }
+
+                // 【追加】マウスアップされた時点の座標から確定範囲を算出して getClientRects() を計算
+                let currentRange = null;
+                if (document.caretRangeFromPoint) {
+                    currentRange = document.caretRangeFromPoint(e.clientX, e.clientY);
+                } else if (document.caretPositionFromPoint) {
+                    const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
+                    if (pos) {
+                        currentRange = document.createRange();
+                        currentRange.setStart(pos.offsetNode, pos.offset);
+                        currentRange.setEnd(pos.offsetNode, pos.offset);
+                    }
+                }
+
+                if (currentRange && _markerStartNode) {
+                    const range = _getSafeRange(_markerStartNode, _markerStartOffset, currentRange.startContainer, currentRange.startOffset);
+                    const rects = range.getClientRects();
+                    // この時点でのみ SVGレイヤーの bounding rect を取得する
+                    const rect = _svgEl.getBoundingClientRect();
+                    
+                    let pathStr = '';
+                    for (let i = 0; i < rects.length; i++) {
+                        const r = rects[i];
+                        if (r.width > 0 && r.height > 0) {
+                            const rx = r.left - rect.left;
+                            const ry = r.top - rect.top;
+                            pathStr += `M${rx},${ry} h${r.width} v${r.height} h-${r.width} Z `;
+                        }
+                    }
+                    if (_activeShape.markerPath) {
+                        _activeShape.markerPath.plot(pathStr);
+                    }
+                }
+
                 // 【修正】子要素の数ではなく、pathのd属性が空かどうかで判定
                 if (!_activeShape.markerPath || !_activeShape.markerPath.attr('d')) keep = false;
             } else {
@@ -1286,6 +1304,31 @@ window.AnnotationLayer = (function () {
         _prevContent = newContent;
     }
 
+    /**
+     * CodeMirror 6 の Transaction 変更履歴からアンカー行番号をシフトする
+     * @param {Array} changes - [{ startLine, endLine, delta }] の配列
+     */
+    function shiftAnchors(changes) {
+        if (_anchorMap.size === 0 || !changes || changes.length === 0) return;
+
+        // ドキュメントの後方から適用するために逆順にループ
+        for (let i = changes.length - 1; i >= 0; i--) {
+            const { startLine, endLine, delta } = changes[i];
+            
+            _anchorMap.forEach((anchor, shapeId) => {
+                if (anchor.sourceLine == null) return;
+                
+                if (anchor.sourceLine >= endLine) {
+                    anchor.sourceLine += delta;
+                } else if (anchor.sourceLine >= startLine) {
+                    anchor.sourceLine = startLine;
+                }
+            });
+        }
+        
+        console.log(`[AnnotationLayer] shiftAnchors: ${changes.length}個の変更により行番号をシフトしました`);
+    }
+
     function setColor(color) {
         _currentColor = color;
     }
@@ -1379,6 +1422,6 @@ window.AnnotationLayer = (function () {
         _notifyChange();
     }
 
-    return { init, enable, disable, toggle, setTool, setColor, setStrokeWidth, undo, clearAll, clearSilent, getSVGData, loadSVGData, isActive, updateAnchors, trackContentChange, getBubbleList, setReadStatus, setActionStatus, setComment };
+    return { init, enable, disable, toggle, setTool, setColor, setStrokeWidth, undo, clearAll, clearSilent, getSVGData, loadSVGData, isActive, updateAnchors, trackContentChange, shiftAnchors, getBubbleList, setReadStatus, setActionStatus, setComment };
 
 })();

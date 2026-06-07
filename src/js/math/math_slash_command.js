@@ -31,6 +31,13 @@ const MathSlashCommand = {
         document.body.appendChild(this.element);
 
         this.initItems();
+
+        // スクロール時にサジェストを自動で閉じる
+        window.addEventListener('scroll', () => {
+            if (this.isActive) {
+                this.hide();
+            }
+        }, true); // キャプチャフェーズで監視し、任意の要素（プレビュー等）のスクロールも検知する
     },
 
     initItems() {

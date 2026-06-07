@@ -764,6 +764,24 @@ function initEditor() {
             // [FIX] ドキュメントに変更がない場合（選択範囲の変更やフォーカス移動のみの場合）は、
             // 重いレンダリング処理や状態更新をスキップする。
             if (!update.docChanged) return;
+
+            // [NEW] 注釈（アノテーション）のアンカー行番号を CodeMirror 6 の Transaction から正確にシフト
+            if (window.AnnotationLayer && typeof window.AnnotationLayer.shiftAnchors === 'function') {
+                const changes = [];
+                update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+                    const startLine = update.startState.doc.lineAt(fromA).number;
+                    const endLine = update.startState.doc.lineAt(toA).number;
+                    const deletedLines = endLine - startLine;
+                    const addedLines = inserted.lines - 1;
+                    const delta = addedLines - deletedLines;
+                    if (delta !== 0 || deletedLines > 0) {
+                        changes.push({ startLine, endLine, delta });
+                    }
+                });
+                if (changes.length > 0) {
+                    window.AnnotationLayer.shiftAnchors(changes);
+                }
+            }
             
             // パフォーマンス計測用: 変更検知時刻を記録
             window._lastDocChangeTime = performance.now();

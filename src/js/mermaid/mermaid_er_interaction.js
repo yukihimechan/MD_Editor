@@ -125,18 +125,12 @@ window.MermaidErInteraction = {
                 const savedCodeIndex = diagramContainer.closest('.code-block-wrapper')?.dataset?.codeIndex;
                 const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-                setEditorText(lines.join('\n'));
-
-                selectedNodes.clear();
-                newSelectedIds.forEach(id => selectedNodes.add(id));
-                
-                setTimeout(() => {
-                    setTimeout(() => {
-                        if (window.activeMermaidErToolbar) {
-                            window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                        }
-                    }, 100);
-                }, 50);
+                (async () => {
+                    await window.MermaidBase.updateTextAndRender(diagramContainer, lines.join('\n'));
+                    if (window.activeMermaidErToolbar) {
+                        window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+                    }
+                })();
             },
             
             toggleDirection: () => {
@@ -195,21 +189,17 @@ window.MermaidErInteraction = {
                 const savedCodeIndex = diagramContainer.closest('.code-block-wrapper')?.dataset?.codeIndex;
                 const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-                setEditorText(lines.join('\n'));
-
-                setTimeout(() => {
-                    if (typeof window.render === 'function') window.render();
-                    setTimeout(() => {
-                        if (window.activeMermaidErToolbar) {
-                            window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                        }
-                        if (window.MermaidExpandedManager &&
-                            (window.MermaidExpandedManager.activeCodeIndex != null ||
-                             window.MermaidExpandedManager.activeWrapperLine != null)) {
-                            window.MermaidExpandedManager.resetView();
-                        }
-                    }, 100);
-                }, 50);
+                (async () => {
+                    await window.MermaidBase.updateTextAndRender(diagramContainer, lines.join('\n'));
+                    if (window.activeMermaidErToolbar) {
+                        window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+                    }
+                    if (window.MermaidExpandedManager &&
+                        (window.MermaidExpandedManager.activeCodeIndex != null ||
+                         window.MermaidExpandedManager.activeWrapperLine != null)) {
+                        window.MermaidExpandedManager.resetView();
+                    }
+                })();
                 if (typeof showToast === 'function') showToast(`縦横(TB/LR/BT/RL)を切り替えました`, 'success');
             }
         };
@@ -912,23 +902,22 @@ window.MermaidErInteraction = {
         const savedCodeIndex = wrapper.closest('.code-block-wrapper')?.dataset?.codeIndex;
         const savedDataLine  = wrapper.getAttribute('data-line') || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-        setEditorText(lines.join('\n'));
-
-        setTimeout(() => {
-            if (typeof window.render === 'function') window.render();
-            setTimeout(() => {
-                if (window.activeMermaidErToolbar) {
-                    window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                }
-            }, 100);
-        }, 50);
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(wrapper, lines.join('\n'));
+            if (window.activeMermaidErToolbar) {
+                window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+            }
+        })();
 
         if (typeof showToast === 'function') showToast(`${fromId} と ${toId} を接続しました`, 'success');
     },
 
     _editRelationInline(mId, targetPath, wrapper, e, labelNode = null) {
         const rel = this._getRelationFromText(wrapper, mId);
-        if (!rel) return;
+        if (!rel) {
+            if (typeof showToast === 'function') showToast('対象のリレーションが見つかりませんでした。', 'error');
+            return;
+        }
 
         let initialLabel = rel.label && rel.label.trim() !== '""' ? rel.label : '';
         if (initialLabel.startsWith('"') && initialLabel.endsWith('"')) {
@@ -1011,19 +1000,12 @@ window.MermaidErInteraction = {
             const savedDataLine  = wrapper.getAttribute('data-line') || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
             const savedEdgeId    = mId;
 
-            setEditorText(lines.join('\n'));
-
-            setTimeout(() => {
-                if (typeof window.render === 'function') {
-                    Promise.resolve(window.render()).then(() => {
-                        setTimeout(() => {
-                            if (window.activeMermaidErToolbar) {
-                                window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
-                            }
-                        }, 50);
-                    });
+            (async () => {
+                await window.MermaidBase.updateTextAndRender(wrapper, lines.join('\n'));
+                if (window.activeMermaidErToolbar) {
+                    window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
                 }
-            }, 50);
+            })();
         };
         
         input.addEventListener('keydown', ev => {
@@ -1531,17 +1513,12 @@ window.MermaidErInteraction = {
         const savedCodeIndex = wrapper.closest('.code-block-wrapper')?.dataset?.codeIndex;
         const savedDataLine  = wrapper.getAttribute('data-line') || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-        if (typeof setEditorText === 'function') {
-            setEditorText(lines.join('\n'));
-            setTimeout(() => {
-                if (typeof window.render === 'function') window.render();
-                setTimeout(() => {
-                    if (window.activeMermaidErToolbar) {
-                        window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                    }
-                }, 100);
-            }, 50);
-        }
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(wrapper, lines.join('\n'));
+            if (window.activeMermaidErToolbar) {
+                window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+            }
+        })();
     },
     _enhanceRelationHitboxes(wrapper) {
         // SVGが更新された後、既存のヒットボックスを削除
@@ -1732,19 +1709,15 @@ window.MermaidErInteraction = {
         const savedCodeIndex = wrapper.closest('.code-block-wrapper')?.dataset?.codeIndex;
         const savedDataLine  = wrapper.getAttribute('data-line') || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
 
-        setEditorText(lines.join('\n'));
-
         selectedNodes.clear();
         selectedRelations.clear();
 
-        setTimeout(() => {
-            if (typeof window.render === 'function') window.render();
-            setTimeout(() => {
-                if (window.activeMermaidErToolbar) {
-                    window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
-                }
-            }, 100);
-        }, 50);
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(wrapper, lines.join('\n'));
+            if (window.activeMermaidErToolbar) {
+                window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine);
+            }
+        })();
 
         if (typeof showToast === 'function') showToast('削除しました', 'success');
     },
@@ -1837,7 +1810,10 @@ window.MermaidErInteraction = {
         const mId = Array.from(diagramContainer._selectedRelations)[0];
         console.log('[_applyRelationChange] 対象ID:', mId);
         const rel = this._getRelationFromText(diagramContainer, mId);
-        if (!rel) return;
+        if (!rel) {
+            if (typeof showToast === 'function') showToast('対象のリレーションが見つかりませんでした。', 'error');
+            return;
+        }
 
         // 値が変わっていなければ何もしない
         const stateLeft = state.leftMulti ? state.leftMulti.replace(/"/g, '') : '';
@@ -1860,19 +1836,12 @@ window.MermaidErInteraction = {
         const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
         const savedEdgeId    = mId;
 
-        setEditorText(lines.join('\n'));
-
-        setTimeout(() => {
-            if (typeof window.render === 'function') {
-                Promise.resolve(window.render()).then(() => {
-                    setTimeout(() => {
-                        if (window.activeMermaidErToolbar) {
-                            window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
-                        }
-                    }, 50);
-                });
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(diagramContainer, lines.join('\n'));
+            if (window.activeMermaidErToolbar) {
+                window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
             }
-        }, 50);
+        })();
     },
 
     _applyRelationSwap(diagramContainer) {
@@ -1882,7 +1851,10 @@ window.MermaidErInteraction = {
         
         const mId = Array.from(diagramContainer._selectedRelations)[0];
         const rel = this._getRelationFromText(diagramContainer, mId);
-        if (!rel) return;
+        if (!rel) {
+            if (typeof showToast === 'function') showToast('対象のリレーションが見つかりませんでした。', 'error');
+            return;
+        }
 
         const lines = getEditorText().split('\n');
         
@@ -1900,18 +1872,11 @@ window.MermaidErInteraction = {
         const savedDataLine  = diagramContainer.getAttribute('data-line') || diagramContainer.closest('.code-block-wrapper')?.getAttribute('data-line');
         const savedEdgeId    = mId;
 
-        setEditorText(lines.join('\n'));
-
-        setTimeout(() => {
-            if (typeof window.render === 'function') {
-                Promise.resolve(window.render()).then(() => {
-                    setTimeout(() => {
-                        if (window.activeMermaidErToolbar) {
-                            window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
-                        }
-                    }, 50);
-                });
+        (async () => {
+            await window.MermaidBase.updateTextAndRender(diagramContainer, lines.join('\n'));
+            if (window.activeMermaidErToolbar) {
+                window.activeMermaidErToolbar._restoreEditMode(savedCodeIndex, savedDataLine, savedEdgeId);
             }
-        }, 50);
+        })();
     }
 };

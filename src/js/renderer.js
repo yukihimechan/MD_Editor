@@ -78,20 +78,30 @@ function setupMarkdownIt() {
             // Check if rule exists (like fence), if not use renderToken
             const original = md.renderer.rules[type];
             md.renderer.rules[type] = (tokens, idx, options, env, slf) => {
+                if (type === 'fence' || type === 'code_block') {
+                    console.log(`[MarkdownIt][Debug] rules[${type}] called. Has map:`, !!tokens[idx].map, tokens[idx].map);
+                }
                 if (tokens[idx].map) {
                     const startLine = tokens[idx].map[0] + 1;
                     const endLine = tokens[idx].map[1];
                     tokens[idx].attrSet('data-line', String(startLine));
                     tokens[idx].attrSet('data-line-end', String(endLine));
                 }
-
                 if (original) {
                     let html = original(tokens, idx, options, env, slf);
-                    // texmath rules do not respect tokens[idx].attrs, so we manually inject data-line
-                    if ((type === 'math_block' || type === 'math_block_eqno') && tokens[idx].map) {
+                    if (type === 'fence' || type === 'code_block') {
+                        console.log(`[MarkdownIt][Debug] original html:`, html);
+                    }
+                    // texmath rules as well as fence and code_block do not respect tokens[idx].attrs, so we manually inject data-line
+                    if ((type === 'math_block' || type === 'math_block_eqno' || type === 'fence' || type === 'code_block') && tokens[idx].map) {
                         const startLine = tokens[idx].map[0] + 1;
                         const endLine = tokens[idx].map[1];
-                        html = html.replace(/^<([a-zA-Z0-9]+)/, `<$1 data-line="${startLine}" data-line-end="${endLine}"`);
+                        if (type === 'fence' || type === 'code_block') {
+                            html = html.replace(/<pre\b/i, `<pre data-line="${startLine}" data-line-end="${endLine}"`);
+                            console.log(`[MarkdownIt][Debug] replaced html:`, html);
+                        } else {
+                            html = html.replace(/^\s*<([a-zA-Z0-9]+)/, `<$1 data-line="${startLine}" data-line-end="${endLine}"`);
+                        }
                     }
                     return html;
                 }
@@ -1149,6 +1159,7 @@ async function render(force = false) {
 
                 // 無限ループの誤検知をリセット（タイピングは正常動作）
                 window._renderLoopCount = 0;
+
                 const endTime = performance.now();
                 console.log(`[Perf][Renderer] render() END at ${(endTime - renderStartTime).toFixed(1)}ms`);
                 if (window._lastGlobalKeydownTime) {

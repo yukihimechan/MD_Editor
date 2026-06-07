@@ -29,6 +29,9 @@ const MathInlineEditor = {
     },
 
     bindEvents() {
+        if (this._eventsBound) return;
+        this._eventsBound = true;
+
         // KaTeX 要素のクリックで編集開始
         DOM.preview.addEventListener('click', (e) => {
             const mathElement = e.target.closest('.katex-html') || e.target.closest('eq');
@@ -47,6 +50,7 @@ const MathInlineEditor = {
         // エディタ外クリックで保存・終了
         document.addEventListener('click', (e) => {
             if (this.activeMathField && this.overlayElement &&
+                e.target && typeof e.target.closest === 'function' &&
                 !this.overlayElement.contains(e.target) &&
                 !e.target.closest('.katex-html') &&
                 !e.target.closest('.math-slash-command') &&
@@ -67,6 +71,12 @@ const MathInlineEditor = {
         this.dataLineEnd = dataLineEnd ? parseInt(dataLineEnd, 10) : this.dataLine;
         this.activeWrapper = mathElement;
 
+        // クリックされた数式要素が、blockContainer（この要素）の中で何番目の数式要素かを取得する
+        // ※ .katex-html や eq から一番外側の .katex 要素（または eq）を取得
+        const katexEl = mathElement.closest('.katex') || mathElement.querySelector('.katex') || mathElement;
+        const allKatexEls = Array.from(blockContainer.querySelectorAll('.katex'));
+        const mathIndex = allKatexEls.indexOf(katexEl);
+
         // MarkdownソースからLaTeXを抽出
         const doc = window.editorInstance.state.doc;
         let rawLatex = '';
@@ -79,33 +89,86 @@ const MathInlineEditor = {
             const endLine = doc.line(endLineNum);
             const blockText = doc.sliceString(startLine.from, endLine.to);
 
-            const blockRegex = /\$\$([\s\S]*?)\$\$/;
-            const match = blockRegex.exec(blockText);
-            if (match) {
-                rawLatex = match[1].trim();
-                this.originalMatch = { text: match[0], isBlock: true, isMultiLine: true };
+            // インデックスに基づいてマッチを特定する
+            const regex = /\$\$([\s\S]*?)\$\$|\$([^$]+?)\$/g;
+            let match;
+            let currentIndex = 0;
+            let foundMatch = null;
+            while ((match = regex.exec(blockText)) !== null) {
+                if (currentIndex === mathIndex) {
+                    foundMatch = match;
+                    break;
+                }
+                currentIndex++;
+            }
+
+            if (foundMatch) {
+                const isBlock = foundMatch[1] !== undefined;
+                rawLatex = isBlock ? foundMatch[1] : foundMatch[2];
+                if (isBlock) {
+                    rawLatex = rawLatex.trim();
+                }
+                this.originalMatch = {
+                    text: foundMatch[0],
+                    isBlock: isBlock,
+                    isMultiLine: true,
+                    index: foundMatch.index
+                };
             } else {
-                rawLatex = blockText;
-                this.originalMatch = { text: blockText, isBlock: true, isMultiLine: true };
+                // マッチしなかった場合のフォールバック（従来処理に近い形）
+                const blockRegex = /\$\$([\s\S]*?)\$\$/;
+                const fallbackMatch = blockRegex.exec(blockText);
+                if (fallbackMatch) {
+                    rawLatex = fallbackMatch[1].trim();
+                    this.originalMatch = { text: fallbackMatch[0], isBlock: true, isMultiLine: true, index: fallbackMatch.index };
+                } else {
+                    rawLatex = blockText;
+                    this.originalMatch = { text: blockText, isBlock: true, isMultiLine: true, index: 0 };
+                }
             }
         } else {
             // インライン数式（1行）
             const lineStr = doc.line(this.dataLine).text;
-            const blockRegex = /\$\$([\s\S]*?)\$\$/g;
-            const inlineRegex = /\$([^$]+?)\$/g;
 
-            let match = blockRegex.exec(lineStr);
-            if (match) {
-                rawLatex = match[1];
-                this.originalMatch = { text: match[0], isBlock: true, isMultiLine: false };
+            // インデックスに基づいてマッチを特定する
+            const regex = /\$\$([\s\S]*?)\$\$|\$([^$]+?)\$/g;
+            let match;
+            let currentIndex = 0;
+            let foundMatch = null;
+            while ((match = regex.exec(lineStr)) !== null) {
+                if (currentIndex === mathIndex) {
+                    foundMatch = match;
+                    break;
+                }
+                currentIndex++;
+            }
+
+            if (foundMatch) {
+                const isBlock = foundMatch[1] !== undefined;
+                rawLatex = isBlock ? foundMatch[1] : foundMatch[2];
+                this.originalMatch = {
+                    text: foundMatch[0],
+                    isBlock: isBlock,
+                    isMultiLine: false,
+                    index: foundMatch.index
+                };
             } else {
-                match = inlineRegex.exec(lineStr);
-                if (match) {
-                    rawLatex = match[1];
-                    this.originalMatch = { text: match[0], isBlock: false, isMultiLine: false };
+                // フォールバック
+                const blockRegex = /\$\$([\s\S]*?)\$\$/g;
+                const inlineRegex = /\$([^$]+?)\$/g;
+                let fallbackMatch = blockRegex.exec(lineStr);
+                if (fallbackMatch) {
+                    rawLatex = fallbackMatch[1];
+                    this.originalMatch = { text: fallbackMatch[0], isBlock: true, isMultiLine: false, index: fallbackMatch.index };
                 } else {
-                    rawLatex = lineStr;
-                    this.originalMatch = { text: lineStr, isBlock: false, isMultiLine: false };
+                    fallbackMatch = inlineRegex.exec(lineStr);
+                    if (fallbackMatch) {
+                        rawLatex = fallbackMatch[1];
+                        this.originalMatch = { text: fallbackMatch[0], isBlock: false, isMultiLine: false, index: fallbackMatch.index };
+                    } else {
+                        rawLatex = lineStr;
+                        this.originalMatch = { text: lineStr, isBlock: false, isMultiLine: false, index: 0 };
+                    }
                 }
             }
         }
@@ -467,6 +530,19 @@ const MathInlineEditor = {
             // MathLive 内部エラーを抑制
         }
 
+        // 明示的に MathLive 要素の中身を空にする、および破棄メソッドがあれば呼ぶ (メモリリーク防止)
+        try {
+            if (typeof mf.dispose === 'function') {
+                mf.dispose();
+            } else if (typeof mf.destroy === 'function') {
+                mf.destroy();
+            }
+            mf.value = '';
+            mf.innerHTML = '';
+        } catch (e) {
+            console.warn('[MathInlineEditor] MathfieldElement disposal error:', e.message);
+        }
+
         // UI クリーンアップ
         this.activeMathField = null;
         this.activeEditorView = null;
@@ -491,7 +567,16 @@ const MathInlineEditor = {
                 const blockText = doc.sliceString(startLineObj.from, endLineObj.to);
                 const trimmedNewLatex = newLatex.trim();
                 const replacementText = `$$\n${trimmedNewLatex}\n$$`;
-                const newBlockText = blockText.replace(this.originalMatch.text, () => replacementText);
+                
+                let newBlockText;
+                if (this.originalMatch.index !== undefined) {
+                    // インデックスに基づいてピンポイントで置換（バグ防止）
+                    const before = blockText.slice(0, this.originalMatch.index);
+                    const after = blockText.slice(this.originalMatch.index + this.originalMatch.text.length);
+                    newBlockText = before + replacementText + after;
+                } else {
+                    newBlockText = blockText.replace(this.originalMatch.text, () => replacementText);
+                }
 
                 window.editorInstance.dispatch({
                     changes: {
@@ -504,7 +589,15 @@ const MathInlineEditor = {
                 let newLineText = startLineObj.text;
                 if (this.originalMatch) {
                     const replacementText = this.originalMatch.isBlock ? `$$${newLatex}$$` : `$${newLatex}$`;
-                    newLineText = newLineText.replace(this.originalMatch.text, () => replacementText);
+                    
+                    if (this.originalMatch.index !== undefined) {
+                        // インデックスに基づいてピンポイントで置換（バグ防止）
+                        const before = newLineText.slice(0, this.originalMatch.index);
+                        const after = newLineText.slice(this.originalMatch.index + this.originalMatch.text.length);
+                        newLineText = before + replacementText + after;
+                    } else {
+                        newLineText = newLineText.replace(this.originalMatch.text, () => replacementText);
+                    }
                 } else {
                     newLineText = newLatex;
                 }
