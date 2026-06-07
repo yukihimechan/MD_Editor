@@ -37,7 +37,10 @@ function initEditor() {
         html, LanguageDescription,
         keymap, defaultKeymap, history, historyKeymap, searchKeymap, Compartment,
         oneDark, StateEffect, StateField, Decoration, WidgetType,
-        syntaxHighlighting, defaultHighlightStyle, HighlightStyle, tags
+        syntaxHighlighting, defaultHighlightStyle, HighlightStyle, tags,
+        // [NEW] 追加言語のアンパック
+        javascript, python, php, cpp, java, go, rust, StreamLanguage,
+        ruby, shell, perl, octave, csharp, swift, fortran, pascal
     } = window.CM6;
 
     // [NEW] 明示的に EditorSelection クラスを登録 (コマンド側で使用するため)
@@ -556,6 +559,27 @@ function initEditor() {
         // Setup EditorLanguages globally for inline_editor.js
         window.EditorLanguages = window.EditorLanguages || {};
         window.EditorLanguages.html = html;
+
+        // [NEW] 追加言語の登録
+        if (javascript) window.EditorLanguages.javascript = javascript;
+        if (python) window.EditorLanguages.python = python;
+        if (php) window.EditorLanguages.php = php;
+        if (cpp) window.EditorLanguages.cpp = cpp;
+        if (java) window.EditorLanguages.java = java;
+        if (go) window.EditorLanguages.go = go;
+        if (rust) window.EditorLanguages.rust = rust;
+        
+        // レガシーモード（StreamLanguageで包んで登録）
+        if (StreamLanguage) {
+            if (ruby) window.EditorLanguages.ruby = () => StreamLanguage.define(ruby);
+            if (shell) window.EditorLanguages.shell = () => StreamLanguage.define(shell);
+            if (perl) window.EditorLanguages.perl = () => StreamLanguage.define(perl);
+            if (octave) window.EditorLanguages.matlab = () => StreamLanguage.define(octave);
+            if (csharp) window.EditorLanguages.csharp = () => StreamLanguage.define(csharp);
+            if (swift) window.EditorLanguages.swift = () => StreamLanguage.define(swift);
+            if (fortran) window.EditorLanguages.fortran = () => StreamLanguage.define(fortran);
+            if (pascal) window.EditorLanguages.pascal = () => StreamLanguage.define(pascal);
+        }
     }
 
     // [NEW] Front Matter Folding Extension
@@ -740,6 +764,12 @@ function initEditor() {
             // [FIX] ドキュメントに変更がない場合（選択範囲の変更やフォーカス移動のみの場合）は、
             // 重いレンダリング処理や状態更新をスキップする。
             if (!update.docChanged) return;
+            
+            // パフォーマンス計測用: 変更検知時刻を記録
+            window._lastDocChangeTime = performance.now();
+            if (window._lastGlobalKeydownTime) {
+                console.log(`[Perf] ⌨ キー入力から docChanged まで: ${(window._lastDocChangeTime - window._lastGlobalKeydownTime).toFixed(1)}ms`);
+            }
 
 
 

@@ -92,6 +92,12 @@ window.currentEditingSVG = null;
 function startSVGEdit(container, svgIndex) {
     // console.log('[startSVGEdit] Called with svgIndex:', svgIndex);
 
+    // [FIX] 再入防止: 初期化処理中に別のstartSVGEditが呼ばれた場合は無視する
+    if (window._svgEditorStarting) {
+        console.log('[startSVGEdit] Blocked: Already starting an SVG editor.');
+        return;
+    }
+
     const isSameSvg = window.currentEditingSVG && window.currentEditingSVG.svgIndex === svgIndex;
     const isSameContainer = isSameSvg && window.currentEditingSVG.container === container;
     const isStillValid = isSameContainer && document.body.contains(container);
@@ -102,6 +108,71 @@ function startSVGEdit(container, svgIndex) {
     }
 
     const isReconnecting = isSameSvg && window.currentEditingSVG.draw;
+
+    // [NEW] 内部補助要素の判定
+    function isInternalElement(node) {
+        if (!node || node.nodeType !== 1) return false;
+        if (node.getAttribute('data-internal') === 'true') return true;
+        const classes = node.classList;
+        if (!classes) return false;
+        const internalPatterns = [
+            'svg-canvas-border', 'svg-canvas-proxy', 'svg-grid-lines', 'svg-snap-guides',
+            'svg-control-marker', 'polyline-handle-group', 'svg-grad-skeleton-hitarea',
+            'svg-grad-skeleton-line', 'midpoint-handle', 'polyline-handle', 'bez-control-point',
+            'arrow-size-handle', 'svg-interaction-hitarea', 'svg-select-group-canvas',
+            'svg-connector-overlay', 'svg-gradient-stroke', 'svg-gradient-meta',
+            'svg-grad-control-ui', 'svg-grad-blur-back', 'svg-selection-marker',
+            'svg-rotation-handler', 'svg-resize-handler', 'svg-radius-handler',
+            'svg-vertex-handler', 'svg-connector-handler'
+        ];
+        for (const pattern of internalPatterns) {
+            if (classes.contains(pattern)) return true;
+        }
+        return false;
+    }
+    window.isSVGInternalElement = isInternalElement;
+
+    // [NEW] 有効な非内部子要素のリストを取得
+    function getValidChildren(parent) {
+        if (!parent) return [];
+        return Array.from(parent.children).filter(child => !isInternalElement(child));
+    }
+    window.getSVGValidChildren = getValidChildren;
+
+    // [NEW] 再接続時の選択状態維持のため、古い要素の情報（IDとインデックスパス）を退避
+    let reconnectSelectionTargets = [];
+    if (isReconnecting && window.currentEditingSVG.selectedElements && window.currentEditingSVG.draw) {
+        const oldRoot = window.currentEditingSVG.draw.node;
+        window.currentEditingSVG.selectedElements.forEach(el => {
+            if (el && el.node) {
+                const id = (typeof el.id === 'function') ? el.id() : el.node.getAttribute('id');
+                
+                // 有効な非内部図形要素のみを対象としてインデックスパスを算出
+                const path = [];
+                let curr = el.node;
+                while (curr && curr !== oldRoot) {
+                    const parent = curr.parentNode;
+                    if (!parent) break;
+                    const validChildren = getValidChildren(parent);
+                    const idx = validChildren.indexOf(curr);
+                    if (idx !== -1) {
+                        path.unshift(idx);
+                    } else {
+                        // 自身が内部要素だった場合はパス同定を不可とする
+                        path.unshift(-1);
+                    }
+                    curr = parent;
+                }
+                reconnectSelectionTargets.push({ id, path });
+            }
+        });
+        // 一旦選択をクリア（後で新しいインスタンスで再選択するため）
+        window.currentEditingSVG.selectedElements.clear();
+    }
+
+    // [FIX] 再入防止フラグをセット
+    window._svgEditorStarting = true;
+    try {
 
     if (window.currentEditingSVG && !isReconnecting) {
         // console.log('[startSVGEdit] Closing existing SVG editor first');
@@ -172,7 +243,10 @@ function startSVGEdit(container, svgIndex) {
 
     // Drop Handler (Now handled globally in editor_io.js or app.js)
 
-    container.addEventListener('contextmenu', (e) => handleContextMenu(e, container, svgIndex));
+    // [FIX] 名前付き関数に変更してstopSVGEdit時にクリーンアップ可能にする
+    const contextMenuHandler = (e) => handleContextMenu(e, container, svgIndex);
+    container.addEventListener('contextmenu', contextMenuHandler);
+    current._contextMenuHandler = contextMenuHandler;
 
     const svgElement = container.querySelector('svg');
     if (!svgElement) return;
@@ -283,6 +357,47 @@ function startSVGEdit(container, svgIndex) {
     draw.addClass('svg-editable');
     current.draw = draw;
 
+    // [NEW] 再接続時の選択状態復元（インデックスパスによる同定＋IDフォールバック）
+    if (isReconnecting && reconnectSelectionTargets.length > 0 && draw) {
+        console.log('[startSVGEdit] Reconnecting: Restoring selection targets:', reconnectSelectionTargets);
+        reconnectSelectionTargets.forEach(target => {
+            let newEl = null;
+            
+            // 1. 有効な非内部図形要素のみを辿って厳密に同じDOM位置の要素を探す
+            if (target.path && target.path.length > 0) {
+                let curr = draw.node;
+                for (const idx of target.path) {
+                    if (idx === -1) {
+                        curr = null;
+                        break;
+                    }
+                    const validChildren = getValidChildren(curr);
+                    if (idx >= 0 && idx < validChildren.length) {
+                        curr = validChildren[idx];
+                    } else {
+                        curr = null;
+                        break;
+                    }
+                }
+                if (curr) {
+                    newEl = SVG(curr);
+                }
+            }
+            
+            // 2. パスで見つからなかった場合、または固定ID（Svgjsから始まらない）の場合はIDで検索
+            if (!newEl && target.id && !target.id.startsWith('Svgjs')) {
+                newEl = draw.findOne('#' + target.id);
+            }
+            
+            // 3. 要素が見つかれば選択を復元
+            if (newEl && newEl.node && newEl.node.isConnected) {
+                if (typeof selectElement === 'function') {
+                    selectElement(newEl, true, true);
+                }
+            }
+        });
+    }
+
     // [NEW] Zoom & Pan Default State
     current.zoom = 100;
     current.offX = 0;
@@ -317,8 +432,11 @@ function startSVGEdit(container, svgIndex) {
     // [MOD] 優先順位: 1. メモリに有効な値があり、DOMがデフォルト(350/450)に戻っている場合はメモリを維持
     //               2. さもなくば属性(savedPaper*)
     //               3. さもなくばDOMの基本寸法
-    const domW = !isNaN(savedPaperW) ? savedPaperW : (vbBase.width || parseFloat(svgElement.getAttribute('width')) || 820);
-    const domH = !isNaN(savedPaperH) ? savedPaperH : (vbBase.height || parseFloat(svgElement.getAttribute('height')) || 450);
+    // [FIX] viewBox はズーム込みの値のため、フォールバック時はズームで割り戻して論理サイズに変換する
+    const initZoom = parseFloat(svgElement.getAttribute('data-paper-zoom')) || 100;
+    const initZoomFactor = initZoom / 100;
+    const domW = !isNaN(savedPaperW) ? savedPaperW : (vbBase.width ? Math.round(vbBase.width * initZoomFactor) : (parseFloat(svgElement.getAttribute('width')) || 820));
+    const domH = !isNaN(savedPaperH) ? savedPaperH : (vbBase.height ? Math.round(vbBase.height * initZoomFactor) : (parseFloat(svgElement.getAttribute('height')) || 450));
     const isDomDefault = (Math.abs(domH - 450) < 1 || Math.abs(domH - 350) < 1);
 
     if (prevH && !isNaN(prevH) && isDomDefault && Math.abs(domH - prevH) > 10) {
@@ -827,7 +945,8 @@ function startSVGEdit(container, svgIndex) {
 
     // [NEW] Zoom & Pan Event Listeners
     // --- マウス操作（ズーム・パン）のイベント間引き処理 ---
-    container.addEventListener('wheel', (e) => {
+    // [FIX] 名前付き関数に変更してstopSVGEdit時にクリーンアップ可能にする
+    const wheelHandler = (e) => {
         if (!window.currentEditingSVG) return;
         const current = window.currentEditingSVG;
 
@@ -891,9 +1010,12 @@ function startSVGEdit(container, svgIndex) {
                 if (changed) current.applyZoomPan();
             });
         }
-    }, { passive: false });
+    };
+    container.addEventListener('wheel', wheelHandler, { passive: false });
+    current._wheelHandler = wheelHandler;
 
-    container.addEventListener('mousedown', (e) => {
+    // [FIX] 名前付き関数に変更してstopSVGEdit時にクリーンアップ可能にする
+    const panMousedownHandler = (e) => {
         if (!window.currentEditingSVG) return;
         const current = window.currentEditingSVG;
 
@@ -905,7 +1027,9 @@ function startSVGEdit(container, svgIndex) {
             e.preventDefault();
             e.stopPropagation();
         }
-    }, true);
+    };
+    container.addEventListener('mousedown', panMousedownHandler, true);
+    current._panMousedownHandler = panMousedownHandler;
 
     // パン（ドラッグ）移動の間引き
     const onPanningMove = (e) => {
@@ -933,12 +1057,15 @@ function startSVGEdit(container, svgIndex) {
     container._panningBound = onPanningMove;
     window.addEventListener('mousemove', onPanningMove);
 
-    window.addEventListener('mouseup', () => {
+    // [FIX] 名前付き関数に変更してstopSVGEdit時にクリーンアップ可能にする
+    const panMouseupHandler = () => {
         if (window.currentEditingSVG && window.currentEditingSVG.isPanning) {
             window.currentEditingSVG.isPanning = false;
             container.style.cursor = window.currentEditingSVG.isSpacePressed ? 'grab' : '';
         }
-    });
+    };
+    window.addEventListener('mouseup', panMouseupHandler);
+    current._panMouseupHandler = panMouseupHandler;
 
     // Background Click -> Select Canvas Proxy
     draw.on('mousedown', (e) => {
@@ -1234,6 +1361,11 @@ function startSVGEdit(container, svgIndex) {
             // console.log('[startSVGEdit] _initializing flag cleared');
         }
     }, 300);
+
+    } finally {
+        // [FIX] 再入防止フラグを解除（例外発生時も確実に解除する）
+        window._svgEditorStarting = false;
+    }
 }
 window.startSVGEdit = startSVGEdit;
 
@@ -1421,6 +1553,23 @@ function stopSVGEdit(skipRender = false) {
 
     // Cleanup removed to avoid duplication
 
+    // [FIX] container上のイベントリスナーをクリーンアップ
+    if (container) {
+        if (window.currentEditingSVG._wheelHandler) {
+            container.removeEventListener('wheel', window.currentEditingSVG._wheelHandler);
+        }
+        if (window.currentEditingSVG._panMousedownHandler) {
+            container.removeEventListener('mousedown', window.currentEditingSVG._panMousedownHandler, true);
+        }
+        if (window.currentEditingSVG._contextMenuHandler) {
+            container.removeEventListener('contextmenu', window.currentEditingSVG._contextMenuHandler);
+        }
+    }
+    // [FIX] window上のmouseupリスナーをクリーンアップ
+    if (window.currentEditingSVG._panMouseupHandler) {
+        window.removeEventListener('mouseup', window.currentEditingSVG._panMouseupHandler);
+    }
+
     window.currentEditingSVG = null;
 
     // [NEW] Global events cleanup
@@ -1428,6 +1577,9 @@ function stopSVGEdit(skipRender = false) {
         window.removeEventListener('mousemove', container._panningBound);
         delete container._panningBound;
     }
+
+    // [FIX] 再入防止フラグをリセット（stopSVGEditが単独で呼ばれた場合にも対応）
+    window._svgEditorStarting = false;
 
     if (!skipRender && typeof render === 'function') {
         render();
@@ -1566,6 +1718,73 @@ function handleContextMenu(e, container, svgIndex) {
     if (!window.currentEditingSVG) {
         console.warn('[Context Menu] No window.currentEditingSVG found');
         return;
+    }
+
+    // [DEBUG LOG] 右クリック情報と選択状態を出力
+    try {
+        const mouseX = e.clientX;
+        const mouseY = e.clientY;
+        const draw = window.currentEditingSVG.draw;
+        let svgPt = null;
+        if (draw) {
+            svgPt = draw.point(mouseX, mouseY);
+        }
+
+        const targetNode = e.target;
+        let targetInfo = {
+            tagName: targetNode ? targetNode.tagName : 'none',
+            id: targetNode ? targetNode.getAttribute('id') : 'none',
+            class: targetNode ? targetNode.getAttribute('class') : 'none'
+        };
+
+        if (targetNode && typeof targetNode.getBoundingClientRect === 'function') {
+            const rect = targetNode.getBoundingClientRect();
+            targetInfo.clientRect = {
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height
+            };
+        }
+
+        if (targetNode && typeof SVG === 'function') {
+            try {
+                const el = SVG(targetNode);
+                if (el && typeof el.bbox === 'function') {
+                    const bbox = el.bbox();
+                    targetInfo.bbox = {
+                        x: bbox.x,
+                        y: bbox.y,
+                        width: bbox.width,
+                        height: bbox.height
+                    };
+                }
+            } catch(err) {}
+        }
+
+        const selectedElementsInfo = Array.from(window.currentEditingSVG.selectedElements).map(el => {
+            return {
+                tagName: el.node ? el.node.tagName : 'unknown',
+                id: (typeof el.id === 'function') ? el.id() : (el.node ? el.node.getAttribute('id') : 'unknown'),
+                class: el.node ? el.node.getAttribute('class') : 'none'
+            };
+        });
+
+        console.log('[DEBUG Context Menu Click Information]\n' + JSON.stringify({
+            mouse: {
+                clientX: mouseX,
+                clientY: mouseY,
+                svgX: svgPt ? svgPt.x : null,
+                svgY: svgPt ? svgPt.y : null
+            },
+            targetElement: targetInfo,
+            selectionState: {
+                count: selectedElementsInfo.length,
+                elements: selectedElementsInfo
+            }
+        }, null, 2));
+    } catch (err) {
+        console.error('[DEBUG Context Menu Click Information Error]', err);
     }
 
     const actions = {

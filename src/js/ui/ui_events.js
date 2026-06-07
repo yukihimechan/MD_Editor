@@ -81,6 +81,9 @@ function bindShortcuts() {
     console.log(`[Shortcut] Binding global shortcuts (capture phase). Environment: ${isTauri ? 'Tauri' : 'Browser'}`);
 
     window.addEventListener('keydown', (e) => {
+        // パフォーマンス計測用: キー入力時刻を記録
+        window._lastGlobalKeydownTime = performance.now();
+
         // Detailed log for debugging shortcut conflicts
         // Logs everything when Ctrl, Alt, or Meta is pressed
         if (e.ctrlKey || e.metaKey || e.altKey) {
@@ -343,9 +346,10 @@ function attachPreviewEvents() {
     const svgContainers = DOM.preview.querySelectorAll('.svg-view-wrapper');
     svgContainers.forEach(container => {
         container.addEventListener('dblclick', function (e) {
-            // [FIX] Skip if SVG editor is already active
-            if (window.currentEditingSVG) {
-                console.log('[UI Dblclick] SVG editor is already active, ignoring dblclick');
+            if (window._svgEditorStarting) return;
+            // [FIX] 同じSVGの場合は無視、別の場合は既存を閉じて開くのを許可
+            if (window.currentEditingSVG && window.currentEditingSVG.container === this) {
+                console.log('[UI Dblclick] SVG editor is already active for this container, ignoring dblclick');
                 return;
             }
 

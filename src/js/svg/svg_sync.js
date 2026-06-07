@@ -552,8 +552,12 @@ function syncSVGToEditor(container, svgIndex, silent = true, overrideDims = null
     } else if (cur) {
         const scaleFactor = (cur.zoom || 100) / 100;
         const vb = svgElement.viewBox.baseVal;
-        const mW = cur.baseWidth || vb.width;
-        const mH = cur.baseHeight || vb.height;
+        // [FIX] viewBox はズーム込みの値 (baseSize * 100/zoom) なので、フォールバック時はズームで割り戻して論理サイズに変換する。
+        // これをしないと、baseHeight が一時的に falsy になった際に viewBox の肥大化した値が論理サイズとして記録され、
+        // キャンバスが突然大きくなるバグが発生する。
+        const zoomFactor = (cur.zoom || 100) / 100;
+        const mW = cur.baseWidth || Math.round(vb.width * zoomFactor);
+        const mH = cur.baseHeight || Math.round(vb.height * zoomFactor);
         const rx = cur.baseX !== undefined ? cur.baseX : vb.x;
         const ry = cur.baseY !== undefined ? cur.baseY : vb.y;
 
@@ -692,30 +696,56 @@ function updateSVGFromEditor() {
         return;
     }
 
-    // [FIX] 削除前に選択されている要素のIDを記録しておく
-    const selectedIds = Array.from(window.currentEditingSVG.selectedElements)
-        .filter(el => el.node && el.node.isConnected)
-        .map(el => el.id());
-
-    // 一旦全ての選択を解除（古いDOM要素への参照をクリア）
-    if (typeof deselectAll === 'function') deselectAll();
-
-    // ループ防止フラグをチェック
+    // [FIX] ループ防止フラグをチェック（ガード節をdeselectAllおよび退避処理より前に移動）
     if (window.currentEditingSVG._syncingToEditor || window._isDispatchingSvgSync) {
         console.log(`[updateSVGFromEditor] Aborted: Syncing to editor is in progress. (_syncingToEditor=${window.currentEditingSVG._syncingToEditor}, _isDispatchingSvgSync=${!!window._isDispatchingSvgSync})`);
         return;
     }
 
-    // [FIX] CSS 編集モード中は、エディタからの再描画を行わない（プレビュー中の一時的な変更のリセットを防ぐ）
+    // [FIX] CSS 編集モード中は、エディタからの再描画を行わない（ガード節をdeselectAllおよび退避処理より前に移動）
     if (window.currentEditingSVG._inCSSEditMode) {
         console.log(`[updateSVGFromEditor] Aborted: In CSS Edit Mode to prevent flickering.`);
         return;
     }
 
-    // [FIX] 逆方向同期の抑制: キャンバス操作中（ドラッグ・リサイズ中）はエディタからの同期を破棄する
+    // [FIX] 逆方向同期の抑制: キャンバス操作中（ドラッグ・リサイズ中）はエディタからの同期を破棄する（ガード節をdeselectAllおよび退避処理より前に移動）
     if (window.currentEditingSVG && (window.currentEditingSVG._isDragging || window.currentEditingSVG._isResizing)) {
+        console.log(`[updateSVGFromEditor] Aborted: Dragging or resizing in progress.`);
         return;
     }
+
+    // [FIX] 削除前に選択されている要素の情報（IDとインデックスパス）を記録しておく（ガード節通過後に実行）
+    const selectedTargets = [];
+    if (window.currentEditingSVG.selectedElements) {
+        const rootNode = draw.node;
+        window.currentEditingSVG.selectedElements.forEach(el => {
+            if (el && el.node && el.node.isConnected) {
+                const id = (typeof el.id === 'function') ? el.id() : el.node.getAttribute('id');
+                
+                // 有効な非内部図形要素のみを対象としてインデックスパスを算出
+                const path = [];
+                let curr = el.node;
+                while (curr && curr !== rootNode) {
+                    const parent = curr.parentNode;
+                    if (!parent) break;
+                    const validChildren = (typeof window.getSVGValidChildren === 'function') 
+                        ? window.getSVGValidChildren(parent) 
+                        : Array.from(parent.children);
+                    const idx = validChildren.indexOf(curr);
+                    if (idx !== -1) {
+                        path.unshift(idx);
+                    } else {
+                        path.unshift(-1);
+                    }
+                    curr = parent;
+                }
+                selectedTargets.push({ id, path });
+            }
+        });
+    }
+
+    // 一旦全ての選択を解除（古いDOM要素への参照をクリア。ガード節通過後に実行）
+    if (typeof deselectAll === 'function') deselectAll();
 
     // ループ防止フラグを立てる（syncSVGToEditorの逆方向呼び出しを抑制）
     window.currentEditingSVG._updatingFromEditor = true;
@@ -824,17 +854,31 @@ function updateSVGFromEditor() {
             }
 
             if (newVb && newVb.width > 0 && newVb.height > 0) {
+                // [FIX] viewBox はズーム込みの値 (baseSize * 100/zoom) なので、
+                // ズームで割り戻して論理サイズに変換する。
+                const curZoom = window.currentEditingSVG.zoom || 100;
+                const zf = curZoom / 100;
+                const logicalW = Math.round(newVb.width * zf);
+                const logicalH = Math.round(newVb.height * zf);
+
                 // [WATCH] Detect unnatural reset to 350
-                if (window.currentEditingSVG.baseHeight !== 350 && newVb.height === 350) {
+                if (window.currentEditingSVG.baseHeight !== 350 && logicalH === 350) {
                     console.warn(`[updateSVGFromEditor] UNNATURAL RESET DETECTED! Height changing from ${window.currentEditingSVG.baseHeight} back to 350. Source: viewBox`);
                     console.trace();
                 }
 
-                window.currentEditingSVG.baseWidth = newVb.width;
-                window.currentEditingSVG.baseHeight = newVb.height;
-                window.currentEditingSVG.baseX = newVb.x;
-                window.currentEditingSVG.baseY = newVb.y;
-                console.log(`[updateSVGFromEditor] Updated memory from viewBox: ${newVb.x} ${newVb.y} ${newVb.width} ${newVb.height}`);
+                // [SAFETY] 既知の baseHeight と大幅に異なる場合（2倍以上 or 1/2以下）は
+                // ズーム補正の誤りの可能性があるため、メモリの値を維持する
+                const prevBH = window.currentEditingSVG.baseHeight;
+                if (prevBH && prevBH > 0 && (logicalH > prevBH * 1.8 || logicalH < prevBH * 0.5)) {
+                    console.warn(`[updateSVGFromEditor] SUSPICIOUS viewBox fallback: ${logicalH} vs current ${prevBH}. Keeping current value.`);
+                } else {
+                    window.currentEditingSVG.baseWidth = logicalW;
+                    window.currentEditingSVG.baseHeight = logicalH;
+                    window.currentEditingSVG.baseX = newVb.x;
+                    window.currentEditingSVG.baseY = newVb.y;
+                    console.log(`[updateSVGFromEditor] Updated memory from viewBox (zoom-corrected): ${newVb.x} ${newVb.y} ${logicalW} ${logicalH} (raw viewBox: ${newVb.width}x${newVb.height}, zoom: ${curZoom}%)`);
+                }
             }
         }
 
@@ -942,17 +986,45 @@ function updateSVGFromEditor() {
 
         console.log('[updateSVGFromEditor] SVG canvas updated from editor content.');
 
-        // [FIX] 記録しておいたIDを元に、新しいDOM要素を選択し直す
-        if (selectedIds.length > 0) {
-            console.log(`[updateSVGFromEditor] Restoring selection: ${selectedIds.join(', ')}`);
-            selectedIds.forEach(id => {
-                const newEl = draw.findOne('#' + id);
+        // [FIX] 記録しておいた情報（インデックスパスとID）を元に、新しいDOM要素を選択し直す
+        if (selectedTargets.length > 0) {
+            console.log('[updateSVGFromEditor] Restoring selection targets:', selectedTargets);
+            selectedTargets.forEach(target => {
+                let newEl = null;
+                
+                // 1. まずインデックスパスで同じDOM位置の要素を探す
+                if (target.path && target.path.length > 0 && typeof window.getSVGValidChildren === 'function') {
+                    let curr = draw.node;
+                    for (const idx of target.path) {
+                        if (idx === -1) {
+                            curr = null;
+                            break;
+                        }
+                        const validChildren = window.getSVGValidChildren(curr);
+                        if (idx >= 0 && idx < validChildren.length) {
+                            curr = validChildren[idx];
+                        } else {
+                            curr = null;
+                            break;
+                        }
+                    }
+                    if (curr) {
+                        newEl = SVG(curr);
+                    }
+                }
+                
+                // 2. パスで見つからなかった場合、または固定ID（Svgjsから始まらない）の場合はIDで検索
+                if (!newEl && target.id && !target.id.startsWith('Svgjs')) {
+                    newEl = draw.findOne('#' + target.id);
+                }
+                
+                // 3. 要素が見つかれば選択を復元
                 if (newEl) {
                     // [NEW] 古いインスタンスが残っている場合は確実に破棄する
                     const oldShape = newEl.remember('_shapeInstance');
                     if (oldShape) {
                         if (oldShape.node !== newEl.node || !oldShape.node.isConnected) {
-                            console.log(`[updateSVGFromEditor] Destroying stale shape instance for #${id}`);
+                            console.log(`[updateSVGFromEditor] Destroying stale shape instance for #${target.id || 'unknown'}`);
                             oldShape.destroy();
                         }
                     }

@@ -173,19 +173,12 @@ async function exportPDFAsImage(orientation = 'portrait') {
 
             // SVGの自然な幅（プレビューで実際に表示されている幅）を使用する。
             // 常に elementWidthPx に引き伸ばすとプレビューより大きくなり余白がなくなるため、
-            // naturalWidth を上限として使い、ページ高さの制約を超える場合のみ縮小する。
+            // naturalWidth を上限として使う。
+            // [変更] ページ高さを超えるSVGは縮小せず、PageSplitterのクリッピング分割で
+            // 複数ページにまたがって表示する方針に統一。
             const naturalWidth = Math.min(parseFloat(origWidth) || elementWidthPx, elementWidthPx);
-            const heightAtNaturalWidth = naturalWidth * aspectRatio;
-            let targetW;
-            if (heightAtNaturalWidth <= pageHeightPx * 0.95) {
-                // 自然な幅でページ高さに収まる場合はそのまま使用
-                targetW = naturalWidth;
-            } else {
-                // ページ高さを超える場合は比率を維持しながら縮小
-                targetW = Math.min(naturalWidth, (pageHeightPx * 0.95) / aspectRatio);
-            }
+            let targetW = Math.round(naturalWidth);
             const targetH = Math.round(targetW * aspectRatio);
-            targetW = Math.round(targetW);
 
             try {
                 // SVGをシリアライズしてData URLに変換

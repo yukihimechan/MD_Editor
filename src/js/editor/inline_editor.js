@@ -205,7 +205,11 @@ const InlineCodeEditor = {
         const lang = langLabel ? (langLabel.dataset.language || 'text') : 'text';
 
         if (lang === 'svg') {
+            // [FIX] SVGエディタが初期化中の場合は二重起動を防止
+            if (window._svgEditorStarting) return;
             const svgView = wrapper.querySelector('.svg-view-wrapper');
+            // [FIX] 同じSVGの場合は無視、別の場合は既存を閉じて開くのを許可
+            if (window.currentEditingSVG && window.currentEditingSVG.container === svgView) return;
             if (svgView && typeof startSVGEdit === 'function') {
                 startSVGEdit(svgView, parseInt(svgView.getAttribute('data-svg-index')));
                 return;
@@ -267,17 +271,40 @@ const InlineCodeEditor = {
 
         if (isDark && oneDark) extensions.push(oneDark);
 
-        // Try to load language extension based on current code block language
+        // コードブロックの言語に応じたシンタックスハイライト拡張を読み込む
+        // 未登録の言語の場合はハイライトなしで起動する（例外防止）
         if (lang !== 'text' && window.EditorLanguages) {
-            if (lang === 'javascript' || lang === 'js') extensions.push(window.EditorLanguages.javascript());
-            else if (lang === 'python' || lang === 'py') extensions.push(window.EditorLanguages.python());
-            else if (lang === 'html') extensions.push(window.EditorLanguages.html());
-            else if (lang === 'css') extensions.push(window.EditorLanguages.css());
-            else if (lang === 'cpp' || lang === 'c') extensions.push(window.EditorLanguages.cpp());
-            else if (lang === 'java') extensions.push(window.EditorLanguages.java());
-            else if (lang === 'json') extensions.push(window.EditorLanguages.json());
-            else if (lang === 'markdown' || lang === 'md') extensions.push(window.EditorLanguages.markdown());
-            // More languages can be added if loaded in index.html
+            const langMap = {
+                'javascript': 'javascript', 'js': 'javascript',
+                'typescript': 'javascript', 'ts': 'javascript',
+                'python': 'python', 'py': 'python',
+                'ruby': 'ruby', 'rb': 'ruby',
+                'php': 'php',
+                'bash': 'shell', 'sh': 'shell', 'shell': 'shell',
+                'perl': 'perl', 'pl': 'perl',
+                'matlab': 'matlab',
+                'c': 'cpp',
+                'cpp': 'cpp', 'c++': 'cpp',
+                'csharp': 'csharp', 'cs': 'csharp', 'c#': 'csharp',
+                'java': 'java',
+                'swift': 'swift',
+                'go': 'go', 'golang': 'go',
+                'rust': 'rust', 'rs': 'rust',
+                'fortran': 'fortran',
+                'pascal': 'pascal',
+                'html': 'html',
+                'css': 'css',
+                'json': 'json',
+                'markdown': 'markdown', 'md': 'markdown'
+            };
+            const langKey = langMap[lang];
+            if (langKey && typeof window.EditorLanguages[langKey] === 'function') {
+                try {
+                    extensions.push(window.EditorLanguages[langKey]());
+                } catch (e) {
+                    console.warn(`[InlineEditor] 言語拡張 "${langKey}" のロードに失敗しました:`, e);
+                }
+            }
         }
 
         const state = EditorState.create({

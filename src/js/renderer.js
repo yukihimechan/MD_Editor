@@ -269,6 +269,14 @@ async function render(force = false) {
     }
 
     _renderPromise = (async () => {
+        if (window._lastDocChangeTime) {
+            console.log(`[Perf] ⌨ docChanged から render() 開始まで: ${(performance.now() - window._lastDocChangeTime).toFixed(1)}ms`);
+            window._lastDocChangeTime = null; // リセット
+        }
+        if (window._lastGlobalKeydownTime) {
+            console.log(`[Perf] ⌨ キー入力から render() 開始までの合計: ${(performance.now() - window._lastGlobalKeydownTime).toFixed(1)}ms`);
+        }
+        
         await new Promise(r => setTimeout(r, 20));
 
         while (true) {
@@ -328,6 +336,9 @@ async function render(force = false) {
                     }
                     if (typeof updateOutline === 'function') updateOutline();
                     if (typeof updateWordCount === 'function') updateWordCount();
+                    if (typeof PreviewInlineEdit !== 'undefined' && typeof PreviewInlineEdit.restoreFocusIfNeeded === 'function') {
+                        PreviewInlineEdit.restoreFocusIfNeeded();
+                    }
                     return;
                 }
 
@@ -367,18 +378,39 @@ async function render(force = false) {
                                 return btCount % 2 === 0;
                             };
 
+                            // [FIX] ルーズリスト内の \n\n はリスト項目の区切りであり、ブロック境界ではない。
+                            // \n\n の直後がリスト項目（- , * , + , 数字. ）の場合はスキップして次の境界を探す。
+                            const isListContinuation = (str, pos) => {
+                                // pos は \n\n の位置。pos+2 以降の行頭を調べる
+                                const afterPos = pos + 2;
+                                if (afterPos >= str.length) return false;
+                                // インデント（スペース/タブ）を含むリスト項目にもマッチ
+                                const lineStart = str.substring(afterPos, Math.min(afterPos + 20, str.length));
+                                return /^[ \t]*([-*+]|\d+\.)\s/.test(lineStart);
+                            };
+
                             // 2. 変更箇所を包含する安全なブロック（空行 \n\n）を切り出す
                             let blockStart = oldText.lastIndexOf('\n\n', diffStart);
                             // 変更箇所(diffStart)に \n\n が食い込んでいる場合は無視してさらに前方の \n\n を探す
-                            while (blockStart !== -1 && (!isSafeBoundary(oldText, blockStart) || blockStart + 2 > diffStart)) {
-                                blockStart = oldText.lastIndexOf('\n\n', blockStart - 1);
+                            // [FIX] ルーズリスト内の \n\n もスキップする
+                            let _bsIter = 0;
+                            while (blockStart !== -1 && (!isSafeBoundary(oldText, blockStart) || blockStart + 2 > diffStart || isListContinuation(oldText, blockStart))) {
+                                _bsIter++;
+                                if (_bsIter > 500) { console.error(`[render][FastPath] ⛔ blockStartループが500回を超えました blockStart=${blockStart}`); break; }
+                                
+                                // [BUGFIX] blockStart が 0 の場合、lastIndexOf(..., -1) は 0 扱いとなり無限ループするため -1 を明示
+                                let nextSearchPos = blockStart - 1;
+                                blockStart = nextSearchPos < 0 ? -1 : oldText.lastIndexOf('\n\n', nextSearchPos);
                             }
                             blockStart = blockStart === -1 ? 0 : blockStart + 2;
                             
                             // 変更の影響を受けていない「新旧共通の後方テキスト（サフィックス）」から安全な境界を検索する
                             let searchStartOld = oldDiffEnd + 1;
                             let blockEndOld = oldText.indexOf('\n\n', searchStartOld);
-                            while (blockEndOld !== -1 && !isSafeBoundary(oldText, blockEndOld)) {
+                            let _beIter = 0;
+                            while (blockEndOld !== -1 && (!isSafeBoundary(oldText, blockEndOld) || isListContinuation(oldText, blockEndOld))) {
+                                _beIter++;
+                                if (_beIter > 500) { console.error(`[render][FastPath] ⛔ blockEndOldループが500回を超えました blockEndOld=${blockEndOld}`); break; }
                                 blockEndOld = oldText.indexOf('\n\n', blockEndOld + 1);
                             }
                             if (blockEndOld === -1) blockEndOld = oldText.length;
@@ -447,39 +479,59 @@ async function render(force = false) {
                                 let targetStartIndex = -1;
                                 let targetEndIndex = -1;
                                 
-                                for (let i = 0; i < previewNodes.length; i++) {
-                                    const node = previewNodes[i];
-                                    if (node.nodeType === 1 && node.hasAttribute('data-line')) {
-                                        const l = parseInt(node.getAttribute('data-line'), 10);
-                                        if (targetStartIndex === -1 && l >= startLineNum) {
-                                            // ★【根本修正】テキストノード（空白・改行）のみを巻き込む。
-                                            // 旧ロジック: 「data-lineを持つ要素の手前まで」遡る
-                                            //   → data-lineのない<details>等の要素ノードも誤って巻き込んでいた
-                                            // 新ロジック: 「要素ノード（nodeType===1）が現れたら即停止」
-                                            //   → テキストノード（改行・空白）だけを巻き込み、他の要素は巻き込まない
-                                            let j = i;
-                                            while(j > 0 && previewNodes[j-1].nodeType !== 1 && !previewNodes[j-1].classList?.contains('dummy-tail-block')) j--;
-                                            targetStartIndex = j;
-                                        }
-                                        if (l <= oldEndLineNum) targetEndIndex = i;
+                                // 高速化: querySelectorAll で data-line 要素をネイティブ抽出
+                                const dataLineEls = DOM.preview.querySelectorAll(':scope > [data-line]');
+                                
+                                // 二分探索で startLineNum と oldEndLineNum に該当する要素を特定
+                                let startEl = null;
+                                let endEl = null;
+                                
+                                let left = 0;
+                                let right = dataLineEls.length - 1;
+                                while(left <= right) {
+                                    const mid = Math.floor((left + right) / 2);
+                                    const l = parseInt(dataLineEls[mid].getAttribute('data-line'), 10);
+                                    if (l >= startLineNum) {
+                                        startEl = dataLineEls[mid];
+                                        right = mid - 1;
+                                    } else {
+                                        left = mid + 1;
+                                    }
+                                }
+                                
+                                left = 0;
+                                right = dataLineEls.length - 1;
+                                while(left <= right) {
+                                    const mid = Math.floor((left + right) / 2);
+                                    const l = parseInt(dataLineEls[mid].getAttribute('data-line'), 10);
+                                    if (l <= oldEndLineNum) {
+                                        endEl = dataLineEls[mid];
+                                        left = mid + 1;
+                                    } else {
+                                        right = mid - 1;
                                     }
                                 }
 
-                                // ▼▼▼ ここから追加 ▼▼▼
-                                // 置換対象の末尾にテキストノードや改行のゴミが残るのを防ぐため、次の data-line 要素の手前まで巻き込む
-                                if (targetEndIndex !== -1) {
-                                    let j = targetEndIndex;
-                                    while (j + 1 < previewNodes.length && !(previewNodes[j+1].nodeType === 1 && previewNodes[j+1].hasAttribute('data-line')) && !previewNodes[j+1].classList?.contains('dummy-tail-block')) {
+                                if (startEl) {
+                                    const i = previewNodes.indexOf(startEl);
+                                    let j = i;
+                                    while(j > 0 && previewNodes[j-1].nodeType !== 1 && (!previewNodes[j-1].classList || !previewNodes[j-1].classList.contains('dummy-tail-block'))) j--;
+                                    targetStartIndex = j;
+                                }
+                                
+                                if (endEl) {
+                                    const i = previewNodes.indexOf(endEl);
+                                    let j = i;
+                                    while (j + 1 < previewNodes.length && !(previewNodes[j+1].nodeType === 1 && previewNodes[j+1].hasAttribute('data-line')) && (!previewNodes[j+1].classList || !previewNodes[j+1].classList.contains('dummy-tail-block'))) {
                                         j++;
                                     }
                                     targetEndIndex = j;
                                 }
-                                // ▲▲▲ ここまで追加 ▲▲▲
 
                                 // ファイル末尾への追記の場合の補正
                                 if (targetStartIndex === -1 && startLineNum > oldEndLineNum) {
                                     targetStartIndex = previewNodes.length;
-                                    if (previewNodes.length > 0 && previewNodes[previewNodes.length - 1].classList?.contains('dummy-tail-block')) {
+                                    if (previewNodes.length > 0 && previewNodes[previewNodes.length - 1].classList && previewNodes[previewNodes.length - 1].classList.contains('dummy-tail-block')) {
                                         targetStartIndex = previewNodes.length - 1;
                                     }
                                     targetEndIndex = targetStartIndex - 1;
@@ -576,8 +628,15 @@ async function render(force = false) {
 
                 // Fast Path が成功した場合は処理をここで打ち切り、150msのフルパースを回避！
                 if (fastPathSuccess) {
+                    // [FIX] FastPathが成功したため、デバウンスタイマーの2回目のrender() is不要。
+                    if (typeof debounceTimer !== 'undefined') clearTimeout(debounceTimer);
+
+                    const _postA = performance.now();
+
                     // 入力時のラグを完全に消滅させるため、二次的な重いDOM全走査処理を非同期（裏タスク）に回す
                     requestAnimationFrame(() => {
+                        const postStart = performance.now();
+                        
                         let globalCodeIndex = 0;
                         DOM.preview.querySelectorAll('.code-block-wrapper').forEach(el => el.setAttribute('data-code-index', globalCodeIndex++));
                         let globalSvgIndex = 0;
@@ -596,17 +655,35 @@ async function render(force = false) {
                         if (typeof attachImageResizeListeners === 'function') attachImageResizeListeners();
                         if (typeof attachTableEvents === 'function') attachTableEvents();
 
+                        // before_srcではrestoreFocusは非同期(rAF)内で実行される
+                        const _postB_1 = performance.now();
                         if (typeof PreviewInlineEdit !== 'undefined' && typeof PreviewInlineEdit.restoreFocusIfNeeded === 'function') PreviewInlineEdit.restoreFocusIfNeeded();
+                        const _postB_2 = performance.now();
+
                         if (AppState.searchState && AppState.searchState.matches.length > 0) if (typeof highlightPreviewMatches === 'function') highlightPreviewMatches();
-                        // アノテーションのアンカーをレンダリング直後に更新（遅延なし）
+                        // アノテーションのアンカーをレンダリング直後に更新
                         if (typeof AnnotationLayer !== 'undefined' && typeof AnnotationLayer.updateAnchors === 'function') AnnotationLayer.updateAnchors();
+                        
+                        const postTime = performance.now() - postStart;
+                        console.log(`[Perf][Renderer] FastPath requestAnimationFrame listeners took ${postTime.toFixed(1)}ms (restoreFocus=${(_postB_2 - _postB_1).toFixed(1)}ms)`);
+                        
+                        if (window._lastGlobalKeydownTime) {
+                            console.log(`[Perf] ⌨ キー入力からプレビュー反映完了までの総時間(FastPath + Async): ${(performance.now() - window._lastGlobalKeydownTime).toFixed(1)}ms`);
+                            window._lastGlobalKeydownTime = null;
+                        }
                     });
+                    const _postC = performance.now();
+                    
                     if (typeof updateScrollMap === 'function') setTimeout(() => updateScrollMap(), 50);
                     if (typeof updateOutline === 'function') setTimeout(() => updateOutline(), 100);
                     if (typeof buildSvgList === 'function') setTimeout(() => buildSvgList(), 150);
+                    const _postD = performance.now();
                     if (typeof updateWordCount === 'function') updateWordCount();
+                    const _postE = performance.now();
                     if (typeof schedulePageBreakDisplay === 'function') schedulePageBreakDisplay();
+                    const _postF = performance.now();
 
+                    console.log(`[Perf][PostFastPath] restoreFocus=0.0ms (rAF内非同期), rAFSetup=${(_postC - _postA).toFixed(1)}ms, scrollMapEtc=${(_postD - _postC).toFixed(1)}ms, updateWordCount=${(_postE - _postD).toFixed(1)}ms, pageBreak=${(_postF - _postE).toFixed(1)}ms, total=${(_postF - _postA).toFixed(1)}ms`);
                     console.log(`[Perf][Renderer] FastPath render() END at ${(performance.now() - renderStartTime).toFixed(1)}ms`);
                     
                     _renderPending = false;
@@ -1072,7 +1149,12 @@ async function render(force = false) {
 
                 // 無限ループの誤検知をリセット（タイピングは正常動作）
                 window._renderLoopCount = 0;
-                console.log(`[Perf][Renderer] render() END at ${(performance.now() - renderStartTime).toFixed(1)}ms`);
+                const endTime = performance.now();
+                console.log(`[Perf][Renderer] render() END at ${(endTime - renderStartTime).toFixed(1)}ms`);
+                if (window._lastGlobalKeydownTime) {
+                    console.log(`[Perf] ⌨ キー入力からプレビュー反映完了までの総時間: ${(endTime - window._lastGlobalKeydownTime).toFixed(1)}ms`);
+                    window._lastGlobalKeydownTime = null;
+                }
 
             } catch (e) {
                 console.error('Render Critical Error:', e);
@@ -1830,7 +1912,8 @@ function processSVGBlocks(root) {
                 }
 
                 svgContainer.addEventListener('dblclick', function (e) {
-                    if (window.currentEditingSVG) return;
+                    if (window._svgEditorStarting) return;
+                    if (window.currentEditingSVG && window.currentEditingSVG.container === this) return;
                     const index = parseInt(this.getAttribute('data-svg-index'));
                     if (typeof startSVGEdit === 'function') startSVGEdit(this, index);
                 });

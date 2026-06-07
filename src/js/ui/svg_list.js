@@ -389,7 +389,11 @@ function attachSvgListItemEvents() {
                     }
                 }
             } else {
+                // [FIX] SVGエディタが初期化中の場合は二重起動を防止
+                if (window._svgEditorStarting) return;
                 const container = document.querySelector(`.svg-view-wrapper[data-svg-index="${svgIndex}"]`);
+                // [FIX] 同じSVGの場合は無視、別の場合は既存を閉じて開くのを許可
+                if (window.currentEditingSVG && window.currentEditingSVG.container === container) return;
                 if (container && typeof startSVGEdit === 'function') {
                     startSVGEdit(container, parseInt(svgIndex));
                 }

@@ -581,6 +581,16 @@ const SlideManager = {
         });
 
         const clonedPreview = element.cloneNode(true);
+
+        // [FIX] content-visibility: auto はパフォーマンス最適化のために
+        // ビューポート外の要素の高さを contain-intrinsic-size で代替するが、
+        // PageSplitterの計測コンテナ（visibility:hidden）内ではSVGの実際の高さが反映されず、
+        // ページ分割が正しく行われない。クローン内では無効化して正確な高さ計測を保証する。
+        clonedPreview.querySelectorAll('.svg-view-wrapper').forEach(el => {
+            el.style.contentVisibility = 'visible';
+            el.style.containIntrinsicSize = 'none';
+        });
+
         console.log(`[SlideManager] Starting PageSplitter.splitToPages... PageHeight: ${pageHeightPx.toFixed(2)}px`);
         this.slides = await PageSplitter.splitToPages(clonedPreview, pageHeightPx, elementWidthPx);
         console.log(`[SlideManager] PageSplitter finished. Created ${this.slides.length} slides.`);

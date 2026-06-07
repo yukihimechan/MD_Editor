@@ -182,14 +182,7 @@ class ShapeTool extends BaseTool {
         if (!this.isDragging) return;
         
         const isAlt = SVGUtils.isSnapEnabled(e);
-        let targetPt = pt;
-        if (isAlt && typeof AppState !== 'undefined' && AppState.config.grid) {
-            const snapSize = AppState.config.grid.size || 15;
-            targetPt = {
-                x: Math.round(pt.x / snapSize) * snapSize,
-                y: Math.round(pt.y / snapSize) * snapSize
-            };
-        }
+        const targetPt = SVGUtils.snapPointToGrid(pt, isAlt);
 
         const dx = targetPt.x - this.startPoint.x;
         const dy = targetPt.y - this.startPoint.y;
@@ -289,14 +282,7 @@ class PolyTool extends BaseTool {
             this.activeElement.move(x, y);
         } else if (this.toolbar.currentTool === 'star' || this.toolbar.currentTool === 'polygon') {
             const isAlt = SVGUtils.isSnapEnabled(e);
-            let targetPt = pt;
-            if (isAlt && typeof AppState !== 'undefined' && AppState.config.grid) {
-                const snapSize = AppState.config.grid.size || 15;
-                targetPt = {
-                    x: Math.round(pt.x / snapSize) * snapSize,
-                    y: Math.round(pt.y / snapSize) * snapSize
-                };
-            }
+            const targetPt = SVGUtils.snapPointToGrid(pt, isAlt);
 
             const r = Math.sqrt(Math.pow(targetPt.x - this.startPoint.x, 2) + Math.pow(targetPt.y - this.startPoint.y, 2));
             const isStar = this.toolbar.currentTool === 'star';
@@ -362,12 +348,7 @@ class LineTool extends BaseTool {
                 startConnect = nearest;
             }
         } else if (isAlt) {
-            const gridConfig = (typeof AppState !== 'undefined' && AppState.config.grid) || { size: 15 };
-            const snapSize = gridConfig.size || 15;
-            pt = {
-                x: Math.round(pt.x / snapSize) * snapSize,
-                y: Math.round(pt.y / snapSize) * snapSize
-            };
+            pt = SVGUtils.snapPointToGrid(pt, isAlt);
         }
 
         this.startPoint = pt; // Use snapped or grid-snapped point
@@ -477,12 +458,7 @@ class LineTool extends BaseTool {
             }
         } else if (isAlt) {
             if (window.SVGConnectorManager) window.SVGConnectorManager.disconnect(this.activeElement, 'end');
-            const gridConfig = (typeof AppState !== 'undefined' && AppState.config.grid) || { size: 15 };
-            const snapSize = gridConfig.size || 15;
-            targetPt = {
-                x: Math.round(pt.x / snapSize) * snapSize,
-                y: Math.round(pt.y / snapSize) * snapSize
-            };
+            targetPt = SVGUtils.snapPointToGrid(pt, isAlt);
         }
 
         const isShift = e.shiftKey || (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed);
@@ -561,12 +537,7 @@ class PolylineArrowTool extends LineTool {
             const nearest = window.SVGConnectorManager.findNearestConnector(this.draw, pt, 20, this.activeElement);
             if (nearest) pt = { x: nearest.x, y: nearest.y, connector: nearest };
         } else if (isAlt) {
-            const gridConfig = (typeof AppState !== 'undefined' && AppState.config.grid) || { size: 15 };
-            const snapSize = gridConfig.size || 15;
-            pt = {
-                x: Math.round(pt.x / snapSize) * snapSize,
-                y: Math.round(pt.y / snapSize) * snapSize
-            };
+            pt = SVGUtils.snapPointToGrid(pt, isAlt);
         }
 
         const isShift = e.shiftKey || (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed);
@@ -680,12 +651,7 @@ class PolylineArrowTool extends LineTool {
                 const nearest = window.SVGConnectorManager.findNearestConnector(this.draw, pt, 20, this.activeElement);
                 if (nearest) targetPt = { x: nearest.x, y: nearest.y };
             } else if (isAlt) {
-                const gridConfig = (typeof AppState !== 'undefined' && AppState.config.grid) || { size: 15 };
-                const snapSize = gridConfig.size || 15;
-                targetPt = {
-                    x: Math.round(pt.x / snapSize) * snapSize,
-                    y: Math.round(pt.y / snapSize) * snapSize
-                };
+                targetPt = SVGUtils.snapPointToGrid(pt, isAlt);
             }
         }
 
@@ -1296,72 +1262,89 @@ class SVGMainToolbar extends SVGToolbarBase {
     updateArrowMarkers(el) {
         if (!el || (el.type !== 'polyline' && el.type !== 'line' && el.type !== 'path')) return;
 
-        const hasStart = el.node.getAttribute('data-arrow-start') === 'true';
-        const hasEnd = el.node.getAttribute('data-arrow-end') === 'true';
+        // 外部定義のマーカーを維持するための判定用関数
+        const isExternalMarker = (attrName, suffix) => {
+            const currentMarker = el.node.getAttribute(attrName);
+            if (!currentMarker) return false;
+            // エディタ専用の形式 url(#要素ID_m_start) または url(#要素ID_m_end) 以外であれば外部とみなす
+            const expectedId = el.id() + suffix;
+            return !currentMarker.includes(`url(#${expectedId})`);
+        };
+
+        // 外部マーカーであれば、その属性には一切触れずに処理をスキップする
+        const isStartExt = isExternalMarker('marker-start', '_m_start');
+        const isEndExt = isExternalMarker('marker-end', '_m_end');
+
+        const hasStart = el.node.getAttribute('data-arrow-start') === 'true' || isStartExt;
+        const hasEnd = el.node.getAttribute('data-arrow-end') === 'true' || isEndExt;
         const size = parseFloat(el.node.getAttribute('data-arrow-size')) || 10;
 
         // CSSスタイルを優先して現在適用されている色を正確に取得する
         const color = el.node.style.stroke || el.attr('stroke') || '#000000';
 
         // Start marker
-        if (hasStart) {
-            const startId = el.id() + '_m_start';
-            let mStart = SVG('#' + startId);
-            if (mStart) {
-                mStart.size(size, size);
-                mStart.clear();
-                mStart.path(`M${size} 0 L0 ${size / 2} L${size} ${size} z`).fill(color);
-                mStart.attr('refX', 0).attr('refY', size / 2).attr('orient', 'auto');
-                if (el.attr('marker-start') !== `url(#${startId})`) {
-                    el.attr('marker-start', `url(#${startId})`);
+        if (!isStartExt) { // 外部マーカーでない場合のみ自動更新を実行
+            if (hasStart) {
+                const startId = el.id() + '_m_start';
+                let mStart = SVG('#' + startId);
+                if (mStart) {
+                    mStart.size(size, size);
+                    mStart.clear();
+                    mStart.path(`M${size} 0 L0 ${size / 2} L${size} ${size} z`).fill(color);
+                    mStart.attr('refX', 0).attr('refY', size / 2).attr('orient', 'auto');
+                    if (el.attr('marker-start') !== `url(#${startId})`) {
+                        el.attr('marker-start', `url(#${startId})`);
+                    }
+                } else {
+                    // コピーなどで他要素のマーカー参照を引き継いでいる場合、既存マーカーを上書き（汚染）しないように
+                    // 参照を強制的に外してから新しく作らせる
+                    el.attr('marker-start', null);
+
+                    el.marker('start', size, size, function (add) {
+                        add.path(`M${size} 0 L0 ${size / 2} L${size} ${size} z`).fill(color);
+                        this.attr('refX', 0).attr('refY', size / 2).attr('orient', 'auto');
+                    });
+                    const ref = typeof el.reference === 'function' ? el.reference('marker-start') : null;
+                    if (ref) {
+                        ref.id(startId);
+                        el.attr('marker-start', `url(#${startId})`);
+                    }
                 }
             } else {
-                // コピーなどで他要素のマーカー参照を引き継いでいる場合、既存マーカーを上書き（汚染）しないように
-                // 参照を強制的に外してから新しく作らせる
                 el.attr('marker-start', null);
-
-                el.marker('start', size, size, function (add) {
-                    add.path(`M${size} 0 L0 ${size / 2} L${size} ${size} z`).fill(color);
-                    this.attr('refX', 0).attr('refY', size / 2).attr('orient', 'auto');
-                });
-                const ref = typeof el.reference === 'function' ? el.reference('marker-start') : null;
-                if (ref) {
-                    ref.id(startId);
-                    el.attr('marker-start', `url(#${startId})`);
-                }
             }
-        } else {
-            el.attr('marker-start', null);
         }
 
         // End marker
-        if (hasEnd) {
-            const endId = el.id() + '_m_end';
-            let mEnd = SVG('#' + endId);
-            if (mEnd) {
-                mEnd.size(size, size);
-                mEnd.clear();
-                mEnd.path(`M0 0 L${size} ${size / 2} L0 ${size} z`).fill(color);
-                mEnd.attr('refX', size).attr('refY', size / 2).attr('orient', 'auto');
-                if (el.attr('marker-end') !== `url(#${endId})`) {
-                    el.attr('marker-end', `url(#${endId})`);
+        if (!isEndExt) { // 外部マーカーでない場合のみ自動更新を実行
+            if (hasEnd) {
+                const endId = el.id() + '_m_end';
+                let mEnd = SVG('#' + endId);
+                if (mEnd) {
+                    mEnd.size(size, size);
+                    mEnd.clear();
+                    mEnd.path(`M0 0 L${size} ${size / 2} L0 ${size} z`).fill(color);
+                    mEnd.attr('refX', size).attr('refY', size / 2).attr('orient', 'auto');
+                    if (el.attr('marker-end') !== `url(#${endId})`) {
+                        el.attr('marker-end', `url(#${endId})`);
+                    }
+                } else {
+                    // コピーなどで他要素のマーカー参照を引き継いでいる場合、既存マーカーを上書き（汚染）しないように
+                    el.attr('marker-end', null);
+
+                    el.marker('end', size, size, function (add) {
+                        add.path(`M0 0 L${size} ${size / 2} L0 ${size} z`).fill(color);
+                        this.attr('refX', size).attr('refY', size / 2).attr('orient', 'auto');
+                    });
+                    const ref = typeof el.reference === 'function' ? el.reference('marker-end') : null;
+                    if (ref) {
+                        ref.id(endId);
+                        el.attr('marker-end', `url(#${endId})`);
+                    }
                 }
             } else {
-                // コピーなどで他要素のマーカー参照を引き継いでいる場合、既存マーカーを上書き（汚染）しないように
                 el.attr('marker-end', null);
-
-                el.marker('end', size, size, function (add) {
-                    add.path(`M0 0 L${size} ${size / 2} L0 ${size} z`).fill(color);
-                    this.attr('refX', size).attr('refY', size / 2).attr('orient', 'auto');
-                });
-                const ref = typeof el.reference === 'function' ? el.reference('marker-end') : null;
-                if (ref) {
-                    ref.id(endId);
-                    el.attr('marker-end', `url(#${endId})`);
-                }
             }
-        } else {
-            el.attr('marker-end', null);
         }
     }
 

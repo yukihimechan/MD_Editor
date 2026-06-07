@@ -52,6 +52,7 @@ class AutoSaveManager {
         };
 
         try {
+            const saveStart = performance.now();
             let history = this.getHistory();
             
             // 同じ documentId があれば削除（上書きのため）
@@ -64,9 +65,25 @@ class AutoSaveManager {
             if (history.length > this.MAX_HISTORY) {
                 history = history.slice(0, this.MAX_HISTORY);
             }
+            
+            // [Perf] localStorageの5MB制限に近づくとsetItemが数秒単位でフリーズ（もっさり感の原因）するため、
+            // 履歴全体のテキスト総量が一定（約1MB相当 = 50万文字）を超えないように古いものから捨てる
+            const MAX_TOTAL_CHARS = 500000;
+            let totalChars = 0;
+            let keepCount = 0;
+            for (let i = 0; i < history.length; i++) {
+                totalChars += (history[i].text ? history[i].text.length : 0);
+                if (totalChars > MAX_TOTAL_CHARS && i > 0) {
+                    break;
+                }
+                keepCount++;
+            }
+            if (keepCount < history.length) {
+                history = history.slice(0, keepCount);
+            }
 
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(history));
-            console.log(`[AutoSave] Saved history for ${currentId}`);
+            console.log(`[AutoSave] Saved history for ${currentId} in ${(performance.now() - saveStart).toFixed(1)}ms`);
         } catch (e) {
             console.error('[AutoSave] Failed to save history', e);
         }

@@ -13,6 +13,7 @@ const MathSlashCommand = {
     view: null,
     triggerPos: null,
     currentKeyword: '',
+    mathField: null,       // MathLive の math-field 要素（MathLive 経由時）
 
     init() {
         if (this.element) return;
@@ -88,6 +89,7 @@ const MathSlashCommand = {
         if (!this.element) this.init();
 
         this.view = view;
+        this.mathField = null;
         this.triggerPos = pos;
         this.isActive = true;
         this.currentKeyword = '';
@@ -98,11 +100,30 @@ const MathSlashCommand = {
         this.filter('');
     },
 
+    /**
+     * MathLive のエディタからサジェストを表示する
+     */
+    showForMathLive(mf, coords) {
+        if (!this.element) this.init();
+
+        this.view = null;
+        this.mathField = mf;
+        this.triggerPos = null;
+        this.isActive = true;
+        this.currentKeyword = '';
+
+        this.coords = coords;
+
+        this.element.style.display = 'block';
+        this.filter('');
+    },
+
     hide() {
         if (!this.element) return;
         this.isActive = false;
         this.element.style.display = 'none';
         this.view = null;
+        this.mathField = null;
     },
 
     updateKeyword(keyword) {
@@ -169,16 +190,27 @@ const MathSlashCommand = {
             this.listElement.appendChild(li);
         });
 
-        // 位置の調整：画面下に収まらない場合は上に表示する
+        // 位置の調整：画面の範囲内に収める
         if (this.coords) {
             this.element.style.left = `${this.coords.left}px`;
             this.element.style.top = `${this.coords.bottom + 4}px`;
+            // max-height をリセット
+            this.element.style.maxHeight = '';
             
             // 描画後に高さを計算
             const rect = this.element.getBoundingClientRect();
+
             if (rect.bottom > window.innerHeight) {
-                // カーソルの上に表示する（高さを引いて少し余白を設ける）
-                this.element.style.top = `${this.coords.top - rect.height - 4}px`;
+                // 下にはみ出る → 上に表示を試みる
+                const topPos = this.coords.top - rect.height - 4;
+                if (topPos >= 0) {
+                    // 上に十分なスペースがある
+                    this.element.style.top = `${topPos}px`;
+                } else {
+                    // 上にもはみ出る → 画面上端にクランプし、高さを制限
+                    this.element.style.top = '4px';
+                    this.element.style.maxHeight = `${this.coords.top - 8}px`;
+                }
             }
         } else {
             this.element.style.left = '50%';
@@ -207,12 +239,19 @@ const MathSlashCommand = {
     },
 
     applySelection() {
-        console.log('[MathSlashCommand] applySelection() called. view:', !!this.view, 'items:', this.filteredItems.length);
-        if (!this.view || this.filteredItems.length === 0) return;
+        console.log('[MathSlashCommand] applySelection() called. view:', !!this.view, 'mathField:', !!this.mathField, 'items:', this.filteredItems.length);
+        if ((!this.view && !this.mathField) || this.filteredItems.length === 0) return;
 
         const item = this.filteredItems[this.selectedIndex];
         console.log('[MathSlashCommand] Selected item:', item);
-        
+
+        // MathLive 経由の場合
+        if (this.mathField) {
+            this._applyToMathLive(item);
+            return;
+        }
+
+        // CodeMirror 経由の場合（従来処理）
         const currentPos = this.view.state.selection.main.head;
         console.log('[MathSlashCommand] Dispatching changes. from:', this.triggerPos, 'to:', currentPos, 'insert:', item.value);
 
@@ -247,6 +286,21 @@ const MathSlashCommand = {
         console.log('[MathSlashCommand] Setting final cursor pos:', newCursorPos);
         this.view.dispatch({ selection: { anchor: newCursorPos, head: newCursorPos } });
         this.view.focus();
+        this.hide();
+    },
+
+    /**
+     * MathLive のエディタに選択した記号を挿入する
+     */
+    _applyToMathLive(item) {
+        const mf = this.mathField;
+        console.log('[MathSlashCommand] Applying to MathLive:', item.value);
+
+        // "\" キーは keydown で preventDefault されているため、
+        // MathLive のコマンドモードには入っていない。直接挿入する。
+        mf.executeCommand(['insert', item.value]);
+        mf.focus();
+
         this.hide();
     }
 };

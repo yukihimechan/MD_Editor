@@ -124,6 +124,10 @@ function selectElement(el, isMulti, silent = false, force = false) {
     if (!window.currentEditingSVG) {
         return;
     }
+    try {
+        const elId = el && el.id ? (typeof el.id === 'function' ? el.id() : el.id) : (el && el.node ? el.node.getAttribute('id') : 'unknown');
+        console.log(`[selectElement] Called for ID: ${elId}, isMulti: ${isMulti}, force: ${force}, currentCount: ${window.currentEditingSVG.selectedElements.size}`);
+    } catch(err) {}
 
     // [FIX] CSS 編集モード中は、プレビュー以外の要素を選択させない
     if (window.currentEditingSVG._inCSSEditMode) {
@@ -176,16 +180,31 @@ function selectElement(el, isMulti, silent = false, force = false) {
     }
 
     // ▼▼▼ 追加: すでに選択されている場合のガード処理 ▼▼▼
-    const alreadySelected = window.currentEditingSVG.selectedElements.has(el);
+    // [FIX] wrapperオブジェクトの参照不一致を防ぐため、DOMノード基準で既存の選択に含まれるか判定する
+    let existingWrapper = null;
+    window.currentEditingSVG.selectedElements.forEach(sel => {
+        if (sel.node === el.node) {
+            existingWrapper = sel;
+        }
+    });
+
+    const alreadySelected = !!existingWrapper;
     
     if (!force && !isMulti && alreadySelected && window.currentEditingSVG.selectedElements.size === 1) {
-        // 単一選択モードで自分のみが選択されている場合は、選択リストの更新(deselectAll)はスキップするが、
-        // 以下の UI 適用処理 (shape.applySelectionUI 等) へは進むように早期 return を除去する。
+        // 単一選択モードで自分のみが選択されている場合は、選択リスト内のwrapper参照を最新のものに更新
+        if (existingWrapper !== el) {
+            window.currentEditingSVG.selectedElements.delete(existingWrapper);
+            window.currentEditingSVG.selectedElements.add(el);
+        }
     } else if (!isMulti) {
         deselectAll();
         window.currentEditingSVG.selectedElements.add(el);
     } else if (isMulti && alreadySelected) {
-        // マルチ選択モードで既に選択済みの場合は多重登録を防ぐためリターン
+        // マルチ選択モードで既に選択済みの場合は、古いインスタンスを新しいインスタンスに更新してリターン
+        if (existingWrapper !== el) {
+            window.currentEditingSVG.selectedElements.delete(existingWrapper);
+            window.currentEditingSVG.selectedElements.add(el);
+        }
         return;
     } else {
         window.currentEditingSVG.selectedElements.add(el);
@@ -443,6 +462,10 @@ function selectElement(el, isMulti, silent = false, force = false) {
         el.node._transformObserver.disconnect();
     }
     const observer = new MutationObserver((mutations) => {
+        // ▼追加: 自分がドラッグ中・リサイズ中なら処理をスキップ
+        const shape = el.remember('_shapeInstance');
+        if (shape && (shape._isDragging || shape._isResizing)) return;
+
         for (const mutation of mutations) {
             if (mutation.type === 'attributes' && mutation.attributeName === 'transform') {
                 if (window.SVGConnectorManager) {
@@ -478,26 +501,47 @@ window.selectElement = selectElement;
  */
 function deselectElement(el, silent = false) {
     if (!window.currentEditingSVG) return;
+    try {
+        const elId = el && el.id ? (typeof el.id === 'function' ? el.id() : el.id) : (el && el.node ? el.node.getAttribute('id') : 'unknown');
+        console.log(`[deselectElement] Called for ID: ${elId}, currentCount: ${window.currentEditingSVG.selectedElements.size}`);
+    } catch(err) {}
 
-    if (window.currentEditingSVG.selectedElements.has(el)) {
-        // [FIX] Ensure custom markers are cleared
-        const shape = el.remember('_shapeInstance');
+    // [FIX] wrapperオブジェクトの参照不一致を防ぐため、DOMノード基準で解除対象を探す
+    let existingWrapper = null;
+    window.currentEditingSVG.selectedElements.forEach(sel => {
+        if (sel.node === el.node) {
+            existingWrapper = sel;
+        }
+    });
+
+    if (existingWrapper) {
+        // 元 of 要素（または渡された要素）の UI クリーンアップを実行
+        const shape = existingWrapper.remember('_shapeInstance') || el.remember('_shapeInstance');
         if (shape) {
             if (typeof shape.clearSelectionUI === 'function') shape.clearSelectionUI();
             if (typeof shape.clearControlMarkers === 'function') shape.clearControlMarkers();
         }
 
-        if (typeof el.select === 'function') el.select(false);
-        if (typeof el.resize === 'function') el.resize(false);
-        el.off('.selection');
+        if (typeof existingWrapper.select === 'function') existingWrapper.select(false);
+        if (typeof existingWrapper.resize === 'function') existingWrapper.resize(false);
+        existingWrapper.off('.selection');
+        if (existingWrapper !== el) {
+            if (typeof el.select === 'function') el.select(false);
+            if (typeof el.resize === 'function') el.resize(false);
+            el.off('.selection');
+        }
 
         // [NEW] 監視プログラムを完全に停止
+        if (existingWrapper.node && existingWrapper.node._transformObserver) {
+            existingWrapper.node._transformObserver.disconnect();
+            existingWrapper.node._transformObserver = null;
+        }
         if (el.node && el.node._transformObserver) {
             el.node._transformObserver.disconnect();
             el.node._transformObserver = null;
         }
 
-        window.currentEditingSVG.selectedElements.delete(el);
+        window.currentEditingSVG.selectedElements.delete(existingWrapper);
 
         // UI Updates
         updateTransformToolbarValues();
@@ -518,6 +562,9 @@ window.deselectElement = deselectElement;
  */
 function deselectAll(silent = false) {
     if (!window.currentEditingSVG) return;
+    try {
+        console.log(`[deselectAll] Called. CurrentCount: ${window.currentEditingSVG.selectedElements.size}. Stack:`, new Error().stack);
+    } catch(err) {}
 
     if (window.currentEditingSVG._inGradientEditMode) {
         return;

@@ -931,6 +931,15 @@ function initContextMenu() {
             // 既存のメニューを閉じる
             closeContextMenu();
 
+            // 数式エディタ（MathLive）内部、バーチャルキーボード、サジェストボックスからのイベントは無視
+            if (e.target.closest('.math-inline-editor-overlay') || 
+                e.target.closest('math-field') || 
+                e.target.closest('.math-slash-command') || 
+                e.target.closest('.ML__keyboard') || 
+                e.target.closest('[data-ml-keyboard]')) {
+                return;
+            }
+
             const isEditor = e.target.closest('.cm-editor');
             let isPreviewSelectable = null;
             const isInPreview = DOM.preview && DOM.preview.contains(e.target);

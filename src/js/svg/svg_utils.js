@@ -91,21 +91,32 @@ const SVGUtils = {
     },
 
     /**
+     * グリッドスナップを適用する（縦線・横線の表示状態を個別に考慮）
+     * @param {Object} pt 座標 {x, y}
+     * @param {boolean} isSnapEnabled スナップが有効かどうか
+     * @returns {Object} 補正後の座標 {x, y}
+     */
+    snapPointToGrid(pt, isSnapEnabled) {
+        if (isSnapEnabled && typeof AppState !== 'undefined' && AppState.config.grid) {
+            const snapSize = AppState.config.grid.size || 15;
+            const showV = AppState.config.grid.showV !== false; // デフォルトは ON
+            const showH = AppState.config.grid.showH !== false; // デフォルトは ON
+            return {
+                x: showV ? Math.round(pt.x / snapSize) * snapSize : pt.x,
+                y: showH ? Math.round(pt.y / snapSize) * snapSize : pt.y
+            };
+        }
+        return pt;
+    },
+
+    /**
      * Altキーが押されている場合、座標をグリッドにスナップさせる
      * @param {Object} pt 現在の座標 {x, y}
      * @param {Event} e マウスイベント
      * @returns {Object} 補正後の座標 {x, y}
      */
     snapPointToGridIfAlt(pt, e) {
-        const isSnap = this.isSnapEnabled(e);
-        if (isSnap && typeof AppState !== 'undefined' && AppState.config.grid) {
-            const snapSize = AppState.config.grid.size || 15;
-            return {
-                x: Math.round(pt.x / snapSize) * snapSize,
-                y: Math.round(pt.y / snapSize) * snapSize
-            };
-        }
-        return pt;
+        return this.snapPointToGrid(pt, this.isSnapEnabled(e));
     },
 
     /**
@@ -385,11 +396,13 @@ const SVGUtils = {
         const isSnap = this.isSnapEnabled(e);
         if (isSnap && typeof AppState !== 'undefined' && AppState.config.grid) {
             const snapSize = AppState.config.grid.size || 15;
+            const showV = AppState.config.grid.showV !== false; // デフォルトは ON
+            const showH = AppState.config.grid.showH !== false; // デフォルトは ON
             const rootCTM = svg.getScreenCTM();
             if (rootCTM) {
                 const worldPt = p.matrixTransform(rootCTM.inverse());
-                const snappedWorldX = Math.round(worldPt.x / snapSize) * snapSize;
-                const snappedWorldY = Math.round(worldPt.y / snapSize) * snapSize;
+                const snappedWorldX = showV ? Math.round(worldPt.x / snapSize) * snapSize : worldPt.x;
+                const snappedWorldY = showH ? Math.round(worldPt.y / snapSize) * snapSize : worldPt.y;
 
                 const pSnappedWorld = svg.createSVGPoint();
                 pSnappedWorld.x = snappedWorldX;
@@ -561,6 +574,81 @@ const SVGUtils = {
 
         return snapped ? result : null;
     },
+
+    /**
+     * Find the best smart snap for resizing, restricting to only moving edges.
+     * @param {Object} movingRBox The box currently being resized
+     * @param {Array} targetBoxes Array of other elements' rboxes
+     * @param {string} side The handle being dragged (e.g. 'r', 'b', 'rb', 'lt')
+     * @param {number} threshold Pixel threshold for snapping
+     * @returns {Object|null} Snap result {dx, dy, dw, dh, guidesV, guidesH} or null
+     */
+    findResizeSmartSnap(movingRBox, targetBoxes, side, threshold = 5) {
+        if (!targetBoxes || targetBoxes.length === 0 || !side) return null;
+
+        let bestSnapX = { dist: Infinity, value: 0, targetValue: 0, edge: '' };
+        let bestSnapY = { dist: Infinity, value: 0, targetValue: 0, edge: '' };
+
+        // 移動する端を特定する（e, w, s, n も考慮）
+        const checkX = (side.includes('r') || side.includes('e')) ? 'x2' : ((side.includes('l') || side.includes('w')) ? 'x' : null);
+        const checkY = (side.includes('b') || side.includes('s')) ? 'y2' : ((side.includes('t') || side.includes('n')) ? 'y' : null);
+
+        for (const targetBox of targetBoxes) {
+            const snapT = this.getSnapLines(targetBox);
+
+            // Vertical Snapping (X-axis alignment)
+            if (checkX) {
+                const mx = movingRBox[checkX];
+                for (const tx of snapT.v) {
+                    const d = Math.abs(mx - tx);
+                    if (d < threshold && d < bestSnapX.dist) {
+                        bestSnapX = { dist: d, value: mx, targetValue: tx, edge: checkX };
+                    }
+                }
+            }
+
+            // Horizontal Snapping (Y-axis alignment)
+            if (checkY) {
+                const my = movingRBox[checkY];
+                for (const ty of snapT.h) {
+                    const d = Math.abs(my - ty);
+                    if (d < threshold && d < bestSnapY.dist) {
+                        bestSnapY = { dist: d, value: my, targetValue: ty, edge: checkY };
+                    }
+                }
+            }
+        }
+
+        const result = { dx: 0, dy: 0, dw: 0, dh: 0, guidesV: [], guidesH: [] };
+        let snapped = false;
+
+        if (bestSnapX.dist !== Infinity) {
+            const diffX = bestSnapX.targetValue - bestSnapX.value;
+            if (bestSnapX.edge === 'x') {
+                result.dx = diffX;
+                result.dw = -diffX;
+            } else if (bestSnapX.edge === 'x2') {
+                result.dw = diffX;
+            }
+            result.guidesV.push(bestSnapX.targetValue);
+            snapped = true;
+        }
+
+        if (bestSnapY.dist !== Infinity) {
+            const diffY = bestSnapY.targetValue - bestSnapY.value;
+            if (bestSnapY.edge === 'y') {
+                result.dy = diffY;
+                result.dh = -diffY;
+            } else if (bestSnapY.edge === 'y2') {
+                result.dh = diffY;
+            }
+            result.guidesH.push(bestSnapY.targetValue);
+            snapped = true;
+        }
+
+        return snapped ? result : null;
+    },
+
 
     /**
      * Apply zoom-invariant scaling to a handle element (circle or rect).

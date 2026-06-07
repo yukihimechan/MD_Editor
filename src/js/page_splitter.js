@@ -24,12 +24,10 @@ const PageSplitter = {
      */
     async splitToPages(sourceElement, pageHeightPx, pageWidthPx = null) {
         const widthPx = pageWidthPx || sourceElement.offsetWidth || 820;
-        // console.log(`[PageSplitter] splitToPages starting. Source: ${sourceElement.tagName}, PageHeight: ${pageHeightPx}px, Width: ${widthPx}px`);
         const pages = [];
 
         // 計測用のコンテナを配置。
-        // [IMPORTANT] visibility: hidden を使うことで、表示はされないがレイアウト（高さ）の計算が行われる状態にする。
-        // 計測を確実にするため、常に有効なレイアウトを持つ document.body 直下を利用。
+        // visibility: hidden を使うことで、表示はされないがレイアウト計算が行われる状態にする。
         const measureContainer = document.createElement('div');
         measureContainer.className = sourceElement.className;
         Object.assign(measureContainer.style, {
@@ -38,7 +36,7 @@ const PageSplitter = {
             left: '0',
             width: `${widthPx}px`,
             height: 'auto',
-            visibility: 'hidden', // layoutを維持しつつ隠す
+            visibility: 'hidden', 
             pointerEvents: 'none',
             zIndex: '-9999',
             padding: '0',
@@ -48,118 +46,219 @@ const PageSplitter = {
         document.body.appendChild(measureContainer);
 
         try {
-            let currentPage = this.createNewPageContainer(sourceElement);
-            measureContainer.appendChild(currentPage);
+            sourceElement.querySelectorAll('details').forEach(d => d.open = true);
 
-            // 全ての子要素を配列化してループ（分割により途中で増えるためwhileを利用）
-            const children = Array.from(sourceElement.childNodes);
+            // [FIX] content-visibility: auto はパフォーマンス最適化のために
+            // ビューポート外の要素の高さを contain-intrinsic-size で代替するが、
+            // 計測コンテナ（visibility:hidden）内ではSVGの実際の高さが反映されず、
+            // ページ分割が正しく行われない。分割処理前に無効化して正確な高さ計測を保証する。
+            sourceElement.querySelectorAll('.svg-view-wrapper').forEach(el => {
+                el.style.contentVisibility = 'visible';
+                el.style.containIntrinsicSize = 'none';
+            });
+
+            let remainingChildren = Array.from(sourceElement.childNodes);
             let loopCount = 0;
             const MAX_LOOPS = 5000;
 
-            // 全ての DETAILS を開く（計測用）
-            sourceElement.querySelectorAll('details').forEach(d => d.open = true);
-
-            while (children.length > 0) {
+            while (remainingChildren.length > 0) {
                 loopCount++;
                 if (loopCount > MAX_LOOPS) {
-                    // console.error("[PageSplitter] MAX_LOOPS exceeded. Breaking to prevent freeze.");
+                    console.error("[PageSplitter] MAX_LOOPS exceeded.");
+                    // 無限ループ時は残りを最後のページとして救済
+                    const emergencyPage = this.createNewPageContainer(sourceElement);
+                    remainingChildren.forEach(child => emergencyPage.appendChild(child));
+                    pages.push(emergencyPage);
                     break;
                 }
 
-                // UIフリーズを避けるため定期的にメインスレッドを解放する
                 if (loopCount % 50 === 0) {
                     await new Promise(resolve => setTimeout(resolve, 0));
                 }
 
-                const child = children.shift(); // 先頭から取り出して処理
-
-                // 空白のテキストノードなどは高さを増やさないためそのまま追加
-                if (child.nodeType === Node.TEXT_NODE && child.textContent.trim().length === 0) {
-                    currentPage.appendChild(child);
-                    continue;
-                }
-
-                // --- 1. <hr> による強制改ページ判定 ---
-                if (AppState.config.pageBreakOnHr && child.tagName === 'HR') {
-                    const hasElements = !this._isEffectivelyEmpty(currentPage);
-                    if (hasElements) {
-                        pages.push(currentPage.cloneNode(true));
-                        // console.log(`[PageSplitter] Page ${pages.length} fixed (HR break).`);
-                        currentPage.innerHTML = '';
+                // ページ先頭の空テキストやHRをスキップ
+                while (remainingChildren.length > 0) {
+                    const first = remainingChildren[0];
+                    if (first.nodeType === Node.TEXT_NODE && first.textContent.trim().length === 0) {
+                        remainingChildren.shift();
+                    } else if (AppState.config.pageBreakOnHr && first.nodeType === Node.ELEMENT_NODE && first.tagName === 'HR') {
+                        remainingChildren.shift();
+                    } else {
+                        break;
                     }
-                    continue; // HR自体はページに入れない
+                }
+                if (remainingChildren.length === 0) break;
+
+                const currentPage = this.createNewPageContainer(sourceElement);
+                measureContainer.appendChild(currentPage);
+
+                // 【改善ポイント: チャンク・インサート方式】
+                // 全要素を一気に入れるとO(N^2)になり激重になるため、ページ高さを超える「必要十分な数」だけを追加する
+                let estimatedHeight = 0;
+                let insertedCount = 0;
+
+                for (let i = 0; i < remainingChildren.length; i++) {
+                    const child = remainingChildren[i];
+                    currentPage.appendChild(child);
+                    insertedCount++;
+                    
+                    if (child.nodeType === Node.ELEMENT_NODE) {
+                        estimatedHeight += parseFloat(child.getAttribute('data-original-height') || "0") || 0;
+                    }
+                    
+                    if (AppState.config.pageBreakOnHr && child.nodeType === Node.ELEMENT_NODE && child.tagName === 'HR') {
+                        break;
+                    }
+
+                    // ページ高さの1.5倍まで入れたら一旦ストップ（確実にページを溢れさせる）
+                    if (estimatedHeight > pageHeightPx * 1.5) {
+                        break;
+                    }
                 }
 
-                currentPage.appendChild(child);
+                let containerRect = currentPage.getBoundingClientRect();
+                let containerHeight = containerRect.height;
+                let containerTop = containerRect.top;
 
-                let heightAfter = currentPage.offsetHeight;
-
-                // [CRITICAL FALLBACK] もし offsetHeight が 0 の場合（コンテナが隠れているなど）、
-                // 事前に記録した属性値（SlideManagerで付与）を利用して擬似的に高さを計算する。
-                const usedFallback = (heightAfter === 0);
-                if (usedFallback) {
-                    heightAfter = Array.from(currentPage.childNodes).reduce((acc, node) => {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            const h = parseFloat(node.getAttribute('data-original-height') || "0") || node.offsetHeight;
-                            return acc + h;
-                        }
-                        return acc;
-                    }, 0);
+                // [フェイルセーフ] もし見積もりが甘く、実際の高さがページに満たない場合は超えるまで追加
+                while (containerHeight <= pageHeightPx && insertedCount < remainingChildren.length) {
+                    const nextChild = remainingChildren[insertedCount];
+                    if (AppState.config.pageBreakOnHr && nextChild.nodeType === Node.ELEMENT_NODE && nextChild.tagName === 'HR') {
+                        currentPage.appendChild(nextChild);
+                        insertedCount++;
+                        break;
+                    }
+                    currentPage.appendChild(nextChild);
+                    insertedCount++;
+                    
+                    containerRect = currentPage.getBoundingClientRect();
+                    containerHeight = containerRect.height;
+                    
+                    if (containerHeight === 0) {
+                        containerHeight = Array.from(currentPage.childNodes).reduce((acc, node) => {
+                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                return acc + (parseFloat(node.getAttribute('data-original-height') || "0") || node.getBoundingClientRect().height);
+                            }
+                            return acc;
+                        }, 0);
+                    }
                 }
 
-                // [DEBUG] 全要素の追加後高さを記録（SVG/IMG の計測が正しいか確認）
-                if (child.nodeType === Node.ELEMENT_NODE) {
-                    const tag = child.tagName || '?';
-                    const childOffH = child.offsetHeight;
-                    const childDataH = child.getAttribute ? child.getAttribute('data-original-height') : null;
-                    // console.log(\`[PageSplitter][Loop] tag=<${tag}>, childOffsetH=${childOffH}px, data-original-height=${childDataH}, heightAfter=${heightAfter.toFixed(1)}px, pageH=${pageHeightPx.toFixed(1)}px, fallback=${usedFallback}, overflow=${heightAfter > pageHeightPx}\`);
+                // --- 境界要素のスキャン ---
+                const childNodes = Array.from(currentPage.childNodes);
+                let overflowIndex = -1;
+                let overflowChild = null;
+                let isHrBreak = false;
+
+                for (let i = 0; i < childNodes.length; i++) {
+                    const child = childNodes[i];
+                    if (child.nodeType === Node.TEXT_NODE && child.textContent.trim().length === 0) continue;
+
+                    if (AppState.config.pageBreakOnHr && child.nodeType === Node.ELEMENT_NODE && child.tagName === 'HR') {
+                        overflowIndex = i;
+                        overflowChild = child;
+                        isHrBreak = true;
+                        break;
+                    }
+
+                    let bottomRelative = 0;
+                    if (child.nodeType === Node.ELEMENT_NODE) {
+                        bottomRelative = child.getBoundingClientRect().bottom - containerTop;
+                    } else {
+                        const range = document.createRange();
+                        range.selectNodeContents(child);
+                        bottomRelative = range.getBoundingClientRect().bottom - containerTop;
+                    }
+
+                    if (bottomRelative > pageHeightPx) {
+                        overflowIndex = i;
+                        overflowChild = child;
+                        break;
+                    }
                 }
 
-                if (heightAfter > pageHeightPx) {
-                    // child 自体の高さを取得（現在の DOM にある実態の高さを最優先）
-                    const childH = child.offsetHeight;
+                if (overflowIndex === -1) {
+                    overflowIndex = childNodes.length - 1;
+                    overflowChild = childNodes[overflowIndex];
+                }
 
-                    const heightBefore = heightAfter - (childH || 0);
+                // currentPage から溢れた要素を取り外す
+                for (let i = childNodes.length - 1; i > overflowIndex; i--) {
+                    currentPage.removeChild(childNodes[i]);
+                }
+
+                let nextRemaining = [];
+                const uninsertedChildren = remainingChildren.slice(insertedCount);
+
+                if (isHrBreak) {
+                    currentPage.removeChild(overflowChild);
+                    if (!this._isEffectivelyEmpty(currentPage)) {
+                        pages.push(currentPage.cloneNode(true));
+                    }
+                    nextRemaining = remainingChildren.slice(overflowIndex + 1);
+                } else if (containerHeight <= pageHeightPx) {
+                    // 全て収まった（最後のページ等）
+                    if (!this._isEffectivelyEmpty(currentPage)) {
+                        pages.push(currentPage.cloneNode(true));
+                    }
+                    nextRemaining = uninsertedChildren;
+                } else {
+                    // 要素の分割処理
+                    let heightBefore = 0;
+                    if (overflowChild.nodeType === Node.ELEMENT_NODE) {
+                        heightBefore = Math.max(0, overflowChild.getBoundingClientRect().top - containerTop);
+                    } else {
+                        const range = document.createRange();
+                        range.selectNodeContents(overflowChild);
+                        heightBefore = Math.max(0, range.getBoundingClientRect().top - containerTop);
+                    }
                     const available = Math.max(0, pageHeightPx - heightBefore);
 
-                    // console.log(`[PageSplitter] Page overflow. HeightBefore: ${heightBefore.toFixed(1)}px, Available: ${available.toFixed(1)}px`);
+                    let overflowedNode = null;
+                    if (overflowChild.nodeType === Node.ELEMENT_NODE) {
+                        overflowedNode = await this.splitElement(overflowChild, available, currentPage, pageHeightPx);
+                    } else {
+                        overflowedNode = overflowChild.cloneNode(true);
+                        currentPage.removeChild(overflowChild);
+                    }
 
-                    const overflowedNode = await this.splitElement(child, available, currentPage, pageHeightPx);
+                    let leftoverChildren = remainingChildren.slice(overflowIndex + 1);
 
                     if (overflowedNode) {
-                        if (overflowedNode === child) {
-                            // まるごと次ページへ送られる要素（見出し・SVG等、分割できなかった要素）
-                            // シンプルに現在のページを確定し、この要素を次ページ先頭へ
-                            children.unshift(overflowedNode);
-
-                            if (!this._isEffectivelyEmpty(currentPage)) {
-                                pages.push(currentPage.cloneNode(true));
+                        if (overflowedNode === overflowChild) {
+                            const hasMeaningfulBefore = childNodes.slice(0, overflowIndex).some(n =>
+                                n.nodeType === Node.ELEMENT_NODE ||
+                                (n.nodeType === Node.TEXT_NODE && n.textContent.trim().length > 0)
+                            );
+                            if (!hasMeaningfulBefore) {
+                                // ページ先頭なら強制的に残す
+                                if (!overflowChild.parentNode || overflowChild.parentNode !== currentPage) {
+                                    currentPage.appendChild(overflowChild);
+                                }
+                                nextRemaining = leftoverChildren;
+                            } else {
+                                if (overflowChild.parentNode === currentPage) {
+                                    currentPage.removeChild(overflowChild);
+                                }
+                                nextRemaining = [overflowedNode, ...leftoverChildren];
                             }
-                            currentPage.innerHTML = '';
                         } else {
-                            // 要素の一部がこのページに残り、残りが overflowedNode として返ってきた
-                            children.unshift(overflowedNode);
-
-                            if (!this._isEffectivelyEmpty(currentPage)) {
-                                pages.push(currentPage.cloneNode(true));
-                                // console.log(`[PageSplitter] Page ${pages.length} fixed (split element).`);
-                            }
-                            currentPage.innerHTML = '';
+                            nextRemaining = [overflowedNode, ...leftoverChildren];
                         }
                     } else {
-                        // console.log("[PageSplitter] Element did not split, assumed to fit or error.");
-                        if (!this._isEffectivelyEmpty(currentPage)) {
-                            pages.push(currentPage.cloneNode(true));
-                            // console.log(`[PageSplitter] Page ${pages.length} fixed (element fit after all).`);
-                        }
-                        currentPage.innerHTML = '';
+                         nextRemaining = leftoverChildren;
+                    }
+
+                    if (!this._isEffectivelyEmpty(currentPage)) {
+                        pages.push(currentPage.cloneNode(true));
                     }
                 }
-            }
 
-            // 最後のページが空でなければ追加
-            if (currentPage.childNodes.length > 0) {
-                pages.push(currentPage.cloneNode(true));
+                remainingChildren = nextRemaining;
+
+                if (currentPage.parentNode === measureContainer) {
+                    measureContainer.removeChild(currentPage);
+                }
             }
 
         } finally {
@@ -168,7 +267,6 @@ const PageSplitter = {
             }
         }
 
-        // console.log(`[PageSplitter] Finished splitting. Total pages: ${pages.length}`);
         return pages;
     },
 
@@ -1036,113 +1134,8 @@ const PageSplitter = {
         nextWrapper.style.overflowY = 'hidden';
 
         return nextWrapper;
-    },
-
-    /**
-     * [NEW] 分割不可かつページ高さを超える巨大要素を、アスペクト比を維持してページ内に収まるよう縮小する
-     */
-    autoScaleUnbreakableElement(element, maxHeight) {
-        if (!element || element.nodeType !== Node.ELEMENT_NODE) return;
-
-        // 既に処理済みの場合はスキップ
-        if (element.classList.contains('page-split-clipping-wrapper')) return;
-        if (element.dataset.scaled === "true") return;
-
-        // [FIX No.5(B)] data-computed-height 属性を最優先で参照してリフローを回避
-        // SVGコンテナ（svg-view-wrapper）はprocessSVGBlocksで計算済みの高さを持つ。
-        // offsetHeight や getBoundingClientRect() の呼び出しは強制リフローを引き起こすため、
-        // 事前計算値が存在する場合はそちらを使用してLayout Thrashingを防ぐ。
-        const computedH = element.getAttribute('data-computed-height');
-        const hAttr = element.getAttribute('data-original-height');
-        const wAttr = element.getAttribute('data-original-width');
-
-        let originalHeight, originalWidth;
-        if (computedH) {
-            // 事前計算済み高さを使用（リフローゼロ）
-            originalHeight = parseFloat(computedH);
-            originalWidth = wAttr ? parseFloat(wAttr) : (element.offsetWidth || 820);
-        } else {
-            // フォールバック: 従来通り計測（offsetHeight はリフローを引き起こす）
-            const oh = element.offsetHeight;
-            const sh = element.scrollHeight;
-            const rect = element.getBoundingClientRect();
-            originalHeight = hAttr ? parseFloat(hAttr) : (oh || sh || rect.height);
-            originalWidth = wAttr ? parseFloat(wAttr) : (element.offsetWidth || rect.width);
-        }
-
-        // console.log(`[PageSplitter] autoScale Measurement: Width=${originalWidth}px, Height=${originalHeight.toFixed(1)}px, MaxHeight=${maxHeight.toFixed(1)}px`);
-
-        // 幅がページ幅を超えている場合、または高さがページ高さを超えている場合
-        const pageWidth = element.parentElement ? element.parentElement.offsetWidth : 820;
-
-        const needsVerticalScale = originalHeight > maxHeight && originalHeight > 0;
-        const needsHorizontalScale = originalWidth > pageWidth && originalWidth > 0;
-
-        if (!needsVerticalScale && !needsHorizontalScale && originalHeight > 0) {
-            // console.log(`[PageSplitter] Auto-scale skip: Fits in page.`);
-            return;
-        }
-
-        if (originalHeight === 0 || originalWidth === 0) {
-            // さらに子要素を探索
-            const inner = element.querySelector('svg, img, table, .code-block-wrapper');
-            if (inner) {
-                const ioh = inner.offsetHeight;
-                const ish = inner.scrollHeight;
-                const irect = inner.getBoundingClientRect();
-                // console.log(`[PageSplitter] autoScale Inner Measurement: offsetHeight=${ioh}px, scrollHeight=${ish}px, BCR.height=${irect.height.toFixed(1)}px`);
-
-                if (originalHeight === 0) originalHeight = ioh || ish || irect.height;
-                if (originalWidth === 0) originalWidth = inner.offsetWidth || irect.width;
-            }
-
-            if ((originalHeight <= maxHeight && originalWidth <= pageWidth) || originalHeight === 0) {
-                // console.log(`[PageSplitter] Auto-scale skip: Final ${originalWidth}x${originalHeight} fit or 0`);
-                return;
-            }
-        }
-
-        const targetHeight = maxHeight - 20;
-        const targetWidth = pageWidth - 40; // パディング左右 20x2 分を考慮
-
-        const scaleY = targetHeight / originalHeight;
-        const scaleX = targetWidth / originalWidth;
-
-        // アスペクト比を維持するため、より小さい方のスケールを採用する
-        // (縮小率に1.3倍等の補正をかけると結局はみ出るため、厳密な縮小率(最大1.0)を利用)
-        let scale = Math.min(scaleX, scaleY, 1.0);
-
-        // console.log(`[PageSplitter] >>> AUTO-SCALING START <<<`);
-        // console.log(`[PageSplitter] - Original: ${originalWidth}x${originalHeight}, Page: ${pageWidth}x${maxHeight}`);
-        // console.log(`[PageSplitter] - Scale Factor: ${scale.toFixed(4)} (X:${scaleX.toFixed(2)}, Y:${scaleY.toFixed(2)})`);
-
-        // transform で要素全体を一括して縮小
-        element.style.transformOrigin = 'top left'; // [FIX] Leftに戻す（paddingでずらす）
-        element.style.transform = `scale(${scale})`;
-
-        // 外部レイアウトへの影響を最小化するためのラッパー処理（既存のロジックを継続）
-        element.style.width = '100%';
-        element.style.height = `${originalHeight}px`;
-
-        // コンテナとしての高さを「縮小後」に見せるためのワークアラウンド
-        const wrapper = document.createElement('div');
-        wrapper.className = 'page-split-scale-wrapper';
-        wrapper.style.overflow = 'hidden';
-        wrapper.style.height = `${targetHeight}px`;
-        wrapper.style.width = '100%';
-        // [NEW] スケール時も SVG の端が切れないようパディングを付与
-        wrapper.style.padding = '0 20px';
-        wrapper.style.boxSizing = 'border-box';
-        wrapper.style.position = 'relative';
-
-        if (element.parentNode) {
-            element.parentNode.insertBefore(wrapper, element);
-            wrapper.appendChild(element);
-        }
-
-        element.dataset.scaled = "true";
-        // console.log(`[PageSplitter] >>> AUTO-SCALING APPLIED <<<`);
     }
 };
 
 window.PageSplitter = PageSplitter;
+

@@ -100,17 +100,17 @@ class SvgRadiusHandler {
             g.appendChild(circle);
             this.handle = circle;
 
-            // [NEW] Dynamic Scaling for radius handle
-            if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-                window.SVGUtils.updateHandleScaling(circle);
-            }
-
             overlayGroup.appendChild(g);
             g.addEventListener('pointerdown', this.onDragStart);
         }
 
         circle.setAttribute('cx', handlePos.x);
         circle.setAttribute('cy', handlePos.y);
+
+        // [NEW] Dynamic Scaling for radius handle
+        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+            window.SVGUtils.updateHandleScaling(circle);
+        }
 
         // [FIX] Ensure the handle group is still in the overlay (library might have cleared it)
         if (this.handleGroup && !this.handleGroup.parentNode) {
@@ -188,8 +188,9 @@ class SvgRadiusHandler {
 
         // [NEW] Snap to grid on Alt Key
         const isAlt = SVGUtils.isSnapEnabled(e);
-        if (isAlt) {
-            const gridConfig = (typeof AppState !== 'undefined' && AppState.config.grid) || { size: 15 };
+        const gridConfig = (typeof AppState !== 'undefined' && AppState.config.grid) || { size: 15 };
+        const showV = gridConfig.showV !== false; // デフォルトは ON
+        if (isAlt && showV) {
             const snapSize = gridConfig.size || 15;
             newRx = Math.round(newRx / snapSize) * snapSize;
         }

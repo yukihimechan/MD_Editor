@@ -421,9 +421,25 @@ const SvgTextEditor = {
                 }
 
                 if (shape) {
-                    shape.node.removeAttribute('transform');
+                    const origT = shape.node.getAttribute('data-original-transform');
+                    if (origT) {
+                        shape.node.setAttribute('transform', origT);
+                    } else {
+                        shape.node.removeAttribute('transform');
+                    }
                     shape.node.removeAttribute('data-original-transform');
                     shape.node.removeAttribute('data-pre-dblclick-transform');
+
+                    const origX = shape.node.getAttribute('data-original-x');
+                    const origY = shape.node.getAttribute('data-original-y');
+                    if (origX !== null) {
+                        shape.node.setAttribute('x', origX);
+                        shape.node.removeAttribute('data-original-x');
+                    }
+                    if (origY !== null) {
+                        shape.node.setAttribute('y', origY);
+                        shape.node.removeAttribute('data-original-y');
+                    }
 
                     group.before(shape);
                     group.remove();
@@ -709,9 +725,35 @@ const SvgTextEditor = {
                     if (c.type !== 'text' && !c.hasClass('svg-interaction-hitarea') && !c.hasClass('svg-select-handle')) { shape = c; break; }
                 }
                 if (shape) {
-                    shape.node.removeAttribute('transform');
+                    const origT = shape.node.getAttribute('data-original-transform');
+                    if (origT) {
+                        shape.node.setAttribute('transform', origT);
+                    } else {
+                        if (typeof shape.untransform === 'function') {
+                            shape.untransform();
+                        } else {
+                            shape.node.removeAttribute('transform');
+                        }
+                    }
                     shape.node.removeAttribute('data-original-transform');
                     shape.node.removeAttribute('data-pre-dblclick-transform');
+
+                    const origX = shape.node.getAttribute('data-original-x');
+                    const origY = shape.node.getAttribute('data-original-y');
+                    if (origX !== null) {
+                        shape.node.setAttribute('x', origX);
+                        shape.node.removeAttribute('data-original-x');
+                    }
+                    if (origY !== null) {
+                        shape.node.setAttribute('y', origY);
+                        shape.node.removeAttribute('data-original-y');
+                    }
+
+                    // SVG.jsの内部キャッシュをリセットして同期ズレを防ぐ
+                    if (typeof shape.untransform === 'function') {
+                        shape.untransform();
+                    }
+                    shape._box = null;
 
                     group.before(shape);
                     group.remove();

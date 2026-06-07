@@ -100,7 +100,10 @@ class SvgPolylineHandler {
         const bezData = (tagName === 'path') ? this.getBezData(node) : [];
         const bezSignature = (tagName === 'path') ? bezData.map(b => b ? b.type : 0).join(',') : '';
         const isClosed = node.getAttribute('data-poly-closed') === 'true';
-        const hasArrow = node.getAttribute('data-arrow-start') === 'true' || node.getAttribute('data-arrow-end') === 'true';
+        const hasArrow = node.getAttribute('data-arrow-start') === 'true' || 
+                         node.getAttribute('data-arrow-end') === 'true' ||
+                         node.hasAttribute('marker-start') ||
+                         node.hasAttribute('marker-end');
 
         // [NEW] ハンドルの構成要素に変化がないかチェック
         const needRebuild = !this._handleCache || 
@@ -679,16 +682,18 @@ class SvgPolylineHandler {
                 const isAlt = e.altKey || (window.currentEditingSVG && window.currentEditingSVG.isAltPressed);
                 const gridConfig = (typeof AppState !== 'undefined' && AppState.config && AppState.config.grid) || { size: 15 };
                 const snapSize = gridConfig.size || 15;
+                const showV = gridConfig.showV !== false; // デフォルトは ON
+                const showH = gridConfig.showH !== false; // デフォルトは ON
 
                 if (minVDist < minHDist) {
                     if (bestVPivot) {
                         localPt.x = bestVPivot[0];
-                        if (isAlt && snapSize > 0) localPt.y = Math.round(localPt.y / snapSize) * snapSize;
+                        if (isAlt && snapSize > 0 && showH) localPt.y = Math.round(localPt.y / snapSize) * snapSize;
                     }
                 } else {
                     if (bestHPivot) {
                         localPt.y = bestHPivot[1];
-                        if (isAlt && snapSize > 0) localPt.x = Math.round(localPt.x / snapSize) * snapSize;
+                        if (isAlt && snapSize > 0 && showV) localPt.x = Math.round(localPt.x / snapSize) * snapSize;
                     }
                 }
             }

@@ -120,7 +120,9 @@ class SVGAlignToolbar extends SVGToolbarBase {
             }
         });
 
-        if (typeof syncSelectionHandlers === 'function') syncSelectionHandlers();
+        // [FIX] 選択されている各要素のマーカーを強制更新して位置を同期する
+        this._forceSyncAllHandlers(elements);
+
         if (typeof syncChanges === 'function') syncChanges();
     }
 
@@ -160,7 +162,9 @@ class SVGAlignToolbar extends SVGToolbarBase {
             }
         }
 
-        if (typeof syncSelectionHandlers === 'function') syncSelectionHandlers();
+        // [FIX] 選択されている各要素のマーカーを強制更新して位置を同期する
+        this._forceSyncAllHandlers(selected);
+
         if (typeof syncChanges === 'function') syncChanges();
     }
 
@@ -168,16 +172,63 @@ class SVGAlignToolbar extends SVGToolbarBase {
         if (dx === 0 && dy === 0) return;
         if (!el || !el.node || !el.node.isConnected) return;
 
-        const worldMatrix = el.ctm();
-        worldMatrix.e += dx;
-        worldMatrix.f += dy;
-
+        // rbox(this.draw) はviewBox座標系のdx/dyを返す。
+        // SVGのviewBox座標系でのdx/dyをローカルtransform行列に反映する。
+        // 要素が直接draw直下にある場合はviewBox座標=ローカル座標なので直接加算可能。
+        // 親グループにtransformがある場合は、親の逆行列を使ってローカル座標に変換する。
+        const m = el.matrix();
         const parent = el.parent();
-        if (parent) {
-            const parentInv = parent.ctm().inverse();
-            const newLocalMatrix = parentInv.multiply(worldMatrix);
-            el.matrix(newLocalMatrix);
+        
+        if (parent && parent !== this.draw && typeof parent.ctm === 'function') {
+            // 親グループのtransformを考慮: viewBox空間のdx/dyを親のローカル座標系に変換
+            const drawCtm = this.draw.ctm ? this.draw.ctm() : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+            const parentCtm = parent.ctm();
+            
+            // viewBox座標系 → スクリーン座標系のスケーリングファクターを計算
+            const viewToScreenScaleX = drawCtm.a;
+            const viewToScreenScaleY = drawCtm.d;
+            
+            // スクリーン座標系でのdx/dy
+            const screenDx = dx * viewToScreenScaleX;
+            const screenDy = dy * viewToScreenScaleY;
+            
+            // スクリーン座標系 → 親のローカル座標系
+            const parentInv = parentCtm.inverse ? parentCtm.inverse() : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+            const localDx = parentInv.a * screenDx + parentInv.c * screenDy;
+            const localDy = parentInv.b * screenDx + parentInv.d * screenDy;
+            
+            el.matrix(m.a, m.b, m.c, m.d, m.e + localDx, m.f + localDy);
+        } else {
+            // draw直下の場合: viewBox座標=ローカル座標なのでそのまま加算
+            el.matrix(m.a, m.b, m.c, m.d, m.e + dx, m.f + dy);
         }
+    }
+
+    /**
+     * [FIX] 整列・等間隔配置後のハンドラー強制同期
+     * 1回目: 8点マーカー（selection group）を即座に更新
+     * 2回目: 次フレームで角丸・回転・吹き出し等のカスタムハンドラーを再計算
+     *        （getCTM()がDOMの変更を確実に反映した後に実行される）
+     */
+    _forceSyncAllHandlers(elements) {
+        // 1回目: 即座に同期（8点マーカーの位置更新）
+        elements.forEach(el => {
+            const shape = el.remember('_shapeInstance');
+            if (shape && typeof shape.syncSelectionHandlers === 'function') {
+                shape.syncSelectionHandlers(null, true);
+            }
+        });
+
+        // 2回目: 次フレームで再同期（カスタムハンドラーがDOM変更を反映した後に正しい位置に配置される）
+        requestAnimationFrame(() => {
+            elements.forEach(el => {
+                if (!el.node || !el.node.isConnected) return;
+                const shape = el.remember('_shapeInstance');
+                if (shape && typeof shape.syncSelectionHandlers === 'function') {
+                    shape.syncSelectionHandlers(null, true);
+                }
+            });
+        });
     }
 
     destroy() {
