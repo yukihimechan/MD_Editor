@@ -1194,6 +1194,43 @@ const SVGUtils = {
         }
 
         return { points: newPoints, bezData: newBezData };
+    },
+
+    /**
+     * テキスト要素内のネストされた tspan の不要な x/y 座標をクリーンアップする。
+     * 親 <text> の x/y と同じ座標を持つ tspan、または最初の tspan の x/y 座標属性を削除することで、
+     * 親グループの transform（scale等）適用時に文字の位置がずれるのを防止する。
+     * @param {SVG.Element|Element} el 対象となるSVG.js要素またはDOM要素
+     */
+    cleanupNestedTspanCoordinates(el) {
+        if (!el) return;
+        const domNode = el.node ? el.node : el;
+        if (!domNode.querySelectorAll) return;
+
+        const textEls = domNode.tagName && domNode.tagName.toLowerCase() === 'text' 
+            ? [domNode] 
+            : Array.from(domNode.querySelectorAll('text'));
+
+        textEls.forEach(textEl => {
+            const parentX = textEl.getAttribute('x');
+            const parentY = textEl.getAttribute('y');
+            const tspans = textEl.querySelectorAll('tspan');
+
+            tspans.forEach((tspan, index) => {
+                const tspanX = tspan.getAttribute('x');
+                const tspanY = tspan.getAttribute('y');
+                
+                // 親の x, y と同じ値、あるいは空文字の場合は削除
+                const isSameX = (!tspanX || tspanX === parentX);
+                const isSameY = (!tspanY || tspanY === parentY);
+                
+                // 最初の tspan、または親と同じ座標を持つ tspan の x, y をクリーンアップ
+                if (index === 0 || (isSameX && isSameY)) {
+                    tspan.removeAttribute('x');
+                    tspan.removeAttribute('y');
+                }
+            });
+        });
     }
 };
 

@@ -13,6 +13,10 @@ function updateUndoRedoButtons() {
 // --- Undo/Redo Actions ---
 function execUndo() {
     if (!window.editorInstance) return;
+    
+    // 一時的にエディタにフォーカスを戻す
+    window.editorInstance.focus();
+    
     let undoFunc = window.CM6.undo;
 
     // Fallback: search in historyKeymap
@@ -22,7 +26,8 @@ function execUndo() {
     }
 
     if (typeof undoFunc === 'function') {
-        undoFunc(window.editorInstance);
+        const result = undoFunc(window.editorInstance);
+        console.log(`[editor_commands] execUndo executed. Result: ${result}`);
         updateUndoRedoButtons();
     } else {
         console.warn("Undo function not found in window.CM6 or historyKeymap");
@@ -32,6 +37,10 @@ window.execUndo = execUndo;
 
 function execRedo() {
     if (!window.editorInstance) return;
+    
+    // 一時的にエディタにフォーカスを戻す
+    window.editorInstance.focus();
+    
     let redoFunc = window.CM6.redo;
 
     // Fallback: search in historyKeymap
@@ -42,7 +51,8 @@ function execRedo() {
     }
 
     if (typeof redoFunc === 'function') {
-        redoFunc(window.editorInstance);
+        const result = redoFunc(window.editorInstance);
+        console.log(`[editor_commands] execRedo executed. Result: ${result}`);
         updateUndoRedoButtons();
     } else {
         console.warn("Redo function not found in window.CM6 or historyKeymap");

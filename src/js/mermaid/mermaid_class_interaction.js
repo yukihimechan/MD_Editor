@@ -4,6 +4,10 @@
 
 window.MermaidClassInteraction = {
     
+    _escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    },
+    
     initDiagram(diagramContainer, originalCode) {
         if (!diagramContainer) return;
         
@@ -46,7 +50,8 @@ window.MermaidClassInteraction = {
                     // 削除対象のブロック内か？
                     let isBlockStart = false;
                     for (const mId of selectedNodes) {
-                        if (new RegExp(`^\\s*class\\s+${mId}\\s*\\{`).test(line)) {
+                        const safeId = window.MermaidClassInteraction._escapeRegExp(mId);
+                        if (new RegExp(`^\\s*class\\s+${safeId}\\s*\\{`).test(line)) {
                             insideDeletedBlock = true;
                             isBlockStart = true;
                             break;
@@ -65,15 +70,16 @@ window.MermaidClassInteraction = {
                     let shouldDeleteLine = false;
                     for (const mId of selectedNodes) {
                         // 単一クラス定義やステレオタイプ定義
-                        if (new RegExp(`^\\s*class\\s+${mId}\\b(?!\\s*\\{)`).test(line) ||
-                            new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line) ||
-                            new RegExp(`^\\s*${mId}\\s*:\\s*`).test(line)) {
+                        const safeId = window.MermaidClassInteraction._escapeRegExp(mId);
+                        if (new RegExp(`^\\s*class\\s+${safeId}\\b(?!\\s*\\{)`).test(line) ||
+                            new RegExp(`^\\s*<<.+>>\\s+${safeId}\\b`).test(line) ||
+                            new RegExp(`^\\s*${safeId}\\s*:\\s*`).test(line)) {
                             shouldDeleteLine = true;
                             break;
                         }
                         // 接続関係 (A --> B) の場合、AかBが含まれていたらその行ごと削除
                         // 雑な判定だが、単語としてmIdが含まれていて、かつ関係記号が含まれていれば削除する
-                        if (new RegExp(`\\b${mId}\\b`).test(line) && line.match(/--|<\||\*|o|\.\./)) {
+                        if (new RegExp(`\\b${safeId}\\b`).test(line) && line.match(/--|<\||\*|o|\.\./)) {
                             shouldDeleteLine = true;
                             break;
                         }
@@ -120,11 +126,12 @@ window.MermaidClassInteraction = {
 
                 const copiedClasses = [];
                 for (const mId of selectedNodes) {
+                    const safeId = window.MermaidClassInteraction._escapeRegExp(mId);
                     let classBlock = [];
                     let insideBlock = false;
                     for (let i = startIdx + 1; i < endIdx; i++) {
                         const line = lines[i];
-                        if (new RegExp(`^\\s*class\\s+${mId}\\s*\\{`).test(line)) {
+                        if (new RegExp(`^\\s*class\\s+${safeId}\\s*\\{`).test(line)) {
                             insideBlock = true;
                             classBlock.push(line);
                             continue;
@@ -136,9 +143,9 @@ window.MermaidClassInteraction = {
                             }
                             continue;
                         }
-                        if (new RegExp(`^\\s*class\\s+${mId}\\b(?!\\s*\\{)`).test(line) ||
-                            new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line) ||
-                            new RegExp(`^\\s*${mId}\\s*:\\s*`).test(line)) {
+                        if (new RegExp(`^\\s*class\\s+${safeId}\\b(?!\\s*\\{)`).test(line) ||
+                            new RegExp(`^\\s*<<.+>>\\s+${safeId}\\b`).test(line) ||
+                            new RegExp(`^\\s*${safeId}\\s*:\\s*`).test(line)) {
                             classBlock.push(line);
                         }
                     }
@@ -193,7 +200,8 @@ window.MermaidClassInteraction = {
 
                     cls.lines.forEach(line => {
                         // ID部分を置換
-                        const newLine = line.replace(new RegExp(`\\b${cls.id}\\b`, 'g'), newId);
+                        const safeClsId = window.MermaidClassInteraction._escapeRegExp(cls.id);
+                        const newLine = line.replace(new RegExp(`\\b${safeClsId}\\b`, 'g'), newId);
                         pastedLines.push(newLine);
                     });
                 });
@@ -558,13 +566,14 @@ window.MermaidClassInteraction = {
                         if (endIdx !== -1) {
                             for (let i = startIdx + 1; i < endIdx; i++) {
                                 const line = lines[i];
-                                if (new RegExp(`^\\s*class\\s+${mId}\\b`).test(line) ||
-                                    new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line) ||
-                                    new RegExp(`^\\s*${mId}\\s*:\\s*`).test(line) ||
+                                const safeId = window.MermaidClassInteraction._escapeRegExp(mId);
+                                if (new RegExp(`^\\s*class\\s+${safeId}\\b`).test(line) ||
+                                    new RegExp(`^\\s*<<.+>>\\s+${safeId}\\b`).test(line) ||
+                                    new RegExp(`^\\s*${safeId}\\s*:\\s*`).test(line) ||
                                     (line.includes(mId) && !line.match(/--|<\||\*|o|\.\./))) {
                                     targetLineIndex = i;
                                     // class 定義（カッコ開始）があれば優先
-                                    if (new RegExp(`^\\s*class\\s+${mId}\\s*\\{`).test(line)) {
+                                    if (new RegExp(`^\\s*class\\s+${safeId}\\s*\\{`).test(line)) {
                                         break;
                                     }
                                 }
@@ -814,11 +823,14 @@ window.MermaidClassInteraction = {
             wRect, startX, startY, nodes
         };
 
-        this._onMouseMove = this._onMouseMove.bind(this);
-        this._onMouseUp = this._onMouseUp.bind(this);
+        // 関数を上書きせず、プロパティにバインド済みの関数を保持する
+        if (!this._boundOnMouseMove) {
+            this._boundOnMouseMove = this._onMouseMove.bind(this);
+            this._boundOnMouseUp = this._onMouseUp.bind(this);
+        }
 
-        document.addEventListener('mousemove', this._onMouseMove);
-        document.addEventListener('mouseup', this._onMouseUp);
+        document.addEventListener('mousemove', this._boundOnMouseMove);
+        document.addEventListener('mouseup', this._boundOnMouseUp);
     },
 
     _onMouseMove(e) {
@@ -865,8 +877,8 @@ window.MermaidClassInteraction = {
 
     _onMouseUp(e) {
         if (!this._dragState) return;
-        document.removeEventListener('mousemove', this._onMouseMove);
-        document.removeEventListener('mouseup', this._onMouseUp);
+        document.removeEventListener('mousemove', this._boundOnMouseMove);
+        document.removeEventListener('mouseup', this._boundOnMouseUp);
 
         const { wrapper, overlay, line, sourceNode, snapTarget } = this._dragState;
         this._dragState = null;
@@ -962,10 +974,12 @@ window.MermaidClassInteraction = {
         let members = [];
         let annotation = '';
         
+        const safeId = window.MermaidClassInteraction._escapeRegExp(mId);
+        
         // 1. "class X {" ブロックを探す
         for (let i = startIdx + 1; i < endIdx; i++) {
             const line = lines[i];
-            if (new RegExp(`^\\s*class\\s+${mId}\\s*\\{`).test(line)) {
+            if (new RegExp(`^\\s*class\\s+${safeId}\\s*\\{`).test(line)) {
                 classBlockStart = i;
                 // annotation と members を収集
                 for (let j = i + 1; j < endIdx; j++) {
@@ -989,18 +1003,18 @@ window.MermaidClassInteraction = {
         if (classBlockStart === -1) {
             for (let i = startIdx + 1; i < endIdx; i++) {
                 const line = lines[i];
-                if (new RegExp(`^\\s*class\\s+${mId}\\b(?!\\s*\\{)`).test(line)) {
+                if (new RegExp(`^\\s*class\\s+${safeId}\\b(?!\\s*\\{)`).test(line)) {
                     // "class X" または "class X { ..." (インライン？通常ないが)
                     // 何もしない、単にクラスが存在するだけ
                 }
                 // アノテーション "<<stereo>> X" 
-                if (new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line)) {
+                if (new RegExp(`^\\s*<<.+>>\\s+${safeId}\\b`).test(line)) {
                     const match = line.match(/^\s*<<(.+)>>/);
                     if (match) annotation = match[1];
                 }
                 // メンバー "X : type name"
-                if (new RegExp(`^\\s*${mId}\\s*:\\s*(.+)`).test(line)) {
-                    const match = line.match(new RegExp(`^\\s*${mId}\\s*:\\s*(.+)`));
+                if (new RegExp(`^\\s*${safeId}\\s*:\\s*(.+)`).test(line)) {
+                    const match = line.match(new RegExp(`^\\s*${safeId}\\s*:\\s*(.+)`));
                     if (match) members.push(match[1].trim());
                 }
             }
@@ -1200,9 +1214,11 @@ window.MermaidClassInteraction = {
     _applyClassRenameAndAnno(wrapper, oldId, newId, newAnno, lines, startIdx, endIdx, classBlockStart, classBlockEnd, members) {
         // ID変更がある場合、関係定義のIDも置換する
         if (oldId !== newId) {
+            const safeOldId = window.MermaidClassInteraction._escapeRegExp(oldId);
             for (let i = startIdx + 1; i < endIdx; i++) {
+                if (lines[i].trim().startsWith('%%')) continue; // コメント行はスキップ
                 // \b を使って単語境界で置換
-                const re = new RegExp(`\\b${oldId}\\b`, 'g');
+                const re = new RegExp(`\\b${safeOldId}\\b`, 'g');
                 lines[i] = lines[i].replace(re, newId);
             }
         }
@@ -1231,15 +1247,16 @@ window.MermaidClassInteraction = {
             }
 
             // 単一行定義をスキップ
-            if (new RegExp(`^\\s*class\\s+${mId}\\b(?!\\s*\\{)`).test(line)) {
+            const safeId = window.MermaidClassInteraction._escapeRegExp(mId);
+            if (new RegExp(`^\\s*class\\s+${safeId}\\b(?!\\s*\\{)`).test(line)) {
                 if (insertIndex === -1) insertIndex = newLines.length;
                 continue;
             }
-            if (new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line)) {
+            if (new RegExp(`^\\s*<<.+>>\\s+${safeId}\\b`).test(line)) {
                 if (insertIndex === -1) insertIndex = newLines.length;
                 continue;
             }
-            if (new RegExp(`^\\s*${mId}\\s*:\\s*`).test(line)) {
+            if (new RegExp(`^\\s*${safeId}\\s*:\\s*`).test(line)) {
                 if (insertIndex === -1) insertIndex = newLines.length;
                 continue;
             }
@@ -1437,20 +1454,21 @@ window.MermaidClassInteraction = {
 
             // ノード削除チェック
             for (const mId of selectedNodes) {
-                if (new RegExp(`^\\s*class\\s+${mId}\\b\\s*\\{`).test(line)) {
+                const safeId = window.MermaidClassInteraction._escapeRegExp(mId);
+                if (new RegExp(`^\\s*class\\s+${safeId}\\b\\s*\\{`).test(line)) {
                     insideBlockFor = mId;
                     shouldDelete = true;
                     break;
                 }
-                if (new RegExp(`^\\s*class\\s+${mId}\\b(?!\\s*\\{)`).test(line) ||
-                    new RegExp(`^\\s*<<.+>>\\s+${mId}\\b`).test(line) ||
-                    new RegExp(`^\\s*${mId}\\s*:`).test(line)) {
+                if (new RegExp(`^\\s*class\\s+${safeId}\\b(?!\\s*\\{)`).test(line) ||
+                    new RegExp(`^\\s*<<.+>>\\s+${safeId}\\b`).test(line) ||
+                    new RegExp(`^\\s*${safeId}\\s*:`).test(line)) {
                     shouldDelete = true;
                     break;
                 }
                 
                 // ノードが含まれる矢印行も削除
-                if (new RegExp(`\\b${mId}\\b`).test(line) && arrowSplitRegex.test(line)) {
+                if (new RegExp(`\\b${safeId}\\b`).test(line) && arrowSplitRegex.test(line)) {
                     shouldDelete = true;
                     break;
                 }

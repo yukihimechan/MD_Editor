@@ -655,7 +655,12 @@ window.MermaidExpandedManager = {
         if (e.target.closest('.mermaid-expanded-close-btn, .mermaid-expanded-reset-btn, .mermaid-expanded-edit-btn')) return;
 
         // 編集モードでなければ何もしない（ブラウザのデフォルトメニューを許可）
-        if (!wrapper.classList.contains('mermaid-edit-mode')) return;
+        const isEditing = wrapper.classList.contains('mermaid-edit-mode') || 
+                          wrapper.classList.contains('mermaid-sequence-edit-mode') ||
+                          wrapper.classList.contains('mermaid-class-edit-mode') ||
+                          wrapper.classList.contains('mermaid-er-edit-mode');
+
+        if (!isEditing) return;
 
         // ブラウザのデフォルトコンテキストメニューを抑制する。
         // stopPropagation は呼ばない → svgEl の contextmenu ハンドラーがバブリングで発火する。

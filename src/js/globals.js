@@ -304,3 +304,7 @@ const UndoRedoManager = {
         this.updateButtons();
     }
 };
+
+// 明示的に globalThis / window にエクスポートして page_splitter などからの globalThis.AppState 参照を可能にする
+window.AppState = AppState;
+

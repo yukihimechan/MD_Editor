@@ -4,6 +4,68 @@
  */
 
 /**
+ * [SHARED] printing-mode と measuring-mode の参照カウンタ制御
+ * 複数の非同期処理（改ページ線計算、スライドショー生成、PDFエクスポートなど）が
+ * 並行して実行された際に、状態が競合してエディタ非表示クラスが消えたり残ったりするのを防止する。
+ */
+window._printingModeRequesters = new Set();
+window._measuringModeRequesters = new Set();
+
+window.enterPrintingMode = function(requesterOrWithMeasuring = false, withMeasuring = false) {
+    let requester = 'default';
+    let measuring = false;
+    
+    if (typeof requesterOrWithMeasuring === 'boolean') {
+        measuring = requesterOrWithMeasuring;
+        requester = 'legacy-' + (measuring ? 'measuring' : 'printing');
+    } else {
+        requester = requesterOrWithMeasuring || 'default';
+        measuring = withMeasuring;
+    }
+
+    window._printingModeRequesters.add(requester);
+    if (measuring) {
+        window._measuringModeRequesters.add(requester);
+        document.body.classList.add('printing-mode', 'measuring-mode');
+    } else {
+        document.body.classList.add('printing-mode');
+    }
+};
+
+window.leavePrintingMode = function(requesterOrWithMeasuring = false, withMeasuring = false) {
+    let requester = 'default';
+    let measuring = false;
+    
+    if (typeof requesterOrWithMeasuring === 'boolean') {
+        measuring = requesterOrWithMeasuring;
+        requester = 'legacy-' + (measuring ? 'measuring' : 'printing');
+    } else {
+        requester = requesterOrWithMeasuring || 'default';
+        measuring = withMeasuring;
+    }
+
+    window._printingModeRequesters.delete(requester);
+    let removePrinting = (window._printingModeRequesters.size === 0);
+
+    let removeMeasuring = false;
+    if (measuring) {
+        window._measuringModeRequesters.delete(requester);
+        removeMeasuring = (window._measuringModeRequesters.size === 0);
+    }
+
+    if (removePrinting && removeMeasuring) {
+        document.body.classList.remove('printing-mode', 'measuring-mode');
+    } else {
+        if (removePrinting) {
+            document.body.classList.remove('printing-mode');
+        }
+        if (removeMeasuring) {
+            document.body.classList.remove('measuring-mode');
+        }
+    }
+};
+
+/**
  * [SHARED] スライド表示の1ページ高さをpx単位で返す共有ユーティリティ関数。
  * SlideManager.buildSlides() とプレビュー改ページ表示の両方が参照し、
  * 同一の計算式でページ高さを算出することで改ページ位置の一致を保証する。
@@ -55,40 +117,158 @@ window.getSlidePageHeightPx = function() {
 window.getPageBreakTopPositions = async function(element, pageHeightPx, elementWidthPx) {
     if (!element || element.scrollHeight === 0) return [];
 
-    /**
-     * 要素の #preview 基点の絶対 top 座標を計算する。
-    /**
-     * ページ内で要素の正確な絶対 Y 座標を取得する。
-     * offsetTop ではネストされたコンテナや flex、マージン相殺によりズレが生じるため
-     * getBoundingClientRect() を用いてサブピクセル精度で計算する。
-     */
-    function getAbsoluteTop(el) {
-        if (!el || !element) return 0;
-        const elRect = el.getBoundingClientRect();
-        const containerRect = element.getBoundingClientRect();
-        // containerからの相対位置＋現在のスクロール量（element自体がスクロールコンテナの場合）
-        return (elRect.top - containerRect.top) + element.scrollTop;
-    }
+    let pages = [];
+    console.log(`[DEBUG] getPageBreakTopPositions start: elementWidthPx=${elementWidthPx}, pageHeightPx=${pageHeightPx}, scrollHeight=${element.scrollHeight}`);
+        /**
+         * ページ内で要素の正確な絶対 Y 座標を取得する。
+         * offsetTop ではネストされたコンテナや flex、マージン相殺によりズレが生じるため
+         * getBoundingClientRect() を用いてサブピクセル精度で計算する。
+         */
+        function getAbsoluteTop(el) {
+            if (!el || !element) return 0;
+            const elRect = el.getBoundingClientRect();
+            const containerRect = element.getBoundingClientRect();
+            // containerからの相対位置＋現在のスクロール量（element自体がスクロールコンテナの場合）
+            return (elRect.top - containerRect.top) + element.scrollTop;
+        }
 
-    // [CRITICAL] クローン前にライブDOMで計測し属性として記録（buildSlides と同じ）
-    let countTopSet = 0;
-    let syncIdCounter = 0;
-    element.querySelectorAll('*').forEach(el => {
-        const h = el.offsetHeight || el.scrollHeight;
-        const w = el.offsetWidth || el.scrollWidth;
-        if (h > 0) el.setAttribute('data-original-height', h);
-        if (w > 0) el.setAttribute('data-original-width', w);
-        
-        const topVal = getAbsoluteTop(el);
-        el.setAttribute('data-original-top', topVal);
-        
-        el.setAttribute('data-sync-id', `sync-${syncIdCounter++}`);
-        countTopSet++;
-    });
-    // console.log(`[getPageBreakTopPositions] Assigned data-original-top to ${countTopSet} elements`);
+        // [PERF] 全要素の座標を測定すると、巨大な文書では Layout Thrashing によりフリーズするため、
+        // (1) 座標測定（getAbsoluteTop）はブロック要素や主要な改ページ候補要素のみに限定する。
+        // (2) 読み取り（offsetHeight/getBoundingClientRect）をすべて実行した後に、
+        //     書き込み（setAttribute）を一括して行う（Read-Write Separation）ことで、
+        //     ブラウザのレイアウトキャッシュを最大化し、フリーズを完全に防止する。
+        const elementsInfo = [];
+        let countTopSet = 0;
+        let syncIdCounter = 0;
 
-    const cloned = element.cloneNode(true);
-    const pages = await PageSplitter.splitToPages(cloned, pageHeightPx, elementWidthPx);
+        // 1. Batch Read (サイズと座標の読み取りを一括して行う)
+        element.querySelectorAll('*').forEach(el => {
+            const h = el.offsetHeight || el.scrollHeight;
+            const w = el.offsetWidth || el.scrollWidth;
+            
+            let topVal = null;
+            const tagName = el.tagName;
+            const isBlock = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'UL', 'OL', 'PRE', 'TABLE', 'TR', 'THEAD', 'TBODY', 'BLOCKQUOTE', 'DETAILS', 'DIV'].includes(tagName);
+            if (isBlock) {
+                topVal = getAbsoluteTop(el);
+            }
+            
+            elementsInfo.push({ el, h, w, topVal });
+        });
+
+        // 2. Batch Write (属性への書き込みを一括して行う)
+        elementsInfo.forEach(info => {
+            const el = info.el;
+            if (info.h > 0) el.setAttribute('data-original-height', info.h);
+            if (info.w > 0) el.setAttribute('data-original-width', info.w);
+            el.setAttribute('data-sync-id', `sync-${syncIdCounter++}`);
+            
+            if (info.topVal !== null) {
+                el.setAttribute('data-original-top', info.topVal);
+                countTopSet++;
+            }
+        });
+
+        const cloned = element.cloneNode(true);
+
+        // 不要な末尾ダミーブロックを削除
+        cloned.querySelectorAll('.dummy-tail-block').forEach(el => el.remove());
+
+        // 改ページ表示用の一時的な線を削除
+        cloned.querySelectorAll('.preview-page-break-line').forEach(el => el.remove());
+
+        // テーブル編集用などの一時的なUI要素・ドラッグハンドルを削除
+        cloned.querySelectorAll('.drag-handle, .dummy-height-block, .table-row-resizer, .table-col-resizer, .column-resize-handle, .row-resize-handle').forEach(el => el.remove());
+
+        // [NEW] PDF/スライド出力に含めない選択枠・選択ハイライトクラスを除去（ルート要素と子孫要素の両方）
+        const selectClasses = ['preview-focused', 'preview-selected-element', 'preview-focused-parent'];
+        if (selectClasses.some(cls => cloned.classList.contains(cls))) {
+            cloned.classList.remove(...selectClasses);
+        }
+        cloned.querySelectorAll('.preview-focused, .preview-selected-element, .preview-focused-parent').forEach(el => {
+            el.classList.remove(...selectClasses);
+        });
+
+        // [NEW] 内部用データ属性 (data-paper-*) を削除して出力をクリーンにする
+        const paperAttributes = ['data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y'];
+        cloned.querySelectorAll('svg').forEach(svg => {
+            paperAttributes.forEach(attr => svg.removeAttribute(attr));
+        });
+
+        // [FIX] Mermaid編集ボタンなど印刷不要なUI要素を非表示にする
+        cloned.querySelectorAll('.btn-save-mermaid, .btn-expand-mermaid, .code-edit-btn, .mermaid-edit-overlay').forEach(el => {
+            el.style.display = 'none';
+        });
+
+        // [FIX] html2canvasおよびPageSplitterにおける高さ計測の差異をなくし、かつLayout計測負荷を劇的に下げるため、
+        // プレビュー側でもMermaid/SVG要素を同期的に同じ高さ・幅 of ダミーDIV要素に置換する。
+        // これにより、非同期の画像変換・ロード待ちによるハングやフリーズを完全に排除し、高速な改ページ位置計算を実現する。
+        const svgsInClone = Array.from(cloned.querySelectorAll('svg'));
+        for (const svg of svgsInClone) {
+            const origWidth = svg.getAttribute('width');
+            const viewBox = svg.getAttribute('viewBox');
+            if (!origWidth || origWidth.endsWith('%') || !viewBox) continue;
+            const vbParts = viewBox.trim().split(/[\s,]+/).map(parseFloat);
+            if (vbParts.length < 4 || isNaN(vbParts[2]) || isNaN(vbParts[3]) || vbParts[2] <= 0) continue;
+
+            const vbW = vbParts[2];
+            const vbH = vbParts[3];
+            const aspectRatio = vbH / vbW;
+
+            const naturalWidth = Math.min(parseFloat(origWidth) || elementWidthPx, elementWidthPx);
+            let targetW = Math.round(naturalWidth);
+            const targetH = Math.round(targetW * aspectRatio);
+
+            try {
+                const dummyImg = document.createElement('img');
+                // PageSplitterに画像として認識させ、スライドショービルド時と同じクリッピング分割ロジックを適用させるため、imgタグを使用し、空のインライン画像を src に設定する
+                dummyImg.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"/>';
+                dummyImg.style.width = targetW + 'px';
+                dummyImg.style.height = targetH + 'px';
+                dummyImg.style.display = 'block';
+                dummyImg.style.margin = '0 auto';
+
+                // 元のSVGの属性（data-sync-id 等）を引き継ぐ
+                const excludeAttrs = ['width', 'height', 'viewBox', 'xmlns', 'xmlns:xlink', 'version', 'style', 'src'];
+                for (const attr of svg.attributes) {
+                    if (!excludeAttrs.includes(attr.name) && !attr.name.startsWith('xmlns:')) {
+                        dummyImg.setAttribute(attr.name, attr.value);
+                    }
+                }
+
+                svg.parentNode.replaceChild(dummyImg, svg);
+
+                const svgParent = dummyImg.parentElement;
+                if (svgParent) {
+                    if (svgParent.hasAttribute('data-computed-height')) {
+                        svgParent.setAttribute('data-computed-height', String(targetH));
+                    }
+                    if (svgParent.hasAttribute('data-original-height')) {
+                        svgParent.setAttribute('data-original-height', String(targetH));
+                    }
+                    const grandParent = svgParent.parentElement;
+                    if (grandParent && grandParent.hasAttribute('data-computed-height')) {
+                        grandParent.setAttribute('data-computed-height', String(targetH));
+                    }
+                    if (grandParent && grandParent.hasAttribute('data-original-height')) {
+                        grandParent.setAttribute('data-original-height', String(targetH));
+                    }
+                }
+            } catch (e) {
+                console.warn('[Slide Fix] SVGのダミー画像置換中にエラー（スキップ）:', e);
+            }
+        }
+
+        // [FIX] content-visibility: auto はパフォーマンス最適化のために
+        // ビューポート外の要素の高さを contain-intrinsic-size で代替するが、
+        // PageSplitterの計測コンテナ（visibility:hidden）内ではSVGの実際の高さが反映されず、
+        // ページ分割が正しく行われない。クローン内では無効化して正確な高さ計測を保証する。
+        cloned.querySelectorAll('.svg-view-wrapper').forEach(el => {
+            el.style.contentVisibility = 'visible';
+            el.style.containIntrinsicSize = 'none';
+        });
+
+        pages = await PageSplitter.splitToPages(cloned, pageHeightPx, elementWidthPx);
     // console.log(`[getPageBreakTopPositions] splitToPages returned ${pages.length} pages`);
 
     /**
@@ -185,25 +365,24 @@ window.getPageBreakTopPositions = async function(element, pageHeightPx, elementW
                         }
                         
                         if (found && targetNode) {
-                            const range = document.createRange();
-                            range.setStart(targetNode, targetOffset);
-                            let rect = null;
-                            let probeEnd = targetOffset + 1;
-                            while (probeEnd <= targetNode.textContent.length) {
-                                range.setEnd(targetNode, probeEnd);
-                                const tempRect = range.getBoundingClientRect();
-                                if (tempRect.height > 0) {
-                                    const char = targetNode.textContent.substring(probeEnd - 1, probeEnd);
-                                    if (!/^[\s\r\n]$/.test(char)) {
-                                        rect = tempRect;
-                                        break;
-                                    }
-                                    if (!rect) rect = tempRect;
-                                }
-                                probeEnd++;
+                            const textContent = targetNode.textContent;
+                            // targetOffset 以降で、空白以外の最初の文字のインデックスを探す
+                            const remainingText = textContent.substring(targetOffset);
+                            const matchNonSpace = remainingText.match(/[^\s\r\n]/);
+                            
+                            let targetCharIndex = targetOffset;
+                            if (matchNonSpace && matchNonSpace.index !== undefined) {
+                                targetCharIndex = targetOffset + matchNonSpace.index;
                             }
-                            if (!rect) {
-                                range.setEnd(targetNode, Math.min(targetOffset + 1, targetNode.textContent.length));
+
+                            const range = document.createRange();
+                            range.setStart(targetNode, targetCharIndex);
+                            range.setEnd(targetNode, Math.min(targetCharIndex + 1, textContent.length));
+                            let rect = range.getBoundingClientRect();
+                            if (rect.height === 0) {
+                                // 測定できない場合のフォールバック（行頭そのものを測定）
+                                range.setStart(targetNode, targetOffset);
+                                range.setEnd(targetNode, Math.min(targetOffset + 1, textContent.length));
                                 rect = range.getBoundingClientRect();
                             }
                             const containerRect = element.getBoundingClientRect();
@@ -286,7 +465,7 @@ window.getPageBreakTopPositions = async function(element, pageHeightPx, elementW
             // console.warn(`[改ページ エラー] ページ${i+1} の先頭要素が見つかりません。`);
         }
     }
-    // console.log(`=== 全${positions.length + 1}ページ 取得完了 ===`);
+    console.log(`[DEBUG] getPageBreakTopPositions END: pages.length=${pages.length}, positions.length=${positions.length}`);
     return positions;
 };
 
@@ -563,41 +742,194 @@ const SlideManager = {
         console.log(`[SlideManager] buildSlides: scrollHeight=${totalHeightPx}px, children=${element.children.length}`);
         if (totalHeightPx === 0) return;
 
-        // [REFACTORED] ページ高さの計算を共有関数に委譲（プレビュー改ページ表示との一致を保証）
         const elementWidthPx = AppState.config.previewWidth || element.offsetWidth || 820;
         const pageHeightPx = window.getSlidePageHeightPx();
 
-        // 共通エンジン(PageSplitter)でページごとにDOM要素を分割
-        // ※ PageSplitterは内部で要素の移動（破壊的変更）を行うため、必ずプレビューの複製を渡す
+        console.log(`[DEBUG] buildSlides start: elementWidthPx=${elementWidthPx}, pageHeightPx=${pageHeightPx}, scrollHeight=${element.scrollHeight}`);
 
-        // [CRITICAL] クローン前（ライブ状態）に各要素の高さを計測し、属性として記録。
-        // これによりPageSplitter側で計測不能（0pxなど）になるのを防ぐ。
-        // ネストされた要素（DETAILSの中など）にも対応するため、全子孫を対象とする。
-        element.querySelectorAll('*').forEach(el => {
-            const h = el.offsetHeight || el.scrollHeight;
-            const w = el.offsetWidth || el.scrollWidth;
-            if (h > 0) el.setAttribute('data-original-height', h);
-            if (w > 0) el.setAttribute('data-original-width', w);
-        });
+            // 共通エンジン(PageSplitter)でページごとにDOM要素を分割
+            // ※ PageSplitterは内部で要素 of 移動（破壊的変更）を行うため、必ずプレビューの複製を渡す
 
-        const clonedPreview = element.cloneNode(true);
+            // [CRITICAL] クローン前（ライブ状態）に各要素の高さを計測し、属性として記録。
+            // これによりPageSplitter側で計測不能（0pxなど）になるのを防ぐ。
+            // ネストされた要素（DETAILSの中など）にも対応するため、全子孫を対象とする。
+            // Layout Thrashing を防ぐため、計測と書き込みをバッチ処理化する。
+            const elementsInfo = [];
+            element.querySelectorAll('*').forEach(el => {
+                const h = el.offsetHeight || el.scrollHeight;
+                const w = el.offsetWidth || el.scrollWidth;
+                elementsInfo.push({ el, h, w });
+            });
 
-        // [FIX] content-visibility: auto はパフォーマンス最適化のために
-        // ビューポート外の要素の高さを contain-intrinsic-size で代替するが、
-        // PageSplitterの計測コンテナ（visibility:hidden）内ではSVGの実際の高さが反映されず、
-        // ページ分割が正しく行われない。クローン内では無効化して正確な高さ計測を保証する。
-        clonedPreview.querySelectorAll('.svg-view-wrapper').forEach(el => {
-            el.style.contentVisibility = 'visible';
-            el.style.containIntrinsicSize = 'none';
-        });
+            elementsInfo.forEach(info => {
+                const el = info.el;
+                if (info.h > 0) el.setAttribute('data-original-height', info.h);
+                if (info.w > 0) el.setAttribute('data-original-width', info.w);
+            });
 
-        console.log(`[SlideManager] Starting PageSplitter.splitToPages... PageHeight: ${pageHeightPx.toFixed(2)}px`);
-        this.slides = await PageSplitter.splitToPages(clonedPreview, pageHeightPx, elementWidthPx);
-        console.log(`[SlideManager] PageSplitter finished. Created ${this.slides.length} slides.`);
+            const clonedPreview = element.cloneNode(true);
 
-        // 分割時に利用したDOM幅とページ高さを保存（レイアウト計算用）
-        this.elementWidthPx = elementWidthPx;
-        this.pageHeightPx = pageHeightPx;
+            // 不要な末尾ダミーブロックを削除
+            clonedPreview.querySelectorAll('.dummy-tail-block').forEach(el => el.remove());
+
+            // 改ページ表示用の一時的な線を削除
+            clonedPreview.querySelectorAll('.preview-page-break-line').forEach(el => el.remove());
+
+            // テーブル編集用などの一時的なUI要素・ドラッグハンドルを削除
+            clonedPreview.querySelectorAll('.drag-handle, .dummy-height-block, .table-row-resizer, .table-col-resizer, .column-resize-handle, .row-resize-handle').forEach(el => el.remove());
+
+            // [NEW] PDF/スライド出力に含めない選択枠・選択ハイライトクラスを除去（ルート要素と子孫要素の両方）
+            const selectClasses = ['preview-focused', 'preview-selected-element', 'preview-focused-parent'];
+            if (selectClasses.some(cls => clonedPreview.classList.contains(cls))) {
+                clonedPreview.classList.remove(...selectClasses);
+            }
+            clonedPreview.querySelectorAll('.preview-focused, .preview-selected-element, .preview-focused-parent').forEach(el => {
+                el.classList.remove(...selectClasses);
+            });
+
+            // [NEW] 内部用データ属性 (data-paper-*) を削除して出力をクリーンにする
+            const paperAttributes = ['data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y'];
+            clonedPreview.querySelectorAll('svg').forEach(svg => {
+                paperAttributes.forEach(attr => svg.removeAttribute(attr));
+            });
+
+            // [FIX] Mermaid編集ボタンなど印刷不要なUI要素を非表示にする
+            clonedPreview.querySelectorAll('.btn-save-mermaid, .btn-expand-mermaid, .code-edit-btn, .mermaid-edit-overlay').forEach(el => {
+                el.style.display = 'none';
+            });
+
+            // [FIX] html2canvasおよびPageSplitterにおける高さ計測の差異をなくすため、
+            // 通常表示側（getPageBreakTopPositions）と全く同一のダミー画像（空のインラインSVG）を使用して
+            // 分割計算を行い、分割完了後に元のPNG画像を復元します。
+            const svgsInClone = Array.from(clonedPreview.querySelectorAll('svg'));
+            for (const svg of svgsInClone) {
+                const origWidth = svg.getAttribute('width');
+                const viewBox = svg.getAttribute('viewBox');
+                if (!origWidth || origWidth.endsWith('%') || !viewBox) continue;
+                const vbParts = viewBox.trim().split(/[\s,]+/).map(parseFloat);
+                if (vbParts.length < 4 || isNaN(vbParts[2]) || isNaN(vbParts[3]) || vbParts[2] <= 0) continue;
+
+                const vbW = vbParts[2];
+                const vbH = vbParts[3];
+                const aspectRatio = vbH / vbW;
+
+                const naturalWidth = Math.min(parseFloat(origWidth) || elementWidthPx, elementWidthPx);
+                let targetW = Math.round(naturalWidth);
+                const targetH = Math.round(targetW * aspectRatio);
+
+                try {
+                    const svgClone = svg.cloneNode(true);
+                    svgClone.setAttribute('width', targetW);
+                    svgClone.setAttribute('height', targetH);
+                    if (!svgClone.getAttribute('xmlns')) {
+                        svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                    }
+                    const svgStr = new XMLSerializer().serializeToString(svgClone);
+                    const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+
+                    const cvs = document.createElement('canvas');
+                    cvs.width = targetW * 2;
+                    cvs.height = targetH * 2;
+                    const ctx = cvs.getContext('2d');
+                    ctx.scale(2, 2);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, targetW, targetH);
+
+                    await new Promise((resolve) => {
+                        const tempImg = new Image();
+                        const timer = setTimeout(() => {
+                            console.warn('[Slide Fix] buildSlides: SVG→PNG変換タイムアウト (2秒超過、スキップ)');
+                            resolve();
+                        }, 2000);
+                        tempImg.onload = () => {
+                            clearTimeout(timer);
+                            try {
+                                ctx.drawImage(tempImg, 0, 0, targetW, targetH);
+                            } catch (e) {
+                                console.warn('[Slide Fix] ctx.drawImage エラー:', e);
+                            }
+                            resolve();
+                        };
+                        tempImg.onerror = (e) => {
+                            clearTimeout(timer);
+                            console.warn('[Slide Fix] SVG→PNG変換失敗（フォールバック: SVGのまま）', e);
+                            resolve();
+                        };
+                        tempImg.src = svgDataUrl;
+                    });
+
+                    // 本物のPNG画像のData URL
+                    const pngDataUrl = cvs.toDataURL('image/png');
+
+                    // PageSplitter計算用のダミー画像（空のインラインSVG）を作成（getPageBreakTopPositions と完全に一致）
+                    const dummyImg = document.createElement('img');
+                    dummyImg.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"/>';
+                    dummyImg.style.width = targetW + 'px';
+                    dummyImg.style.height = targetH + 'px';
+                    dummyImg.style.display = 'block';
+                    dummyImg.style.margin = '0 auto';
+                    
+                    // 退避
+                    dummyImg.setAttribute('data-real-png-src', pngDataUrl);
+
+                    const excludeAttrs = ['width', 'height', 'viewBox', 'xmlns', 'xmlns:xlink', 'version', 'style', 'src'];
+                    for (const attr of svg.attributes) {
+                        if (!excludeAttrs.includes(attr.name) && !attr.name.startsWith('xmlns:')) {
+                            dummyImg.setAttribute(attr.name, attr.value);
+                        }
+                    }
+
+                    svg.parentNode.replaceChild(dummyImg, svg);
+
+                    const svgParent = dummyImg.parentElement;
+                    if (svgParent) {
+                        if (svgParent.hasAttribute('data-computed-height')) {
+                            svgParent.setAttribute('data-computed-height', String(targetH));
+                        }
+                        if (svgParent.hasAttribute('data-original-height')) {
+                            svgParent.setAttribute('data-original-height', String(targetH));
+                        }
+                        const grandParent = svgParent.parentElement;
+                        if (grandParent && grandParent.hasAttribute('data-computed-height')) {
+                            grandParent.setAttribute('data-computed-height', String(targetH));
+                        }
+                        if (grandParent && grandParent.hasAttribute('data-original-height')) {
+                            grandParent.setAttribute('data-original-height', String(targetH));
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[Slide Fix] SVG変換中にエラー（スキップ）:', e);
+                }
+            }
+
+            // [FIX] content-visibility: auto はパフォーマンス最適化のために
+            // ビューポート外の要素の高さを contain-intrinsic-size で代替するが、
+            // PageSplitterの計測コンテナ（visibility:hidden）内ではSVGの実際の高さが反映されず、
+            // ページ分割が正しく行われない。クローン内では無効化して正確な高さ計測を保証する。
+            clonedPreview.querySelectorAll('.svg-view-wrapper').forEach(el => {
+                el.style.contentVisibility = 'visible';
+                el.style.containIntrinsicSize = 'none';
+            });
+
+            console.log(`[SlideManager] Starting PageSplitter.splitToPages... PageHeight: ${pageHeightPx.toFixed(2)}px`);
+            this.slides = await PageSplitter.splitToPages(clonedPreview, pageHeightPx, elementWidthPx);
+            
+            // 分割完了後、ダミー画像を本物のPNG画像に戻す
+            this.slides.forEach(slide => {
+                slide.querySelectorAll('img[data-real-png-src]').forEach(img => {
+                    const realSrc = img.getAttribute('data-real-png-src');
+                    if (realSrc) {
+                        img.src = realSrc;
+                        img.removeAttribute('data-real-png-src');
+                    }
+                });
+            });
+
+            console.log(`[SlideManager] PageSplitter finished. Created ${this.slides.length} slides.`);
+
+            // 分割時に利用したDOM幅とページ高さを保存（レイアウト計算用）
+            this.elementWidthPx = elementWidthPx;
+            this.pageHeightPx = pageHeightPx;
 
         if (this.slides.length === 0) {
             // 最低1ページは確保
@@ -724,10 +1056,14 @@ const SlideManager = {
     }
 };
 
-// 初期化（DOMContentLoaded内などで呼ばれる想定）
-document.addEventListener('DOMContentLoaded', () => {
+// 初期化（DOMContentLoadedまたはロード時に即時実行）
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        SlideManager.init();
+    });
+} else {
     SlideManager.init();
-});
+}
 
 // グローバル公開
 window.openSlideshow = (fullscreen) => SlideManager.openSlideshow(fullscreen);

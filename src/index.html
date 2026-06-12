@@ -765,8 +765,49 @@ The above copyright notice and this permission notice shall be included in all c
         </div>
         <div class="collab-dialog__footer">
             <button id="btn-collab-close">閉じる</button>
+            <button id="btn-collab-share" style="display:none; background-color: #2ecc71; color: white;">現在のテキストを共有</button>
             <button id="btn-collab-leave" style="display:none;">切断</button>
             <button id="btn-collab-join">接続</button>
+        </div>
+    </dialog>
+
+    <!-- [NEW] 共同編集同期確認ダイアログ -->
+    <dialog id="dialog-collab-confirm" style="width: 380px; padding: 20px; border-radius: 8px; border: 1px solid #ccc; box-shadow: 0 4px 12px rgba(0,0,0,0.15); background-color: #fff; font-family: sans-serif;">
+        <div class="collab-dialog__header" style="margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+            <span class="collab-dialog__header-icon" style="font-size: 20px;">⚠️</span>
+            <h3 class="collab-dialog__title" style="margin: 0; font-size: 18px; font-weight: bold; color: #333;">同期の確認</h3>
+        </div>
+        <div class="collab-dialog__body" style="margin-bottom: 20px; font-size: 14px; line-height: 1.6; color: #555;">
+            ルーム内のテキストと同期しますか？<br>
+            同期すると、現在のローカルテキストは上書きされます。
+        </div>
+        <div class="collab-dialog__footer" style="text-align: right; gap: 10px; display: flex; justify-content: flex-end;">
+            <button id="btn-collab-confirm-cancel" style="padding: 8px 16px; border: 1px solid #ccc; background: #fff; color: #333; border-radius: 4px; cursor: pointer; font-size: 13px;">キャンセル</button>
+            <button id="btn-collab-confirm-ok" style="padding: 8px 16px; border: none; background: #e74c3c; color: #fff; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold;">同期する</button>
+        </div>
+    </dialog>
+
+    <!-- [NEW] 共同編集シグナリングサーバー検出ダイアログ -->
+    <dialog id="dialog-collab-scan" style="width: 420px; padding: 0; border: none; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); background-color: #fff; font-family: sans-serif; overflow: hidden;">
+        <div class="collab-dialog__header" style="display: flex; align-items: center; gap: 10px; padding: 18px 20px 14px; background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%); color: #fff;">
+            <span class="collab-dialog__header-icon" style="font-size: 22px;">🔍</span>
+            <h3 class="collab-dialog__title" style="margin: 0; font-size: 16px; font-weight: 600;">接続先サーバーの選択</h3>
+        </div>
+        <div class="collab-dialog__body" style="padding: 20px;">
+            <p id="collab-scan-message" style="font-size: 14px; line-height: 1.6; color: #555; margin: 0 0 14px 0;">
+                設定されたサーバーに接続できません。ローカルネットワーク上のサーバーを探索しています...
+            </p>
+            <div id="collab-scan-loader" style="text-align: center; margin: 20px 0;">
+                <span class="collab-scan-spinner"></span>
+                <span style="font-size: 13px; color: #666; margin-left: 8px; vertical-align: middle;">探索中...</span>
+            </div>
+            <ul id="collab-scan-results" style="list-style: none; padding: 0; margin: 0; max-height: 180px; overflow-y: auto; border: 1px solid #eee; border-radius: 8px; display: none;">
+                <!-- 探索結果のサーバー項目がJSで動的に挿入されます -->
+            </ul>
+        </div>
+        <div class="collab-dialog__footer" style="display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid #e0e0e0;">
+            <button id="btn-collab-scan-cancel" style="background: #f5f5f5; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 8px 18px; font-size: 14px; cursor: pointer; transition: background 0.15s;">キャンセル</button>
+            <button id="btn-collab-scan-retry" style="background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 8px 18px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; display: none;">再スキャン</button>
         </div>
     </dialog>
 

@@ -624,12 +624,21 @@ async function insertImageAsBase64(file, clientX, clientY, target) {
                 const isCollab = typeof CollabManager !== 'undefined' && CollabManager.isActive();
                 const compressStandalone = AppState.config.compressStandaloneImage !== false; // Default ON
 
-                if (isCollab || compressStandalone) {
+                if (isCollab) {
                     try {
-                        // y-webrtcのデータチャネル制限（約256KB）を回避するため、
-                        // 共同編集時は極限までサイズを圧縮する（最大幅800px, 品質0.5）
-                        const maxWidth = isCollab ? 800 : 1600;
-                        const quality = isCollab ? 0.5 : 0.8;
+                        const fileId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `img_${Date.now()}_${Math.floor(Math.random()*10000)}`;
+                        docContent = `\n\n![${file.name}](file-blob://${fileId})\n\n`;
+                        insertToApp(docContent);
+                        if (typeof CollabManager !== 'undefined' && typeof CollabManager.sendLargeFile === 'function') {
+                            CollabManager.sendLargeFile(fileId, file);
+                        }
+                    } catch (err) {
+                        console.error('[Collab] P2P file send failed:', err);
+                    }
+                } else if (compressStandalone) {
+                    try {
+                        const maxWidth = 1600;
+                        const quality = 0.8;
                         const compressedBase64 = await compressImageFile(file, maxWidth, quality);
                         docContent = `\n\n![${file.name}](${compressedBase64})\n\n`;
                         insertToApp(docContent);

@@ -253,15 +253,6 @@ class MermaidClassToolbar extends window.SVGToolbarBase {
             margin-left: 8px;
             color: #4b5563;
         `;
-        this.swapBtn.innerHTML = `
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M7 10h14M3 14h14M7 10L3 14M21 10l-4 4"></path>
-                <polyline points="17 1 21 5 17 9"></polyline>
-                <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
-                <polyline points="7 23 3 19 7 15"></polyline>
-                <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
-            </svg>
-        `;
         // SVGをシンプルでわかりやすい水平の入れ替えアイコンに変更
         this.swapBtn.innerHTML = `
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -526,10 +517,13 @@ class MermaidClassToolbar extends window.SVGToolbarBase {
             
             const edges = newDiagramWrapper.querySelectorAll('.edgePath path:not(.mermaid-class-arrow-hitbox), path.relation:not(.mermaid-class-arrow-hitbox)');
             for (const edge of edges) {
-                const cleanId = edge.id ? edge.id.replace(/^mermaid-\d+-\d+-/, '') : '';
-                if (cleanId === cleanSavedId) {
-                    matchedNewId = edge.id;
-                    break;
+                const edgeId = edge.id || (edge.parentNode && edge.parentNode.id);
+                if (edgeId) {
+                    const cleanEdgeId = edgeId.replace(/^mermaid-\d+-\d+-/, '');
+                    if (cleanEdgeId === cleanSavedId) {
+                        matchedNewId = edgeId;
+                        break;
+                    }
                 }
             }
             

@@ -13,6 +13,19 @@ const TableEditor = {
     dragType: null, // 'row' or 'col'
     copiedRowData: null,
 
+    // セル単体編集用の状態
+    activeCellElement: null,   // 現在フォーカス中のセル（選択状態）
+    editingCellElement: null,  // 現在編集中のセル
+    _cellOriginalText: null,   // Escape で戻す用の元テキスト
+
+    // 範囲選択用状態
+    isMouseDownForSelection: false,
+    selectionStartCell: null,
+    selectionEndCell: null,
+    selectedCells: [],
+    pendingFocusCellIndex: null, // 再描画後に選択復帰させるセルのインデックス
+    pendingEditCellIndex: null,  // 再描画後にインライン編集を開始させるセルのインデックス
+
     /**
      * Initialize table editor functionality
      * @param {HTMLElement} table - The table element in the preview
@@ -26,13 +39,6 @@ const TableEditor = {
         table.dataset.eventsBound = 'true';
         table.setAttribute('data-table-index', index);
 
-        // Add double-click to edit
-        table.addEventListener('dblclick', (e) => {
-            //             console.log(`[TableEditor] Table dblclicked. activeTable:`, this.activeTable);
-            if (!this.activeTable) {
-                this.startEdit(table, index);
-            }
-        });
 
         // Context Menu
         table.addEventListener('contextmenu', (e) => this.handleContextMenu(e, table, index));
@@ -40,13 +46,13 @@ const TableEditor = {
         // Styling for interaction
         table.classList.add('interactive-table');
 
-        // Restore edit mode if this table was being edited
-        if (this.editingTableIndex === index) {
-            //             console.log(`[TableEditor] Restoring edit mode for table #${index}`);
-            // The activeTable reference is stale (removed from DOM), so we must clear it to allow startEdit to work
-            this.activeTable = null;
-            this.startEdit(table, index);
-        }
+
+
+        // 複数セル選択イベントの初期化
+        this.setupCellSelectionEvents(table);
+
+        // 古いハンドルのクリーンアップ
+        this.refreshRowHandles(table);
     },
 
     /**
@@ -54,6 +60,13 @@ const TableEditor = {
      */
     startEdit(table, index) {
         //         console.log(`[TableEditor] startEdit called for table #${index}. Current activeTable:`, this.activeTable);
+
+        // セル単体編集が進行中であれば先に保存・終了してから表エディタを起動する
+        if (this.editingCellElement) {
+            this.saveCellEdit();
+        }
+        this.clearCellFocus();
+
         if (this.activeTable) {
             if (!this.activeTable.isConnected) {
                 //                 console.warn('[TableEditor] activeTable is detached from DOM. Clearing dead state.');
@@ -175,6 +188,486 @@ const TableEditor = {
         }, 150);
     },
 
+    // --- Cell-Level Inline Editing ---
+
+    /**
+     * セルを「選択状態」にする（編集は開始しない）
+     * @param {HTMLElement} cell - th または td 要素
+     */
+    focusCell(cell) {
+        if (!cell || !cell.matches('th, td')) return;
+
+        // 表エディタが起動中の場合はセル単体フォーカスを無視する
+        if (this.activeTable) return;
+
+        const table = cell.closest('table');
+        this.clearSelection();
+        this.selectionStartCell = cell;
+        this.selectionEndCell = cell;
+        this.updateRangeSelection(table);
+    },
+
+    /**
+     * セル選択状態を解除する
+     */
+    clearCellFocus() {
+        if (this.activeCellElement) {
+            this.activeCellElement.classList.remove('table-cell-focused');
+            this.activeCellElement = null;
+        }
+    },
+
+    /**
+     * セル単体のインライン編集を開始する
+     * @param {HTMLElement} cell     - th または td 要素
+     * @param {number|null} clientX  - クリック位置 X（カーソル設定用）
+     * @param {number|null} clientY  - クリック位置 Y（カーソル設定用）
+     */
+    startCellEdit(cell, clientX = null, clientY = null) {
+        console.log('[startCellEdit] 開始:', cell, 'clientX:', clientX, 'clientY:', clientY);
+        console.trace('[startCellEdit] 呼び出しスタック');
+
+        // キーボードナビゲーションの未発火 setTimeout をキャンセルする（手動操作による編集開始などで旧ナビが割り込むのを防ぐ）
+        if (this._pendingNavTimeout !== undefined && this._pendingNavTimeout !== null) {
+            clearTimeout(this._pendingNavTimeout);
+            this._pendingNavTimeout = null;
+        }
+
+        if (!cell || !cell.matches('th, td')) {
+            console.log('[startCellEdit] 無効なセルでリターン');
+            return;
+        }
+
+        // 表エディタが起動中の場合はセル単体編集を無視する（表エディタが優先）
+        if (this.activeTable) {
+            console.log('[startCellEdit] activeTableが設定されているのでリターン:', this.activeTable);
+            return;
+        }
+
+        // 既に同じセルを編集中なら何もしない
+        if (this.editingCellElement === cell) {
+            console.log('[startCellEdit] 既に同じセルを編集中なのでリターン');
+            return;
+        }
+
+        // 別のセルを編集中なら先に保存する
+        if (this.editingCellElement && this.editingCellElement !== cell) {
+            console.log('[startCellEdit] 別セルを編集中のため先に保存');
+            this.saveCellEdit();
+        }
+
+        // セル内にコピーボタンがある場合は削除しておく
+        const copyBtn = cell.querySelector('.table-cell-copy-btn');
+        if (copyBtn) {
+            copyBtn.remove();
+        }
+
+        // 元のテキストを保存（Escape でキャンセル用）― button 要素のテキストは除いて保存
+        const origClone = cell.cloneNode(true);
+        origClone.querySelectorAll('button').forEach(b => b.remove());
+        this._cellOriginalText = origClone.innerText;
+        this.editingCellElement = cell;
+        console.log('[startCellEdit] _cellOriginalText:', JSON.stringify(this._cellOriginalText));
+
+        // セル選択状態のスタイルを解除して編集中スタイルを適用
+        cell.classList.remove('table-cell-focused');
+        cell.classList.add('table-cell-editing');
+        this.activeCellElement = null;
+
+        // セル内の button 要素を編集対象外にしてカーソルの侵入を射止する
+        const btns = cell.querySelectorAll('button');
+        console.log('[startCellEdit] cell内のbutton数:', btns.length, btns);
+        btns.forEach(btn => {
+            btn.contentEditable = 'false';
+            btn.style.pointerEvents = 'none';
+            btn.tabIndex = -1;
+        });
+
+        // セルを contentEditable にする
+        cell.contentEditable = 'true';
+        console.log('[startCellEdit] cell.contentEditable設定完了. innerHTML:', cell.innerHTML);
+
+        // イベントリスナーをバインドして登録
+        this._boundCellKeydown = this._handleCellKeydown.bind(this);
+        this._boundCellBlur = this._handleCellBlur.bind(this);
+        this._boundCellPaste = this.handlePaste.bind(this);
+        this._boundCellSelection = this.handleSelection.bind(this);
+        
+        cell.addEventListener('keydown', this._boundCellKeydown);
+        cell.addEventListener('blur', this._boundCellBlur, true);
+        cell.addEventListener('paste', this._boundCellPaste);
+        cell.addEventListener('mouseup', this._boundCellSelection);
+        cell.addEventListener('keyup', this._boundCellSelection);
+
+        // フォーカスを当ててカーソルを設定する
+        setTimeout(() => {
+            // 編集対象セルが変わっていたらスキップ（他のセルに切り替わった場合やキャンセル後）
+            if (!this.editingCellElement || this.editingCellElement !== cell) {
+                console.log('[startCellEdit:setTimeout] 編集対象セルが変わったため中断');
+                return;
+            }
+
+            // setEditorText() が 2回目の docChanged を引き起こし、その render が
+            // contentEditable を 'false' にリセットすることがある。
+            // ここで再適用することで確実に編集状態を維持する。
+            if (cell.contentEditable !== 'true') {
+                cell.contentEditable = 'true';
+            }
+            if (!cell.classList.contains('table-cell-editing')) {
+                cell.classList.add('table-cell-editing');
+            }
+
+            // 先にフォーカスを確保する（これにより基本的な入力は受け付けられる）
+            cell.focus();
+            console.log('[startCellEdit:setTimeout] cell.focus()完了. document.activeElement:', document.activeElement);
+
+            // クリック位置にカーソルを設定する（マウスクリック起動時）
+            if (clientX !== null && clientY !== null) {
+                let range = null;
+                if (document.caretRangeFromPoint) {
+                    range = document.caretRangeFromPoint(clientX, clientY);
+                } else if (document.caretPositionFromPoint) {
+                    const pos = document.caretPositionFromPoint(clientX, clientY);
+                    if (pos) {
+                        range = document.createRange();
+                        range.setStart(pos.offsetNode, pos.offset);
+                        range.collapse(true);
+                    }
+                }
+                console.log('[startCellEdit:setTimeout] caretRangeFromPoint結果:', range);
+                if (range) {
+                    // カーソルがボタン要素の内部に入っていないか確認する
+                    const container = range.startContainer;
+                    const insideBtn = container.nodeType === Node.ELEMENT_NODE
+                        ? container.closest('button')
+                        : (container.parentNode && container.parentNode.closest('button'));
+                    console.log('[startCellEdit:setTimeout] range.startContainer:', container, '/ insideBtn:', insideBtn);
+                    if (!insideBtn) {
+                        // ボタン外のみ Range を適用する（ボタン内の場合は focus() のみ）
+                        const sel = window.getSelection();
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                        console.log('[startCellEdit:setTimeout] Range適用完了');
+                    } else {
+                        console.log('[startCellEdit:setTimeout] button内のため Range 不適用, focus()のみ');
+                    }
+                    return;
+                }
+            }
+
+            // クリック位置指定なし（Tab移動など）: ボタン外の最後のテキストノード末尾へ
+            const walker = document.createTreeWalker(
+                cell,
+                NodeFilter.SHOW_TEXT,
+                { acceptNode: (n) => n.parentNode.closest('button') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT }
+            );
+            let lastText = null;
+            while (walker.nextNode()) lastText = walker.currentNode;
+            console.log('[startCellEdit:setTimeout] Tab移動用 lastTextノード:', lastText);
+
+            if (lastText) {
+                // テキストノードが見つかった場合はその末尾にカーソルを移動
+                const sel = window.getSelection();
+                const r = document.createRange();
+                r.setStart(lastText, lastText.length);
+                r.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(r);
+                console.log('[startCellEdit:setTimeout] テキスト末尾にカーソル設定完了');
+            } else {
+                console.log('[startCellEdit:setTimeout] テキストノードなし（空セル）: cell.focus()のみで入力待機');
+            }
+        }, 0);
+    },
+
+    /**
+     * 現在のセル編集を保存してMarkdownソースを更新する
+     */
+    async saveCellEdit() {
+        if (!this.editingCellElement) return;
+        const cell = this.editingCellElement;
+        const table = cell.closest('table');
+
+        // クリーンアップ
+        cell.contentEditable = 'false';
+        cell.classList.remove('table-cell-editing');
+
+        if (this._boundCellKeydown) {
+            cell.removeEventListener('keydown', this._boundCellKeydown);
+            this._boundCellKeydown = null;
+        }
+        if (this._boundCellBlur) {
+            cell.removeEventListener('blur', this._boundCellBlur, true);
+            this._boundCellBlur = null;
+        }
+        if (this._boundCellPaste) {
+            cell.removeEventListener('paste', this._boundCellPaste);
+            this._boundCellPaste = null;
+        }
+        if (this._boundCellSelection) {
+            cell.removeEventListener('mouseup', this._boundCellSelection);
+            cell.removeEventListener('keyup', this._boundCellSelection);
+            this._boundCellSelection = null;
+            this.hideMiniToolbar();
+        }
+
+        this.editingCellElement = null;
+        this._cellOriginalText = null;
+
+        // テーブルが DOM に残っている場合のみ Markdown を更新する
+        if (table && table.isConnected) {
+            const markdown = this.serializeTable(table);
+            await this.updateMarkdownSource(table, markdown);
+        }
+    },
+
+    /**
+     * 現在のセル編集をキャンセルして元のテキストに戻す
+     */
+    cancelCellEdit() {
+        if (!this.editingCellElement) return;
+        const cell = this.editingCellElement;
+
+        // 元のテキストを復元する
+        if (this._cellOriginalText !== null) {
+            cell.innerText = this._cellOriginalText;
+        }
+
+        cell.contentEditable = 'false';
+        cell.classList.remove('table-cell-editing');
+
+        if (this._boundCellKeydown) {
+            cell.removeEventListener('keydown', this._boundCellKeydown);
+            this._boundCellKeydown = null;
+        }
+        if (this._boundCellBlur) {
+            cell.removeEventListener('blur', this._boundCellBlur, true);
+            this._boundCellBlur = null;
+        }
+        if (this._boundCellPaste) {
+            cell.removeEventListener('paste', this._boundCellPaste);
+            this._boundCellPaste = null;
+        }
+        if (this._boundCellSelection) {
+            cell.removeEventListener('mouseup', this._boundCellSelection);
+            cell.removeEventListener('keyup', this._boundCellSelection);
+            this._boundCellSelection = null;
+            this.hideMiniToolbar();
+        }
+
+        this.editingCellElement = null;
+        this._cellOriginalText = null;
+
+        // キャンセル後はセルを選択状態（フォーカス）に戻す
+        this.focusCell(cell);
+    },
+
+    /**
+     * セル単体編集中のキーボードナビゲーション処理
+     */
+    async _handleCellKeydown(e) {
+        const cell = e.target;
+        if (!cell || !cell.matches('th, td')) return;
+
+        // IME変換中は無視する
+        if (e.isComposing || e.keyCode === 229) return;
+
+        // ── Escape: 編集キャンセル ──────────────────────────────────
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            this.cancelCellEdit();
+            return;
+        }
+
+        // ── Ctrl+Enter / Meta+Enter: 確定して選択状態に戻る（改行なし） ──
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            const rowIndex = cell.parentElement.rowIndex;
+            const colIndex = cell.cellIndex;
+            this.pendingFocusCellIndex = { rowIndex, colIndex };
+            this.saveCellEdit(); // ← 再レンダリング発生
+            return;
+        }
+
+        // ── Shift+Enter / Alt+Enter: セル内改行（<br>）を挿入 ──────────
+        if (e.key === 'Enter' && (e.shiftKey || e.altKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return;
+            const range = sel.getRangeAt(0);
+            const br = document.createElement('br');
+            range.deleteContents();
+            range.insertNode(br);
+            // br の直後にカーソルを置く
+            range.setStartAfter(br);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            return;
+        }
+
+        // ── Enter: 確定して下のセルへ移動・編集開始 ─────────────────────
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            const table = cell.closest('table');
+            const tableDataLine = table.getAttribute('data-line');
+            const row = cell.parentElement;
+            const colIndex = cell.cellIndex;
+
+            // 下の行を決定（thead → tbody またぎも考慮）
+            let nextRow = row.nextElementSibling;
+            if (!nextRow && row.parentElement.tagName === 'THEAD') {
+                const tbody = table.querySelector('tbody');
+                if (tbody) nextRow = tbody.firstElementChild;
+            }
+            const nextRowIndex = nextRow ? nextRow.rowIndex : -1;
+
+            if (nextRowIndex >= 0) {
+                this.pendingEditCellIndex = { rowIndex: nextRowIndex, colIndex };
+                await this.saveCellEdit(); // 再レンダリング発生
+                
+                // 再描画が発生しなかった（Markdownに変更がなかった）場合のフォールバック
+                setTimeout(() => {
+                    if (this.pendingEditCellIndex) {
+                        const { rowIndex, colIndex } = this.pendingEditCellIndex;
+                        this.pendingEditCellIndex = null;
+                        const freshTable = document.querySelector(`table[data-line="${tableDataLine}"]`) || table;
+                        if (freshTable && freshTable.rows[rowIndex]) {
+                            const targetCell = freshTable.rows[rowIndex].cells[colIndex];
+                            if (targetCell) this.startCellEdit(targetCell);
+                        }
+                    }
+                }, 100);
+            } else if (row.parentElement.tagName === 'TBODY') {
+                // 最下行で Enter 押下時は新行を追加し、その行の同列セルを編集開始
+                const currentRowIndex = row.rowIndex;
+                this.pendingEditCellIndex = { rowIndex: currentRowIndex + 1, colIndex };
+                await this.saveCellEdit(); // 再レンダリング発生
+                this.insertRow(table, currentRowIndex + 1); // 再レンダリング発生
+            } else {
+                await this.saveCellEdit();
+            }
+            return;
+        }
+
+        // ── Tab / ArrowUp / ArrowDown: セル間移動・編集継続 ─────────────
+        if (e.key === 'Tab' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            e.stopPropagation();
+            const isShift = e.shiftKey;
+            const row = cell.parentElement;
+            const table = cell.closest('table');
+            const tableDataLine = table.getAttribute('data-line');
+
+            // 移動先セルの rowIndex / cellIndex を計算する（再レンダリング前のDOMで計算）
+            let nextRowIndex = -1;
+            let nextColIndex = -1;
+            let shouldInsertRow = false;
+
+            if (e.key === 'Tab') {
+                let nextCell = isShift ? cell.previousElementSibling : cell.nextElementSibling;
+                let nextRow = row;
+
+                if (!nextCell) {
+                    const section = row.parentElement;
+                    nextRow = isShift ? row.previousElementSibling : row.nextElementSibling;
+
+                    // thead/tbody またぎ処理
+                    if (!nextRow) {
+                        if (!isShift && section.tagName === 'THEAD') {
+                            const tbody = table.querySelector('tbody');
+                            if (tbody) nextRow = tbody.firstElementChild;
+                        } else if (isShift && section.tagName === 'TBODY') {
+                            const thead = table.querySelector('thead');
+                            if (thead) nextRow = thead.lastElementChild;
+                        }
+                    }
+
+                    if (nextRow) {
+                        nextCell = isShift ? nextRow.lastElementChild : nextRow.firstElementChild;
+                    } else if (!isShift && section.tagName === 'TBODY') {
+                        // 最終行末: 新しい行を追加
+                        shouldInsertRow = true;
+                    }
+                }
+
+                if (!shouldInsertRow && nextCell) {
+                    nextRowIndex = nextCell.parentElement.rowIndex;
+                    nextColIndex = nextCell.cellIndex;
+                }
+            } else {
+                // ArrowUp / ArrowDown
+                const isUp = e.key === 'ArrowUp';
+                let nextRow = isUp ? row.previousElementSibling : row.nextElementSibling;
+
+                if (!nextRow) {
+                    const section = row.parentElement;
+                    if (!isUp && section.tagName === 'THEAD') {
+                        const tbody = table.querySelector('tbody');
+                        if (tbody) nextRow = tbody.firstElementChild;
+                    } else if (isUp && section.tagName === 'TBODY') {
+                        const thead = table.querySelector('thead');
+                        if (thead) nextRow = thead.lastElementChild;
+                    }
+                }
+                if (nextRow) {
+                    nextRowIndex = nextRow.rowIndex;
+                    nextColIndex = cell.cellIndex;
+                }
+            }
+
+            const currentRowIndex = row.rowIndex;
+
+            if (shouldInsertRow) {
+                // 最終行末: 新行を追加してから先頭セルへ移動
+                const insertIndex = currentRowIndex + 1;
+                this.pendingEditCellIndex = { rowIndex: insertIndex, colIndex: 0 };
+                await this.saveCellEdit();
+                this.insertRow(table, insertIndex);
+            } else if (nextRowIndex >= 0) {
+                this.pendingEditCellIndex = { rowIndex: nextRowIndex, colIndex: nextColIndex };
+                await this.saveCellEdit();
+                
+                // 再描画が発生しなかった（Markdownに変更がなかった）場合のフォールバック
+                setTimeout(() => {
+                    if (this.pendingEditCellIndex) {
+                        const { rowIndex, colIndex } = this.pendingEditCellIndex;
+                        this.pendingEditCellIndex = null;
+                        const freshTable = document.querySelector(`table[data-line="${tableDataLine}"]`) || table;
+                        if (freshTable && freshTable.rows[rowIndex]) {
+                            const targetCell = freshTable.rows[rowIndex].cells[colIndex];
+                            if (targetCell) this.startCellEdit(targetCell);
+                        }
+                    }
+                }, 100);
+            }
+            return;
+        }
+    },
+
+    /**
+     * セルのフォーカスが外れた時の処理
+     * 表内の別セルへ移動する場合は重複保存を避ける
+     */
+    _handleCellBlur(e) {
+        if (!this.editingCellElement) return;
+
+        const cell = this.editingCellElement;
+        const next = e.relatedTarget;
+
+        // 移動先が同じ表内のセルならば、そちらの startCellEdit で保存が行われるのでスキップ
+        if (next && next.matches('td, th') && next.closest('table') === cell.closest('table')) {
+            return;
+        }
+
+        // 表の外（または他の表）へフォーカスが移動したら保存する
+        this.saveCellEdit();
+    },
+
     // --- Global Row Control Logic ---
 
     initGlobalListeners() {
@@ -200,17 +693,230 @@ const TableEditor = {
             preview.removeEventListener('mouseleave', this._previewLeaveHandler);
         }
         this._previewLeaveHandler = (e) => {
-            // Check if moving to the edit button or row controls (which are in body)
-            if (e.relatedTarget && (e.relatedTarget.closest('.inline-edit-btn') || e.relatedTarget.closest('#table-row-controls'))) {
+            // Check if moving to the edit button, row controls, row drag handle, or col drag handle (which are in body)
+            if (e.relatedTarget && (
+                e.relatedTarget.closest('.inline-edit-btn') || 
+                e.relatedTarget.closest('#table-row-controls') ||
+                e.relatedTarget.closest('.table-row-drag-handle') ||
+                e.relatedTarget.closest('.table-col-drag-handle')
+            )) {
                 return;
             }
             this.hideRowControls();
             this.hideEditButton();
+            this.hideRowDragHandle();
+            this.hideColDragHandle();
         };
         preview.addEventListener('mouseleave', this._previewLeaveHandler);
 
+        // Setup global row drag & drop
+        this.setupGlobalRowDragDrop(preview);
+
         // Add hover listener for Edit Button on Tables
         this.setupTableHoverListeners(preview);
+    },
+
+    setupGlobalRowDragDrop(preview) {
+        if (this.globalRowDragManager) {
+            this.globalRowDragManager.destroy();
+            this.globalRowDragManager = null;
+        }
+
+        // シングルトンハンドルの生成（行用）
+        if (!this.rowDragHandle) {
+            this.rowDragHandle = document.createElement('div');
+            this.rowDragHandle.className = 'table-row-drag-handle drag-handle';
+            this.rowDragHandle.innerHTML = '⠿';
+            this.rowDragHandle.title = 'ドラッグして行を移動';
+            this.rowDragHandle.contentEditable = 'false';
+            
+            this.rowDragHandle.addEventListener('mouseenter', () => {
+                this.rowDragHandle.style.display = 'block';
+            });
+            this.rowDragHandle.addEventListener('mouseleave', (e) => {
+                if (e.relatedTarget && !e.relatedTarget.closest('table') && !e.relatedTarget.closest('.table-row-drag-handle')) {
+                    this.hideRowDragHandle();
+                }
+            });
+            
+            document.body.appendChild(this.rowDragHandle);
+        }
+
+        // シングルトンハンドルの生成（列用）
+        if (!this.colDragHandle) {
+            this.colDragHandle = document.createElement('div');
+            this.colDragHandle.className = 'table-col-drag-handle drag-handle';
+            this.colDragHandle.innerHTML = '⠿';
+            this.colDragHandle.title = 'ドラッグして列を移動';
+            this.colDragHandle.contentEditable = 'false';
+            
+            this.colDragHandle.addEventListener('mouseenter', () => {
+                this.colDragHandle.style.display = 'block';
+            });
+            this.colDragHandle.addEventListener('mouseleave', (e) => {
+                if (e.relatedTarget && !e.relatedTarget.closest('table') && !e.relatedTarget.closest('.table-col-drag-handle')) {
+                    this.hideColDragHandle();
+                }
+            });
+            
+            document.body.appendChild(this.colDragHandle);
+        }
+
+        if (typeof PointerDragManager !== 'undefined') {
+            // グローバル行ドラッグマネージャーのセットアップ
+            this.globalRowDragManager = new PointerDragManager({
+                container: document.body,
+                itemSelector: '#preview tbody tr',
+                handleSelector: '.table-row-drag-handle',
+                draggingClass: 'dragging-ghost',
+                getDragItem: (handle, e) => {
+                    return this.activeHoveredTr || null;
+                },
+                onDragStart: (item, e) => {
+                    item.classList.add('dragging-source');
+                    if (this.rowDragHandle) {
+                        this.rowDragHandle.style.display = 'none';
+                    }
+                    return { type: 'row', item, index: item.rowIndex };
+                },
+                onDragMove: (data, e, info) => {
+                },
+                onDragEnd: (data, e) => {
+                    if (data && data.item) {
+                        data.item.classList.remove('dragging-source');
+                    }
+                },
+                onDrop: (data, dropTarget, e, dropBefore) => {
+                    if (!data) return;
+                    const target = dropTarget ? dropTarget.closest('tr') : null;
+                    if (!target || target === data.item) return;
+
+                    const targetIndex = target.rowIndex;
+                    if (target.parentElement.tagName === 'THEAD') return;
+
+                    const table = data.item.closest('table');
+                    if (table) {
+                        this.moveRow(table, data.index, targetIndex, dropBefore);
+                    }
+                }
+            });
+
+            // グローバル列ドラッグマネージャーのセットアップ
+            if (this.globalColDragManager) {
+                this.globalColDragManager.destroy();
+                this.globalColDragManager = null;
+            }
+            this.globalColDragManager = new PointerDragManager({
+                container: document.body,
+                itemSelector: '#preview th',
+                handleSelector: '.table-col-drag-handle',
+                draggingClass: 'dragging-ghost',
+                getDragItem: (handle, e) => {
+                    return this.activeHoveredTh || null;
+                },
+                onDragStart: (item, e) => {
+                    item.classList.add('dragging-source');
+                    if (this.colDragHandle) {
+                        this.colDragHandle.style.display = 'none';
+                    }
+                    return { type: 'col', item, index: item.cellIndex };
+                },
+                onDragMove: (data, e, info) => {
+                },
+                onDragEnd: (data, e) => {
+                    if (data && data.item) {
+                        data.item.classList.remove('dragging-source');
+                    }
+                },
+                onDrop: (data, dropTarget, e, dropBefore) => {
+                    if (!data) return;
+                    const target = dropTarget ? dropTarget.closest('th') : null;
+                    if (!target || target === data.item) return;
+
+                    const targetIndex = target.cellIndex;
+                    const table = data.item.closest('table');
+                    if (table) {
+                        this.moveColumn(table, data.index, targetIndex, dropBefore);
+                        this.saveChangesImmediate(table);
+                    }
+                }
+            });
+        }
+    },
+
+    showRowDragHandle(tr) {
+        if (!this.rowDragHandle) return;
+
+        // ドラッグ中は表示更新しない
+        if (this.globalRowDragManager && this.globalRowDragManager.isDragging) {
+            return;
+        }
+
+        this.activeHoveredTr = tr;
+
+        const rect = tr.getBoundingClientRect();
+        
+        // tr の右外側に配置 (画面外へのはみ出しを防ぐため maxLeft を設定)
+        const dragHandleWidth = 24; // パディング込みの最大幅想定
+        const maxLeft = window.innerWidth - dragHandleWidth - 5;
+        const left = Math.min(rect.right + 5, maxLeft);
+        const top = rect.top + (rect.height / 2) - 11; // 11 はフォントサイズとパディングを考慮した半値
+
+        this.rowDragHandle.style.left = `${left}px`;
+        this.rowDragHandle.style.top = `${top}px`;
+        this.rowDragHandle.style.display = 'block';
+    },
+
+    hideRowDragHandle() {
+        if (this.globalRowDragManager && this.globalRowDragManager.isDragging) {
+            return;
+        }
+
+        if (this.rowDragHandle) {
+            this.rowDragHandle.style.display = 'none';
+        }
+        this.activeHoveredTr = null;
+    },
+
+    showColDragHandle(cell) {
+        if (!this.colDragHandle) return;
+
+        // ドラッグ中は表示更新しない
+        if (this.globalColDragManager && this.globalColDragManager.isDragging) {
+            return;
+        }
+
+        const table = cell.closest('table');
+        if (!table) return;
+
+        const colIndex = cell.cellIndex;
+        const th = table.querySelector(`thead tr th:nth-child(${colIndex + 1})`) || 
+                   table.querySelector(`tr th:nth-child(${colIndex + 1})`);
+        
+        if (!th) return;
+
+        this.activeHoveredTh = th;
+
+        const rect = th.getBoundingClientRect();
+        
+        // 列の中央の少し上に配置
+        const left = rect.left + (rect.width / 2) - 10;
+        const top = Math.max(rect.top - 20, 60);
+
+        this.colDragHandle.style.left = `${left}px`;
+        this.colDragHandle.style.top = `${top}px`;
+        this.colDragHandle.style.display = 'block';
+    },
+
+    hideColDragHandle() {
+        if (this.globalColDragManager && this.globalColDragManager.isDragging) {
+            return;
+        }
+
+        if (this.colDragHandle) {
+            this.colDragHandle.style.display = 'none';
+        }
+        this.activeHoveredTh = null;
     },
 
     setupTableHoverListeners(preview) {
@@ -259,25 +965,6 @@ const TableEditor = {
         btnGroup.style.position = 'absolute';
         btnGroup._targetTable = table;
 
-        // 【機能1】編集ボタン
-        const editBtn = document.createElement('button');
-        editBtn.className = 'inline-edit-btn';
-        editBtn.textContent = typeof I18n !== 'undefined' ? I18n.translate('editor.edit') || '編集' : '編集';
-        editBtn.contentEditable = 'false';
-        editBtn.onclick = (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            this.hideEditButton();
-
-            if (!table.isConnected) {
-                const idx = parseInt(table.dataset.tableIndex || '0', 10);
-                const newTable = document.querySelector(`table[data-table-index="${idx}"]`);
-                if (newTable && newTable.isConnected) table = newTable;
-                else return;
-            }
-            const index = parseInt(table.dataset.tableIndex || '0', 10);
-            this.startEdit(table, index);
-        };
 
         const extractTableData = () => {
              // 編集モード状態を保存するためserializeTableに似た抽出
@@ -322,7 +1009,6 @@ const TableEditor = {
 
         btnGroup.appendChild(csvBtn);
         btnGroup.appendChild(tsvBtn);
-        btnGroup.appendChild(editBtn);
 
         document.body.appendChild(btnGroup);
 
@@ -413,10 +1099,48 @@ const TableEditor = {
             }
         }
 
+        // [New] Right-side buffer zone logic: Check if we are near the right edge of a table (30px)
+        if (!cell) {
+            // Check specific points to the left to see if we are near a table
+            // We check -30px.
+            const potentialElem = document.elementFromPoint(e.clientX - 30, e.clientY);
+            const nearCell = potentialElem ? potentialElem.closest('th, td') : null;
+
+            if (nearCell) {
+                const rect = nearCell.getBoundingClientRect();
+                // Confirm we are within 30px right of the cell
+                if (e.clientX > rect.right && e.clientX <= rect.right + 30) {
+                    cell = nearCell;
+                }
+            }
+        }
+
+        // [New] Top-side buffer zone logic: Check if we are slightly above a table cell (within 25px)
+        if (!cell) {
+            // Check specific points below to see if we are near a table
+            // We check +25px.
+            const potentialElem = document.elementFromPoint(e.clientX, e.clientY + 25);
+            const nearCell = potentialElem ? potentialElem.closest('th, td') : null;
+
+            if (nearCell) {
+                const rect = nearCell.getBoundingClientRect();
+                // Confirm we are within 25px above the cell
+                if (e.clientY < rect.top && e.clientY >= rect.top - 25) {
+                    cell = nearCell;
+                }
+            }
+        }
+
         if (!cell) {
             // If hovering buttons, don't hide
             if (!e.target.closest('#table-row-controls')) {
                 this.hideRowControls();
+            }
+            if (!e.target.closest('.table-row-drag-handle')) {
+                this.hideRowDragHandle();
+            }
+            if (!e.target.closest('.table-col-drag-handle')) {
+                this.hideColDragHandle();
             }
             return;
         }
@@ -424,15 +1148,33 @@ const TableEditor = {
         const table = cell.closest('table');
         if (!table || !table.classList.contains('interactive-table')) return;
 
+        // 列ドラッグハンドルの表示
+        this.showColDragHandle(cell);
+
         // [New] Inside restriction: Hide if cursor is too far right (more than 30px from left edge)
         const tableRect = table.getBoundingClientRect();
         if (e.clientX > tableRect.left + 30) {
             this.hideRowControls(true);
+            
+            // ドラッグハンドルはテーブル全域のホバーで表示したいので、ここで表示させる
+            const tr = cell.closest('tr');
+            if (tr && tr.parentElement.tagName !== 'THEAD') {
+                this.showRowDragHandle(tr);
+            } else {
+                this.hideRowDragHandle();
+            }
             return;
         }
 
         const tr = cell.closest('tr');
         if (!tr) return;
+
+        // ドラッグハンドルの表示 (tbody tr のみ)
+        if (tr.parentElement.tagName !== 'THEAD') {
+            this.showRowDragHandle(tr);
+        } else {
+            this.hideRowDragHandle();
+        }
 
         // 2. Logic: Near Left Edge of the TABLE (first column)
         // With the above restrict check, we know we are near the left edge.
@@ -592,6 +1334,18 @@ const TableEditor = {
     handleContextMenu(e, table, index) {
         e.preventDefault();
 
+        // 既存のコンテキストメニューがあれば閉じる
+        if (this.activeMenu) {
+            if (this.activeMenu.parentNode) {
+                this.activeMenu.parentNode.removeChild(this.activeMenu);
+            }
+            if (this.activeMenuCloseListener) {
+                document.removeEventListener('click', this.activeMenuCloseListener);
+            }
+            this.activeMenu = null;
+            this.activeMenuCloseListener = null;
+        }
+
         // Determine target (Header or Body)
         const target = e.target;
         const tagName = target.tagName.toLowerCase();
@@ -603,6 +1357,7 @@ const TableEditor = {
         // Create Menu
         const menu = document.createElement('div');
         menu.className = 'ctx-menu';
+        this.activeMenu = menu;
 
         let closeMenu; // Define earlier for reference in createItem
 
@@ -617,6 +1372,10 @@ const TableEditor = {
                 }
                 if (closeMenu) {
                     document.removeEventListener('click', closeMenu);
+                }
+                if (this.activeMenu === menu) {
+                    this.activeMenu = null;
+                    this.activeMenuCloseListener = null;
                 }
             };
             menu.appendChild(item);
@@ -643,6 +1402,9 @@ const TableEditor = {
             createItem('コピー行を挿入', () => this.insertCopiedRow(table, row.rowIndex));
             menu.appendChild(document.createElement('hr'));
             createItem('行を削除', () => this.deleteRow(table, row.rowIndex));
+            menu.appendChild(document.createElement('hr'));
+            createItem('合計列を追加', () => this.addTotalColumn(table));
+            createItem('合計行を追加', () => this.addTotalRow(table));
         }
 
         // Position menu
@@ -655,8 +1417,13 @@ const TableEditor = {
             if (!menu.contains(ev.target)) {
                 if (menu.parentNode) menu.parentNode.removeChild(menu);
                 document.removeEventListener('click', closeMenu);
+                if (this.activeMenu === menu) {
+                    this.activeMenu = null;
+                    this.activeMenuCloseListener = null;
+                }
             }
         };
+        this.activeMenuCloseListener = closeMenu;
         // Delay adding listener to avoid immediate triggering
         setTimeout(() => document.addEventListener('click', closeMenu), 0);
     },
@@ -785,79 +1552,13 @@ const TableEditor = {
         this.saveChangesImmediate(table);
     },
 
-    deleteRow(table, rowIndex) {
-        const theadRows = table.querySelector('thead')?.rows?.length || 0;
-        if (rowIndex < theadRows) return; // Don't delete header via this
 
-        table.deleteRow(rowIndex);
-        this.saveChangesImmediate(table);
-    },
-
-    copyRow(table, rowIndex) {
-        const row = table.rows[rowIndex];
-        if (!row) return;
-
-        // Clone the row content
-        this.copiedRowData = Array.from(row.cells).map(cell => cell.innerHTML);
-        //         console.log('Row copied:', this.copiedRowData);
-
-        // Optional: Visual feedback
-        if (typeof showToast === 'function') showToast(t('toast.rowCopied'), "success");
-    },
-
-    insertCopiedRow(table, rowIndex) {
-        if (!this.copiedRowData) {
-            if (typeof showToast === 'function') showToast(t('toast.noRowCopied'), "warning");
-            return;
-        }
-
-        const tbody = table.querySelector('tbody');
-        const newRow = document.createElement('tr');
-
-        this.copiedRowData.forEach(html => {
-            const td = document.createElement('td');
-            td.innerHTML = html;
-            if (this.activeTable === table) td.contentEditable = "true"; // 編集中なら編集可能にする
-            newRow.appendChild(td);
-        });
-
-        const theadRows = table.querySelector('thead')?.rows?.length || 0;
-        const targetIndex = rowIndex - theadRows;
-
-        // Insert after the target row
-        if (targetIndex < 0) {
-            if (tbody.firstChild) {
-                tbody.insertBefore(newRow, tbody.firstChild);
-            } else {
-                tbody.appendChild(newRow);
-            }
-        } else if (targetIndex < tbody.rows.length) {
-            tbody.insertBefore(newRow, tbody.rows[targetIndex].nextSibling);
-        } else {
-            tbody.appendChild(newRow);
-        }
-
-        if (this.activeTable === table) {
-            this.refreshRowHandles(table);
-        }
-
-        this.saveChangesImmediate(table);
-    },
-
-
-    saveChangesImmediate(table) {
-        // If not editing, save. If editing, assume user will click Done.
-        // Actually, for context menu actions, we should probably save immediately even in edit mode, 
-        // or effectively "restart" edit mode to refresh state.
-        // For simplicity: Force full update.
-        const markdown = this.serializeTable(table);
-        this.updateMarkdownSource(table, markdown);
-    },
 
     // --- Interaction Handlers ---
 
     handlePaste(e) {
         e.preventDefault();
+        e.stopPropagation();
         const text = (e.clipboardData || window.clipboardData).getData('text');
 
         // TSV parser (CSVサポートはPapaParse等が必要になり実装が複雑化するため、要望があるまで見送りとします)
@@ -930,9 +1631,12 @@ const TableEditor = {
             });
         });
 
-        // Trigger safe save (not immediate, to avoid re-render breaking selection? 
-        // Actually paste breaks selection anyway, so immediate save is fine)
-        this.finalizeAction(table, true);
+        // ペースト完了後の保存処理
+        if (this.activeTable === table) {
+            this.saveChangesImmediate(table);
+        } else {
+            this.saveCellEdit();
+        }
     },
 
     handleKeydown(e) {
@@ -1060,7 +1764,7 @@ const TableEditor = {
             let node = sel.anchorNode;
             if (node && node.nodeType === 3) node = node.parentNode;
             const cell = node ? node.closest('th, td') : null;
-            if (!cell || cell.closest('table') !== this.activeTable) {
+            if (!cell || cell.closest('table') !== (this.activeTable || this.editingCellElement?.closest('table'))) {
                 this.hideMiniToolbar();
                 return;
             }
@@ -1120,10 +1824,9 @@ const TableEditor = {
         this.hideMiniToolbar();
         // すぐ保存
         if (this.activeTable) {
-            // Note: input/keydownではないので別途手動保存するかはDoneボタン依存。
-            // 念のため即時保存してもよいが、完了ボタンの方針なので一旦保留。
-            // D&Dなどは即時保存(saveChangesImmediate)しているので即時保存する。
             this.saveChangesImmediate(this.activeTable);
+        } else if (this.editingCellElement) {
+            this.saveCellEdit();
         }
     },
 
@@ -1133,11 +1836,10 @@ const TableEditor = {
             this.dragManager = null;
         }
 
-        // Insert Drag Handles
+        // Insert Drag Handles for Columns
         const headers = table.querySelectorAll('th');
         headers.forEach(th => {
-            // Col Handle
-            if (!th.querySelector('.drag-handle')) {
+            if (!th.querySelector('.drag-handle-col')) {
                 const handle = document.createElement('span');
                 handle.className = 'drag-handle drag-handle-col';
                 handle.contentEditable = 'false';
@@ -1147,43 +1849,25 @@ const TableEditor = {
             }
         });
 
-        const rows = table.querySelectorAll('tbody tr');
-        rows.forEach(tr => {
-            const firstCell = tr.cells[0];
-            if (firstCell && !firstCell.querySelector('.drag-handle')) {
-                const handle = document.createElement('span');
-                handle.className = 'drag-handle drag-handle-row';
-                handle.contentEditable = 'false';
-                handle.innerHTML = '⠿'; // Six-dot handle
-
-                firstCell.insertBefore(handle, firstCell.firstChild);
-            }
-        });
-
         if (typeof PointerDragManager !== 'undefined') {
             this.dragManager = new PointerDragManager({
                 container: table,
-                itemSelector: 'th, tbody tr',
-                handleSelector: '.drag-handle',
+                itemSelector: 'th',
+                handleSelector: '.drag-handle-col',
                 draggingClass: 'dragging-ghost', // Visual feedback like original
                 onDragStart: (item, e) => {
-                    const type = item.tagName === 'TH' ? 'col' : 'row';
-                    const handle = e.target.closest('.drag-handle');
+                    const handle = e.target.closest('.drag-handle-col');
                     if (!handle) return null;
-                    if (type === 'col' && !handle.classList.contains('drag-handle-col')) return null;
-                    if (type === 'row' && !handle.classList.contains('drag-handle-row')) return null;
 
                     this.dragSrcEl = item;
-                    this.dragType = type;
-                    this.dragSrcIndex = type === 'col' ? item.cellIndex : item.rowIndex;
+                    this.dragType = 'col';
+                    this.dragSrcIndex = item.cellIndex;
 
                     item.classList.add('dragging-source');
 
-                    return { type, item, index: this.dragSrcIndex };
+                    return { type: 'col', item, index: this.dragSrcIndex };
                 },
                 onDragMove: (data, e, info) => {
-                    // Visual Drop Indicator Line is natively handled by PointerDragManager.
-                    // We no longer apply drag-over-target rectangle.
                 },
                 onDragEnd: (data, e) => {
                     if (this.dragSrcEl) {
@@ -1193,18 +1877,12 @@ const TableEditor = {
                 onDrop: (data, dropTarget, e, dropBefore) => {
                     if (!data) return;
                     
-                    const target = dropTarget ? dropTarget.closest(data.type === 'col' ? 'th' : 'tr') : null;
+                    const target = dropTarget ? dropTarget.closest('th') : null;
                     if (!target || target === this.dragSrcEl) return;
 
-                    if (data.type === 'col' && target.tagName === 'TH') {
-                        const targetIndex = target.cellIndex;
-                        this.moveColumn(this.activeTable, this.dragSrcIndex, targetIndex, dropBefore);
-                        this.refreshRowHandles(this.activeTable);
-                    } else if (data.type === 'row' && target.tagName === 'TR') {
-                        const targetIndex = target.rowIndex;
-                        if (target.parentElement.tagName === 'THEAD') return;
-                        this.moveRow(this.activeTable, this.dragSrcIndex, targetIndex, dropBefore);
-                    }
+                    const targetIndex = target.cellIndex;
+                    this.moveColumn(this.activeTable, this.dragSrcIndex, targetIndex, dropBefore);
+                    this.refreshRowHandles(this.activeTable);
                 }
             });
         }
@@ -1270,24 +1948,9 @@ const TableEditor = {
      */
     refreshRowHandles(table) {
         if (!table) return;
-        const rows = table.querySelectorAll('tbody tr');
 
-        rows.forEach(tr => {
-            // 1. Remove existing handles from ALL cells in this row
-            const existingHandles = tr.querySelectorAll('.drag-handle-row');
-            existingHandles.forEach(h => h.remove());
-
-            // 2. Add handle to the FIRST cell (index 0)
-            const firstCell = tr.cells[0];
-            if (firstCell) {
-                const handle = document.createElement('span');
-                handle.className = 'drag-handle drag-handle-row';
-                handle.contentEditable = 'false';
-                handle.innerHTML = '⠿';
-
-                firstCell.insertBefore(handle, firstCell.firstChild);
-            }
-        });
+        // 古い左端の drag-handle-row や右端の既存ハンドルがあれば全て削除（動的シングルトン化のため個別アタッチは行わない）
+        table.querySelectorAll('.drag-handle-row, .table-row-drag-handle').forEach(h => h.remove());
     },
 
     // --- Serialization & Sync ---
@@ -1301,7 +1964,8 @@ const TableEditor = {
         // Helper to get text excluding handles and convert formats to Markdown
         const getCellText = (cell) => {
             const clone = cell.cloneNode(true);
-            clone.querySelectorAll('.drag-handle').forEach(h => h.remove());
+            // ドラッグハンドルやUIボタンなど表示専用要素を除去する
+            clone.querySelectorAll('.drag-handle, button').forEach(h => h.remove());
             let html = clone.innerHTML;
             
             // HTMLの装飾タグをMarkdown記法に変換
@@ -1379,6 +2043,150 @@ const TableEditor = {
         return md;
     },
 
+    addTotalColumn(table) {
+        const rows = table.querySelectorAll('tr');
+        if (rows.length === 0) return;
+
+        // 数値抽出・判定関数
+        const getNumericValue = (cell) => {
+            const clone = cell.cloneNode(true);
+            clone.querySelectorAll('.table-cell-copy-btn, .drag-handle').forEach(el => el.remove());
+            let text = clone.textContent || '';
+            text = text.replace('⠿', '').trim();
+            const cleanText = text.replace(/,/g, '');
+            if (cleanText === '') return 0;
+            const num = Number(cleanText);
+            return isNaN(num) ? 0 : num;
+        };
+
+        rows.forEach(row => {
+            const isHeader = row.closest('thead') || row.querySelector('th');
+            if (isHeader) {
+                const newCell = document.createElement('th');
+                newCell.textContent = '合計';
+                row.appendChild(newCell);
+            } else {
+                let sum = 0;
+                Array.from(row.cells).forEach(cell => {
+                    sum += getNumericValue(cell);
+                });
+                const newCell = document.createElement('td');
+                newCell.textContent = String(sum);
+                if (this.activeTable === table) newCell.contentEditable = "true";
+                row.appendChild(newCell);
+            }
+        });
+
+        this.saveChangesImmediate(table);
+    },
+
+    addTotalRow(table) {
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+
+        const colCount = table.rows[0].cells.length;
+        const newRow = document.createElement('tr');
+
+        // 数値抽出・判定関数
+        const getNumericValue = (cell) => {
+            const clone = cell.cloneNode(true);
+            clone.querySelectorAll('.table-cell-copy-btn, .drag-handle').forEach(el => el.remove());
+            let text = clone.textContent || '';
+            text = text.replace('⠿', '').trim();
+            const cleanText = text.replace(/,/g, '');
+            if (cleanText === '') return 0;
+            const num = Number(cleanText);
+            return isNaN(num) ? 0 : num;
+        };
+
+        for (let i = 0; i < colCount; i++) {
+            let sum = 0;
+            tbody.querySelectorAll('tr').forEach(row => {
+                const cell = row.cells[i];
+                if (cell) {
+                    sum += getNumericValue(cell);
+                }
+            });
+
+            const td = document.createElement('td');
+            td.textContent = String(sum);
+            if (this.activeTable === table) td.contentEditable = "true";
+            newRow.appendChild(td);
+        }
+
+        tbody.appendChild(newRow);
+
+        if (this.activeTable === table) {
+            this.refreshRowHandles(table);
+        }
+
+        this.saveChangesImmediate(table);
+    },
+
+    deleteRow(table, rowIndex) {
+        const theadRows = table.querySelector('thead')?.rows?.length || 0;
+        if (rowIndex < theadRows) return; // Don't delete header via this
+
+        table.deleteRow(rowIndex);
+        this.saveChangesImmediate(table);
+    },
+
+    copyRow(table, rowIndex) {
+        const row = table.rows[rowIndex];
+        if (!row) return;
+
+        // Clone the row content
+        this.copiedRowData = Array.from(row.cells).map(cell => cell.innerHTML);
+
+        // Optional: Visual feedback
+        if (typeof showToast === 'function') {
+            const msg = typeof t === 'function' ? t('toast.rowCopied') : '行をコピーしました';
+            showToast(msg, "success");
+        }
+    },
+
+    insertCopiedRow(table, rowIndex) {
+        if (!this.copiedRowData) {
+            if (typeof showToast === 'function') {
+                const msg = typeof t === 'function' ? t('toast.noRowCopied') : 'コピーされた行がありません';
+                showToast(msg, "warning");
+            }
+            return;
+        }
+
+        const tbody = table.querySelector('tbody');
+        const newRow = document.createElement('tr');
+
+        this.copiedRowData.forEach(html => {
+            const td = document.createElement('td');
+            td.innerHTML = html;
+            if (this.activeTable === table) td.contentEditable = "true"; // 編集中なら編集可能にする
+            newRow.appendChild(td);
+        });
+
+        const theadRows = table.querySelector('thead')?.rows?.length || 0;
+        const targetIndex = rowIndex - theadRows;
+
+        // Insert after the target row
+        if (targetIndex < 0) {
+            if (tbody.firstChild) {
+                tbody.insertBefore(newRow, tbody.firstChild);
+            } else {
+                tbody.appendChild(newRow);
+            }
+        } else if (targetIndex < tbody.rows.length) {
+            tbody.insertBefore(newRow, tbody.rows[targetIndex].nextSibling);
+        } else {
+            tbody.appendChild(newRow);
+        }
+
+        if (this.activeTable === table) {
+            this.refreshRowHandles(table);
+        }
+
+        this.saveChangesImmediate(table);
+    },
+
     saveChangesImmediate(table) {
         if (!table) return;
         // 編集中ならDOMの変更を確定させるだけとし、再描画でフォーカスが飛ぶのを防ぐ
@@ -1391,7 +2199,7 @@ const TableEditor = {
         this.updateMarkdownSource(table, markdown);
     },
 
-    updateMarkdownSource(tableOrIndex, newTableMarkdown) {
+    async updateMarkdownSource(tableOrIndex, newTableMarkdown) {
         const text = AppState.text;
         const lines = text.split('\n');
 
@@ -1399,13 +2207,47 @@ const TableEditor = {
         let tableEndLine = -1;
         let isObject = (typeof tableOrIndex === 'object' && tableOrIndex !== null);
 
+        const isSeparatorRow = (l) => {
+            const line = l.trim();
+            if (!line || !line.includes('-')) return false;
+            const cells = line.replace(/^\||\|$/g, '').split('|');
+            return cells.every(c => /^\s*:?-+:?\s*$/.test(c));
+        };
+
         // [NEW] Use precise data-line if an element is passed
         if (isObject) {
             const sl = parseInt(tableOrIndex.getAttribute('data-line'), 10);
-            const eline = parseInt(tableOrIndex.getAttribute('data-line-end'), 10);
-            if (!isNaN(sl) && !isNaN(eline)) {
-                tableStartLine = sl - 1;
-                tableEndLine = eline - 1;
+            if (!isNaN(sl)) {
+                const tempStart = sl - 1;
+
+                // 開始行が有効で、かつパイプ行であり、アラインメント行ではないことを確認
+                if (tempStart >= 0 && tempStart < lines.length) {
+                    const firstLine = lines[tempStart].trim();
+                    if (firstLine.startsWith('|') && !isSeparatorRow(firstLine)) {
+                        // 開始行から下方向に、パイプ行が連続する終端をスキャンして tempEnd を決定する
+                        let tempEnd = tempStart;
+                        while (tempEnd + 1 < lines.length && lines[tempEnd + 1].trim().startsWith('|')) {
+                            tempEnd++;
+                        }
+
+                        // 範囲内にアラインメント行（セパレーター行）が含まれているか検証
+                        let hasSeparator = false;
+                        for (let k = tempStart + 1; k <= tempEnd; k++) {
+                            if (isSeparatorRow(lines[k])) {
+                                hasSeparator = true;
+                                break;
+                            }
+                        }
+
+                        if (hasSeparator) {
+                            tableStartLine = tempStart;
+                            tableEndLine = tempEnd;
+                        }
+                    }
+                }
+                if (tableStartLine === -1 || tableEndLine === -1) {
+                    console.warn(`[TableEditor] Invalid table range from data-line attribute: ${sl}. Falling back to scan.`);
+                }
             }
         }
 
@@ -1415,13 +2257,6 @@ const TableEditor = {
             let currentTableIndex = 0;
             let inTable = false;
             let inCodeBlock = false;
-
-            const isSeparatorRow = (l) => {
-                const line = l.trim();
-                if (!line || !line.includes('-')) return false;
-                const cells = line.replace(/^\||\|$/g, '').split('|');
-                return cells.every(c => /^\s*:?-+:?\s*$/.test(c));
-            };
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -1472,9 +2307,417 @@ const TableEditor = {
             // Trigger Render (debounce handled usually, but here immediate might be better to see result)
             // But full render will kill our edit state if we were editing.
             // Since this function is called on "Done" or Context Menu (Atomic actions), full render is fine.
-            if (typeof render === 'function') render();
+            if (typeof render === 'function') {
+                await render();
+            }
         } else {
             //             console.error('Could not find corresponding table in source');
+        }
+    },
+
+    setupNonEditDragDrop(table) {
+        // 廃止: グローバルのドラッグ＆ドロップマネージャーで処理されるため不要
+    },
+
+    setupCellSelectionEvents(table) {
+        table.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; // 左クリックのみ
+
+            // コピーボタンをクリックした場合はセル選択を処理しない
+            if (e.target.closest('.table-cell-copy-btn')) {
+                return;
+            }
+
+            // 現在インライン編集中の場合は無視
+            if (this.editingCellElement) return;
+
+            // 表全体エディタが起動中の場合も、ここでは単体フォーカスを無視
+            if (this.activeTable) return;
+
+            const cell = e.target.closest('td, th');
+            if (!cell) return;
+
+            if (typeof PreviewInlineEdit !== 'undefined' && PreviewInlineEdit.focusedElement !== table) {
+                PreviewInlineEdit.startFocus(table);
+            }
+
+            if (e.shiftKey) {
+                // Shift+クリックによる範囲拡張
+                if (!this.selectionStartCell) {
+                    this.selectionStartCell = cell;
+                }
+                this.selectionEndCell = cell;
+                this.updateRangeSelection(table);
+            } else if (e.ctrlKey || e.metaKey) {
+                // Ctrl+クリックによる離れたセルのトグル選択
+                this.toggleCellSelection(cell);
+                this.selectionStartCell = cell;
+                this.selectionEndCell = cell;
+            } else {
+                // 新規選択
+                this.clearSelection();
+                this.selectionStartCell = cell;
+                this.selectionEndCell = cell;
+                this.isMouseDownForSelection = true;
+                table.classList.add('selecting-cells');
+                this.updateRangeSelection(table);
+            }
+        });
+
+        table.addEventListener('mousemove', (e) => {
+            if (!this.isMouseDownForSelection) return;
+
+            const cell = e.target.closest('td, th');
+            if (!cell) return;
+
+            if (cell !== this.selectionEndCell) {
+                this.selectionEndCell = cell;
+                this.updateRangeSelection(table);
+            }
+        });
+
+        if (!this._documentMouseUpBound) {
+            document.addEventListener('mouseup', () => {
+                this.isMouseDownForSelection = false;
+                document.querySelectorAll('.selecting-cells').forEach(t => {
+                    t.classList.remove('selecting-cells');
+                });
+            });
+            this._documentMouseUpBound = true;
+        }
+    },
+
+    updateRangeSelection(table) {
+        if (!this.selectionStartCell || !this.selectionEndCell) return;
+
+        const cells = this.getCellsInRange(this.selectionStartCell, this.selectionEndCell);
+
+        // 既存の選択スタイルを削除
+        this.selectedCells.forEach(c => {
+            c.classList.remove('table-cell-selected');
+        });
+
+        // 新しい選択スタイルを適用
+        this.selectedCells = cells;
+        this.selectedCells.forEach(c => {
+            c.classList.add('table-cell-selected');
+        });
+
+        // 起点セルをアクティブセル（table-cell-focused）にする
+        if (this.activeCellElement) {
+            this.activeCellElement.classList.remove('table-cell-focused');
+        }
+        this.activeCellElement = this.selectionStartCell;
+        this.activeCellElement.classList.add('table-cell-focused');
+        this.updateSelectedCellsStatus();
+    },
+
+    toggleCellSelection(cell) {
+        if (!cell) return;
+
+        const index = this.selectedCells.indexOf(cell);
+        if (index > -1) {
+            // すでに選択されていれば解除
+            this.selectedCells.splice(index, 1);
+            cell.classList.remove('table-cell-selected');
+
+            if (this.activeCellElement === cell) {
+                cell.classList.remove('table-cell-focused');
+                // 代わりのアクティブセルを設定（残っている最後のセル）
+                this.activeCellElement = this.selectedCells[this.selectedCells.length - 1] || null;
+                if (this.activeCellElement) {
+                    this.activeCellElement.classList.add('table-cell-focused');
+                }
+            }
+        } else {
+            // 選択されていなければ追加
+            this.selectedCells.push(cell);
+            cell.classList.add('table-cell-selected');
+
+            // 新しくクリックしたセルをアクティブにする
+            if (this.activeCellElement) {
+                this.activeCellElement.classList.remove('table-cell-focused');
+            }
+            this.activeCellElement = cell;
+            this.activeCellElement.classList.add('table-cell-focused');
+        }
+        this.updateSelectedCellsStatus();
+    },
+
+    clearSelection() {
+        this.selectedCells.forEach(c => {
+            c.classList.remove('table-cell-selected');
+        });
+        this.selectedCells = [];
+        this.selectionStartCell = null;
+        this.selectionEndCell = null;
+        this.clearCellFocus();
+        this.updateSelectedCellsStatus();
+    },
+
+    handleFocusedCellKeydown(e) {
+        const key = e.key;
+        if (key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'Escape' && key !== 'Enter' && key !== 'F2' && key !== 'Tab') {
+            return false;
+        }
+
+        const activeCell = this.activeCellElement || this.selectionStartCell;
+        if (!activeCell) return false;
+
+        const table = activeCell.closest('table');
+        if (!table) return false;
+
+        // Escape: 選択解除
+        if (key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            this.clearSelection();
+            if (typeof PreviewInlineEdit !== 'undefined') {
+                PreviewInlineEdit.clearFocus();
+            }
+            return true;
+        }
+
+        // Enter / F2: 選択中のセルを編集開始
+        if (key === 'Enter' || key === 'F2') {
+            e.preventDefault();
+            e.stopPropagation();
+            const cellToEdit = this.activeCellElement;
+            this.clearSelection();
+            this.focusCell(cellToEdit);
+            this.startCellEdit(cellToEdit);
+            return true;
+        }
+
+        // Tab / Shift+Tab キーによるセル間移動および最下行末尾での自動行追加
+        if (key === 'Tab') {
+            e.preventDefault();
+            e.stopPropagation();
+            const isShift = e.shiftKey;
+            const row = activeCell.parentElement;
+            const colIndex = activeCell.cellIndex;
+            const section = row.parentElement;
+            
+            let nextCell = isShift ? activeCell.previousElementSibling : activeCell.nextElementSibling;
+            let nextRow = row;
+            let shouldInsertRow = false;
+            
+            if (!nextCell) {
+                nextRow = isShift ? row.previousElementSibling : row.nextElementSibling;
+                // thead/tbody またぎ
+                if (!nextRow) {
+                    if (!isShift && section.tagName === 'THEAD') {
+                        const tbody = table.querySelector('tbody');
+                        if (tbody) nextRow = tbody.firstElementChild;
+                    } else if (isShift && section.tagName === 'TBODY') {
+                        const thead = table.querySelector('thead');
+                        if (thead) nextRow = thead.lastElementChild;
+                    }
+                }
+                
+                if (nextRow) {
+                    nextCell = isShift ? nextRow.lastElementChild : nextRow.firstElementChild;
+                } else if (!isShift && section.tagName === 'TBODY') {
+                    shouldInsertRow = true;
+                }
+            }
+            
+            if (shouldInsertRow) {
+                const tableDataLine = table.getAttribute('data-line');
+                const currentRowIndex = row.rowIndex;
+                this.insertRow(table, currentRowIndex + 1);
+                
+                setTimeout(() => {
+                    const freshTable = document.querySelector(`table[data-line="${tableDataLine}"]`);
+                    if (!freshTable) return;
+                    const newRowEl = freshTable.rows[currentRowIndex + 1];
+                    if (!newRowEl) return;
+                    const firstCell = newRowEl.firstElementChild;
+                    if (firstCell) {
+                        this.clearSelection();
+                        this.focusCell(firstCell);
+                    }
+                }, 50);
+            } else if (nextCell) {
+                this.clearSelection();
+                this.focusCell(nextCell);
+            }
+            return true;
+        }
+
+        // 矢印キー処理
+        const currentEnd = this.selectionEndCell || activeCell;
+        const neighbor = this.getNeighborCell(currentEnd, key);
+
+        if (neighbor) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (e.shiftKey) {
+                // Shift+矢印キー: 選択範囲を拡張
+                this.selectionEndCell = neighbor;
+                this.updateRangeSelection(table);
+            } else {
+                // 矢印キー単体: 選択範囲を解除して移動
+                this.clearSelection();
+                this.selectionStartCell = neighbor;
+                this.selectionEndCell = neighbor;
+                this.updateRangeSelection(table);
+            }
+            return true;
+        }
+        return false;
+    },
+
+    getCellsInRange(startCell, endCell) {
+        if (!startCell || !endCell) return [];
+        const table = startCell.closest('table');
+        const rows = Array.from(table.rows);
+        
+        const startRowIdx = startCell.parentElement.rowIndex;
+        const startColIdx = startCell.cellIndex;
+        const endRowIdx = endCell.parentElement.rowIndex;
+        const endColIdx = endCell.cellIndex;
+        
+        const minRow = Math.min(startRowIdx, endRowIdx);
+        const maxRow = Math.max(startRowIdx, endRowIdx);
+        const minCol = Math.min(startColIdx, endColIdx);
+        const maxCol = Math.max(startColIdx, endColIdx);
+        
+        const cells = [];
+        for (let r = minRow; r <= maxRow; r++) {
+            const row = rows[r];
+            if (!row) continue;
+            for (let c = minCol; c <= maxCol; c++) {
+                if (row.cells[c]) {
+                    cells.push(row.cells[c]);
+                }
+            }
+        }
+        return cells;
+    },
+
+    getNeighborCell(cell, direction) {
+        const row = cell.parentElement;
+        const table = cell.closest('table');
+        const rowIndex = row.rowIndex;
+        const colIndex = cell.cellIndex;
+        
+        let targetRowIndex = rowIndex;
+        let targetColIndex = colIndex;
+        
+        switch (direction) {
+            case 'ArrowUp':
+                targetRowIndex = rowIndex - 1;
+                break;
+            case 'ArrowDown':
+                targetRowIndex = rowIndex + 1;
+                break;
+            case 'ArrowLeft':
+                targetColIndex = colIndex - 1;
+                break;
+            case 'ArrowRight':
+                targetColIndex = colIndex + 1;
+                break;
+        }
+        
+        const targetRow = table.rows[targetRowIndex];
+        if (targetRow) {
+            const targetCell = targetRow.cells[targetColIndex];
+            if (targetCell) {
+                return targetCell;
+            }
+        }
+        return null;
+    },
+
+    getSelectedCellsStats() {
+        if (!this.selectedCells || this.selectedCells.length <= 1) {
+            return { hasNumber: false, dataCount: 0, sum: 0 };
+        }
+
+        const getNumericValue = (cell) => {
+            const clone = cell.cloneNode(true);
+            clone.querySelectorAll('.table-cell-copy-btn, .drag-handle').forEach(el => el.remove());
+            let text = clone.textContent || '';
+            text = text.replace('⠿', '').trim();
+            const cleanText = text.replace(/,/g, '');
+            if (cleanText === '') return null;
+            const num = Number(cleanText);
+            return isNaN(num) ? null : num;
+        };
+
+        let hasNumber = false;
+        let sum = 0;
+        let dataCount = 0;
+
+        this.selectedCells.forEach(cell => {
+            const clone = cell.cloneNode(true);
+            clone.querySelectorAll('.table-cell-copy-btn, .drag-handle').forEach(el => el.remove());
+            const text = clone.textContent.replace('⠿', '').trim();
+            if (text !== '') {
+                dataCount++;
+            }
+
+            const val = getNumericValue(cell);
+            if (val !== null) {
+                sum += val;
+                hasNumber = true;
+            }
+        });
+
+        return { hasNumber, dataCount, sum };
+    },
+
+    updateSelectedCellsStatus() {
+        const bar = document.getElementById('preview-status-bar');
+        if (!bar) return;
+
+        if (!this.selectedCells || this.selectedCells.length <= 1) {
+            if (this._originalStatusText !== undefined) {
+                bar.textContent = this._originalStatusText;
+                this._originalStatusText = undefined;
+            } else {
+                const currentText = bar.textContent || '';
+                const match = currentText.match(/^(行: \d+ 列: \d+)/);
+                if (match) {
+                    bar.textContent = match[1];
+                } else {
+                    bar.textContent = '';
+                }
+            }
+            return;
+        }
+
+        const stats = this.getSelectedCellsStats();
+
+        if (stats.hasNumber) {
+            let baseText = '';
+            const currentText = bar.textContent || '';
+            const match = currentText.match(/^(行: \d+ 列: \d+)/);
+            if (match) {
+                baseText = match[1] + '  ';
+            } else if (this._originalStatusText && this._originalStatusText.match(/^(行: \d+ 列: \d+)/)) {
+                baseText = this._originalStatusText.match(/^(行: \d+ 列: \d+)/)[1] + '  ';
+            }
+
+            if (this._originalStatusText === undefined) {
+                this._originalStatusText = bar.textContent;
+            }
+            bar.textContent = `${baseText}データの個数: ${stats.dataCount}  合計: ${stats.sum}`;
+        } else {
+            if (this._originalStatusText !== undefined) {
+                bar.textContent = this._originalStatusText;
+                this._originalStatusText = undefined;
+            } else {
+                const currentText = bar.textContent || '';
+                const match = currentText.match(/^(行: \d+ 列: \d+)/);
+                if (match) {
+                    bar.textContent = match[1];
+                } else {
+                    bar.textContent = '';
+                }
+            }
         }
     }
 };
@@ -1483,5 +2726,7 @@ const TableEditor = {
 window.TableEditor = TableEditor;
 
 window.isTableEditing = function () {
-    return typeof TableEditor !== 'undefined' && TableEditor.activeTable !== null;
+    // 全体表エディタ起動中、またはセル単体編集中のどちらかの場合に true を返す
+    return typeof TableEditor !== 'undefined' &&
+           (TableEditor.activeTable !== null || TableEditor.editingCellElement !== null);
 };

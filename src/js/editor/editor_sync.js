@@ -303,6 +303,11 @@ function bindScrollSync() {
             const sel = window.getSelection();
             if (!sel.rangeCount) return;
 
+            // テーブルセルが複数選択中の場合は上書きしない
+            if (window.TableEditor && window.TableEditor.selectedCells && window.TableEditor.selectedCells.length > 1) {
+                return;
+            }
+
             let node = sel.anchorNode;
             if (!node) return;
 
@@ -311,8 +316,15 @@ function bindScrollSync() {
             const element = (node.nodeType === 3) ? node.parentElement : node;
 
             if (!DOM.preview.contains(element)) {
-                // Cursor outside preview: Clear status bar text but keep visible
-                DOM.previewStatusBar.textContent = '';
+                // Cursor outside preview: Clear status bar text or display stats if table cells selected
+                let statsText = '';
+                if (window.TableEditor && typeof window.TableEditor.getSelectedCellsStats === 'function') {
+                    const stats = window.TableEditor.getSelectedCellsStats();
+                    if (stats.hasNumber) {
+                        statsText = `データの個数: ${stats.dataCount}  合計: ${stats.sum}`;
+                    }
+                }
+                DOM.previewStatusBar.textContent = statsText;
                 return;
             }
 
@@ -332,7 +344,14 @@ function bindScrollSync() {
                         const textOffset = preCaretRange.toString().length;
 
                         // Display in Status Bar
-                        DOM.previewStatusBar.textContent = `行: ${startLine} 列: ${textOffset}`;
+                        let statsText = '';
+                        if (window.TableEditor && typeof window.TableEditor.getSelectedCellsStats === 'function') {
+                            const stats = window.TableEditor.getSelectedCellsStats();
+                            if (stats.hasNumber) {
+                                statsText = `  データの個数: ${stats.dataCount}  合計: ${stats.sum}`;
+                            }
+                        }
+                        DOM.previewStatusBar.textContent = `行: ${startLine} 列: ${textOffset}${statsText}`;
                         DOM.previewStatusBar.style.display = 'block';
                     } catch (e) { /* ignore range errors */ }
                     return;
@@ -340,7 +359,14 @@ function bindScrollSync() {
             }
 
             // Fallback if in preview but no data-line found (e.g. between blocks)
-            DOM.previewStatusBar.textContent = ''; // Clear text but keep visible
+            let statsText = '';
+            if (window.TableEditor && typeof window.TableEditor.getSelectedCellsStats === 'function') {
+                const stats = window.TableEditor.getSelectedCellsStats();
+                if (stats.hasNumber) {
+                    statsText = `データの個数: ${stats.dataCount}  合計: ${stats.sum}`;
+                }
+            }
+            DOM.previewStatusBar.textContent = statsText; // Clear or show stats
         });
     }
 }

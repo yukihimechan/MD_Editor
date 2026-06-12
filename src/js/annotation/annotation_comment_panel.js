@@ -118,8 +118,11 @@ window.AnnotationCommentPanel = (function () {
             if (texts && texts.length > 0) {
                 let t = [];
                 texts.forEach(txt => {
-                    if (txt.textContent.trim()) {
-                        t.push(txt.textContent.trim());
+                    // ステータスアイコン内のテキストは除外
+                    if (txt.closest && txt.closest('[data-status-icon="true"]')) return;
+                    const textVal = (txt.textContent || '').trim();
+                    if (textVal) {
+                        t.push(textVal);
                     }
                 });
                 innerText = t.join(' ').replace(/\s+/g, ' ').trim();
@@ -244,8 +247,16 @@ window.AnnotationCommentPanel = (function () {
         try {
             const bbox = bubble.shapeEl.bbox();
             const currentTransform = bubble.shapeEl.node.getAttribute('transform') || '';
-            const matchY = currentTransform.match(/translate\s*\(\s*[+-]?[\d.]+\s*,\s*([+-]?[\d.]+)/);
-            const ty = matchY ? parseFloat(matchY[1]) : 0;
+            let ty = 0;
+            const trMatch = currentTransform.match(/translate\s*\(\s*[+-]?[\d.]+(?:\s*,\s*([+-]?[\d.]+))?\s*\)/);
+            if (trMatch) {
+                ty = parseFloat(trMatch[1]) || 0;
+            } else {
+                const matMatch = currentTransform.match(/matrix\s*\(\s*[+-]?[\d.]+\s*,\s*[+-]?[\d.]+\s*,\s*[+-]?[\d.]+\s*,\s*[+-]?[\d.]+\s*,\s*([+-]?[\d.]+)\s*,\s*([+-]?[\d.]+)\s*\)/);
+                if (matMatch) {
+                    ty = parseFloat(matMatch[2]) || 0; // matrixの6番目の値(インデックス2)がty
+                }
+            }
 
             const svgRect     = svgEl.getBoundingClientRect();
             const paneRect    = previewPane.getBoundingClientRect();

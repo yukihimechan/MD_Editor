@@ -1222,15 +1222,29 @@ async function renderPageBreaks() {
     try {
         await new Promise(r => setTimeout(r, 10)); // UIスレッド解放
         positions = await window.getPageBreakTopPositions(DOM.preview, pageHeightPx, elementWidthPx);
-    } catch (e) { return; }
+    } catch (e) {
+        console.error("renderPageBreaks error:", e);
+        return;
+    }
 
     // [FIX] 非同期処理の間に次の計算リクエストが発行されていたら、この結果は捨てる（重複描画の防止）
-    if (currentReqId !== _pageBreakRequestId) return;
+    if (currentReqId !== _pageBreakRequestId) {
+        console.warn(`renderPageBreaks request ID mismatch: current=${currentReqId}, latest=${_pageBreakRequestId}`);
+        return;
+    }
 
     // 念のため追記前にもう一度クリア
     DOM.preview.querySelectorAll('.preview-page-break-line').forEach(el => el.remove());
 
-    if (!positions || positions.length === 0) return;
+    if (!positions) {
+        console.warn("renderPageBreaks: positions is undefined");
+        return;
+    }
+
+    if (positions.length === 0) {
+        // ドキュメントが1ページ以内の長さである場合は改ページ線が不要なため、警告を出さずに終了する
+        return;
+    }
 
     // [FIX] position: absolute の基準はボーダーエッジではなくパディングエッジ（内側）である。
     // borderTopWidth 分を引くことで、top: 0 が常にコンテンツ領域の先頭と一致するよう補正する。

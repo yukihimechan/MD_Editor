@@ -192,10 +192,9 @@ async function init() {
                                         if (dropPos) {
                                             const container = window.currentEditingSVG.container;
                                             if (container) {
-                                                const rect = container.getBoundingClientRect();
                                                 const draw = window.currentEditingSVG.draw;
                                                 // SVGキャンバス上での複数ドロップ時には少しずつずらして配置する
-                                                svgDropPoint = draw.point(dropPos.x - rect.left + (i * 20), dropPos.y - rect.top + (i * 20));
+                                                svgDropPoint = draw.point(dropPos.x + (i * 20), dropPos.y + (i * 20));
                                             }
                                         }
 

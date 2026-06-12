@@ -17,6 +17,30 @@ const MermaidInteraction = (() => {
 
     // ── ユーティリティ ────────────────────────────────────────
 
+    function escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function containsNodeId(text, mId) {
+        // IDの直後には空白、閉じ括弧類、矢印記号のほかに、定義開始の開き括弧（[ { (など）も来うる
+        const regex = new RegExp(`(^|[\\s\\(\\[\\{\\|\\->])` + escapeRegExp(mId) + `([\\s\\(\\[\\{\\)\\]\\}\\|\\->]|$)`);
+        return regex.test(text);
+    }
+
+    // Mermaidの矢印を分割するための正規表現 (ラベル付きも考慮)
+    const arrowSplitRegex = /\s*(?:-->|-\.->|==>|---|--|-\.-)(?:\|[^|]+\|)?\s*/;
+
+    function hasMermaidEdge(line, from, to) {
+        if (!arrowSplitRegex.test(line)) return false;
+        const fragments = line.split(arrowSplitRegex).map(s => s.trim());
+        for (let i = 0; i < fragments.length - 1; i++) {
+            if (containsNodeId(fragments[i], from) && containsNodeId(fragments[i + 1], to)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * wrapper要素からMermaidソースコードブロックの範囲を取得する。
      * @returns {{startIdx: number, endIdx: number, lines: string[]}|null}
@@ -65,7 +89,7 @@ const MermaidInteraction = (() => {
 
         for (let i = startIdx + 1; i < endIdx; i++) {
             const line = lines[i];
-            if (line.includes(fromId) && line.includes(toId)) {
+            if (hasMermaidEdge(line, fromId, toId)) {
                 // ラベルの抽出 (例: -->|label|, -.->|label|, ==>|label|)
                 const match = line.match(/(?:-->|-\.->|==>)\|([^|]+)\|/);
                 if (match) {
@@ -1590,19 +1614,14 @@ const MermaidInteraction = (() => {
         });
         observer.observe(wrapper, { childList: true, subtree: true, attributes: true });
 
+        // 初期化時にすでに編集モードである場合は、ヒットボックスを即座に適用する
+        if (wrapper.classList.contains('mermaid-edit-mode')) {
+            enhanceEdgeHitboxes(wrapper);
+        }
+
         const selectedNodes = new Set();
         const selectedEdges = new Set();
         let nodes = [];
-
-        function escapeRegExp(string) {
-            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        }
-
-        function containsNodeId(text, mId) {
-            // IDの直後には空白、閉じ括弧類、矢印記号のほかに、定義開始の開き括弧（[ { (など）も来うる
-            const regex = new RegExp(`(^|[\\s\\(\\[\\{\\|\\->])` + escapeRegExp(mId) + `([\\s\\(\\[\\{\\)\\]\\}\\|\\->]|$)`);
-            return regex.test(text);
-        }
 
         function calculateInsertLineIndex(lines, startIdx, endIdx, selectedSet) {
             let insertIdx = endIdx;
@@ -1644,9 +1663,6 @@ const MermaidInteraction = (() => {
             
             return insertIdx;
         }
-
-        // Mermaidの矢印を分割するための正規表現 (ラベル付きも考慮)
-        const arrowSplitRegex = /\s*(?:-->|-\.->|==>|---|--|-\.-)(?:\|[^|]+\|)?\s*/;
 
         // ── 編集用API（外部やショートカットキーから呼び出せるようにマウント） ──
         wrapper._mermaidAPI = {
@@ -1702,7 +1718,7 @@ const MermaidInteraction = (() => {
                             while (true) {
                                 const found = line.indexOf(searchStr, searchFrom);
                                 if (found === -1) break;
-                                if (found === 0 || !/\\w/.test(line[found - 1])) {
+                                if (found === 0 || !/\w/.test(line[found - 1])) {
                                     const labelStart = found + searchStr.length;
                                     const closePos = line.indexOf(close, labelStart);
                                     if (closePos !== -1) {
@@ -1786,7 +1802,7 @@ const MermaidInteraction = (() => {
                     // この行が削除対象のエッジを含んでいるか？
                     if (!hasTargetNode) {
                         for (const edge of edgesToRemove) {
-                            if (containsNodeId(line, edge.from) && containsNodeId(line, edge.to) && arrowSplitRegex.test(line)) {
+                            if (hasMermaidEdge(line, edge.from, edge.to)) {
                                 hasTargetEdge = true;
                                 break;
                             }
@@ -2242,7 +2258,7 @@ const MermaidInteraction = (() => {
                             const from = parsed.from;
                             const to = parsed.to;
                             for (let i = range.startIdx + 1; i < range.endIdx; i++) {
-                                if (containsNodeId(range.lines[i], from) && containsNodeId(range.lines[i], to) && arrowSplitRegex.test(range.lines[i])) {
+                                if (hasMermaidEdge(range.lines[i], from, to)) {
                                     targetLineIndex = i;
                                     break;
                                 }
@@ -2255,7 +2271,7 @@ const MermaidInteraction = (() => {
                             });
                             if (fromMatch && toMatch) {
                                 for (let i = range.startIdx + 1; i < range.endIdx; i++) {
-                                    if (containsNodeId(range.lines[i], fromMatch) && containsNodeId(range.lines[i], toMatch) && arrowSplitRegex.test(range.lines[i])) {
+                                    if (hasMermaidEdge(range.lines[i], fromMatch, toMatch)) {
                                         targetLineIndex = i;
                                         break;
                                     }
@@ -2620,12 +2636,14 @@ const MermaidInteraction = (() => {
         });
 
         // ── グローバル mousemove ──（一度だけ登録）
-        if (!wrapper._miMoveRegistered) {
-            wrapper._miMoveRegistered = true;
+        // 【修正】wrapperに依存しないグローバルなフラグで管理し、メモリリークを防止
+        if (!window._miMoveRegistered) {
+            window._miMoveRegistered = true;
             document.addEventListener('mousemove', e => {
                 // ── 接続ハンドルドラッグの処理 ──
-                if (_dragState && _dragState.wrapper === wrapper) {
-                    const wRect = wrapper.getBoundingClientRect();
+                if (_dragState && _dragState.wrapper) {
+                    const activeWrapper = _dragState.wrapper;
+                    const wRect = activeWrapper.getBoundingClientRect();
                     const mx = e.clientX - wRect.left;
                     const my = e.clientY - wRect.top;
 
@@ -2655,21 +2673,22 @@ const MermaidInteraction = (() => {
                 }
 
                 // ── ノード本体ドラッグの処理 ──
-                if (_nodeDragState && _nodeDragState.wrapper === wrapper) {
+                if (_nodeDragState && _nodeDragState.wrapper) {
+                    const activeWrapper = _nodeDragState.wrapper;
                     const dx = e.clientX - _nodeDragState.startX;
                     const dy = e.clientY - _nodeDragState.startY;
                     const dist = Math.sqrt(dx * dx + dy * dy);
 
                     // 閾値を超えた場合のみドラッグを開始
                     if (!_nodeDragState.dragStarted) {
-                        if (dist < NODE_DRAG_THRESHOLD) return; // 閾値未満はまだ待機
+                        if (dist < 5) return; // NODE_DRAG_THRESHOLD = 5
                         // ドラッグ開始：ゴーストを生成し、元ノードを半透明化
                         _nodeDragState.dragStarted = true;
-                        _nodeDragState.ghost = createNodeGhost(_nodeDragState.nodeRect, wrapper, _nodeDragState.label);
+                        _nodeDragState.ghost = createNodeGhost(_nodeDragState.nodeRect, activeWrapper, _nodeDragState.label);
                         _nodeDragState.nodeEl.classList.add('mermaid-node-dragging');
                     }
 
-                    const wRect = wrapper.getBoundingClientRect();
+                    const wRect = activeWrapper.getBoundingClientRect();
                     const mx = e.clientX - wRect.left;
                     const my = e.clientY - wRect.top;
 
@@ -2678,7 +2697,7 @@ const MermaidInteraction = (() => {
                     _nodeDragState.hasMoved = true;
 
                     // subgraphへのホバー判定とハイライト切り替え
-                    const dropTarget = findSubgraphAtPoint(mx, my, _nodeDragState.svgEl, wrapper, _nodeDragState.nodeId);
+                    const dropTarget = findSubgraphAtPoint(mx, my, _nodeDragState.svgEl, activeWrapper, _nodeDragState.nodeId);
                     // デバッグ: subgraph検出結果を一定間隔で出力（パフォーマンス対策）
                     if (!_nodeDragState._lastDropLog || Date.now() - _nodeDragState._lastDropLog > 500) {
                         console.log('[MermaidInteraction] ドラッグ中 mx,my=', mx, my, 'dropTarget=', dropTarget ? dropTarget.id : null);
@@ -2706,7 +2725,7 @@ const MermaidInteraction = (() => {
             // ── グローバル mouseup ──
             document.addEventListener('mouseup', e => {
                 // ── 接続ハンドルドラッグの終了処理 ──
-                if (_dragState && _dragState.wrapper === wrapper) {
+                if (_dragState && _dragState.wrapper) {
                     const state = _dragState;
                     _dragState = null;
 
@@ -2729,7 +2748,7 @@ const MermaidInteraction = (() => {
                 }
 
                 // ── ノード本体ドラッグの終了処理 ──
-                if (_nodeDragState && _nodeDragState.wrapper === wrapper) {
+                if (_nodeDragState && _nodeDragState.wrapper) {
                     const state = _nodeDragState;
                     _nodeDragState = null;
 

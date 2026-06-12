@@ -3,6 +3,8 @@
  * 図形のコネクタポイントの管理、表示、吸着、追従ロジックを担当します。
  */
 const SVGConnectorManager = {
+    debug: false, // デバッグフラグ
+
     /**
      * 要素のコネクタポイントを図形の輪郭上の座標（SVGルート座標系）で計算します。
      * BBox上の16点を基準方向とし、中心から各方向へのレイと図形輪郭の交点を求めます。
@@ -89,12 +91,15 @@ const SVGConnectorManager = {
         const node = el.node;
         if (!node) return false;
 
+        const elId = el.id() || 'no-id';
+
         // 1. ラッパーまたはノード自体、あるいはその親コンテナが除外対象かチェック
         // excludeElが指定されている場合、excludeEl自身とその祖先要素（グループ等）の両方に対してコネクタを表示させない
         if (excludeEl) {
             let currentExclude = excludeEl;
             if (currentExclude.node) {
                 if (el.node === currentExclude.node || el.node.contains(currentExclude.node)) {
+                    if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: matches or contained in excludeEl`);
                     return false;
                 }
             }
@@ -107,12 +112,18 @@ const SVGConnectorManager = {
             'svg', 'foreignobject', 'polyline', 'line', 'text', 'tspan', 'connector-data',
             'clippath', 'filter', 'lineargradient', 'radialgradient', 'fegaussianblur', 'fe-gaussian-blur'
         ];
-        if (excludedTags.includes(tagName)) return false;
+        if (excludedTags.includes(tagName)) {
+            if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: tagName "${tagName}" in excludedTags`);
+            return false;
+        }
 
-        // ▼▼▼ 追加: 巨大なパス（アウトライン化フォントなど）はスナップ計算から除外してフリーズ防止 ▼▼▼
+        // ▼▼▼ 追加: 極端に巨大なパス（アウトライン化フォントなど）はスナップ計算から完全に除外してフリーズ防止 ▼▼▼
         if (tagName === 'path') {
             const d = el.attr('d') || '';
-            if (d.length > 500) {
+            if (d.length > 100000) {
+                if (this.debug || d.length > 150000) {
+                    console.log(`[SVG Connector] Path excluded completely: d.length = ${d.length} (> 100000) on #${elId}`);
+                }
                 return false;
             }
         }
@@ -121,17 +132,24 @@ const SVGConnectorManager = {
         // 3. クラス名による除外 (UI/ハンドル/ツール関連を徹底排除)
         const classStr = (el.attr('class') || '').toLowerCase();
         const excludedKeywords = ['handle', 'hitarea', 'select', 'overlay', 'interaction', 'proxy', 'grid', 'border', 'canvas'];
-        if (excludedKeywords.some(key => classStr.includes(key))) return false;
+        if (excludedKeywords.some(key => classStr.includes(key))) {
+            if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: class contains excluded keyword. class="${classStr}"`);
+            return false;
+        }
 
         // 4. 親要素による除外 (ツール用グループの配下にある要素を除外)
         let parent = el.parent();
         while (parent && parent.type !== 'svg') {
             const pClass = (parent.attr('class') || '').toLowerCase();
-            if (excludedKeywords.some(key => pClass.includes(key))) return false;
+            if (excludedKeywords.some(key => pClass.includes(key))) {
+                if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: parent class contains excluded keyword. parent class="${pClass}"`);
+                return false;
+            }
 
             // [FIX] 親がグループ(g)の場合、その親が代表してコネクタを持つべきなので子は除外する
             // これにより、グループ化されたオブジェクト（カスタムツール等）は外枠にのみコネクタが表示される
             if (parent.node.tagName.toLowerCase() === 'g') {
+                if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: parent is group (g), parent is representative`);
                 return false;
             }
 
@@ -139,16 +157,23 @@ const SVGConnectorManager = {
         }
 
         // 5. 属性による除外
-        if (el.attr('data-is-canvas') === 'true' || el.attr('data-is-proxy') === 'true' || el.attr('data-no-connector') === 'true') return false;
+        if (el.attr('data-is-canvas') === 'true' || el.attr('data-is-proxy') === 'true' || el.attr('data-no-connector') === 'true') {
+            if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: data-is-canvas/proxy/no-connector is true`);
+            return false;
+        }
 
         // 6. 線タイプ(line, arrow, polyline_arrow, freehand, airbrush)の除外
         const toolId = el.attr('data-tool-id');
-        if (['line', 'arrow', 'polyline_arrow', 'freehand', 'airbrush'].includes(toolId)) return false;
+        if (['line', 'arrow', 'polyline_arrow', 'freehand', 'airbrush'].includes(toolId)) {
+            if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: line/arrow tool type`);
+            return false;
+        }
 
         // [FIX] グループ要素(g)の除外について
         if (tagName === 'g') {
             // SVG.jsの選択枠（8点ハンドルなど）を含むUIグループは除外
             if (el.node.querySelector('[class*="svg_select_"]')) {
+                if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: group has selection UI`);
                 return false;
             }
 
@@ -159,10 +184,12 @@ const SVGConnectorManager = {
             // 線を持ち、かつ他の主要な形状を持たない場合は除外
             // (矢印などは g > polyline + marker なのでここに含まれる)
             if (hasLine && !hasShape) {
+                if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: group contains line but no shapes`);
                 return false;
             }
         }
 
+        if (this.debug) console.log(`[SVG Connector] ALLOWED connectors for: <${tagName}>#${elId}`);
         return true;
     },
 
@@ -678,12 +705,21 @@ const SVGConnectorManager = {
      * グループ内の背景図形（最初の非テキスト・非メタデータ要素）を検索します。
      */
     _findBackgroundShape(groupEl) {
-        const children = groupEl.node.children;
+        const node = groupEl.node || groupEl;
+        if (!node || !node.children) return null;
+
+        const allowedTags = ['rect', 'circle', 'ellipse', 'path', 'polygon', 'image', 'g'];
+        const children = node.children;
         for (let i = 0; i < children.length; i++) {
             const tag = children[i].tagName.toLowerCase();
-            if (tag !== 'text' && tag !== 'defs' && tag !== 'title' && tag !== 'desc'
-                && tag !== 'style' && tag !== 'connector-data') {
-                return children[i];
+            if (allowedTags.includes(tag)) {
+                if (tag === 'g') {
+                    // gの場合はさらにその中を再帰的に検索
+                    const subShape = this._findBackgroundShape(children[i]);
+                    if (subShape) return subShape;
+                } else {
+                    return children[i];
+                }
             }
         }
         return null;
@@ -714,6 +750,14 @@ const SVGConnectorManager = {
 
             // path → SVGネイティブAPIでサンプリング + 線分交差判定
             if (tagName === 'path') {
+                const d = el.attr('d') || '';
+                // 10000文字を超える複雑なパスの場合、重いサンプリングを避けてBBoxフォールバックを返すことでフリーズを防ぐ
+                if (d.length > 10000) {
+                    if (this.debug) {
+                        console.log(`[SVG Connector] Path outline projection skipped (d.length = ${d.length} > 10000) for #${el.id()}. Falling back to BBox.`);
+                    }
+                    return bboxPoints;
+                }
                 return this._projectToPathOutline(bboxPoints, el, bbox);
             }
         } catch (e) {

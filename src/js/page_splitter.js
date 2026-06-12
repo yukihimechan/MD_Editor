@@ -25,11 +25,13 @@ const PageSplitter = {
     async splitToPages(sourceElement, pageHeightPx, pageWidthPx = null) {
         const widthPx = pageWidthPx || sourceElement.offsetWidth || 820;
         const pages = [];
+        // [FIX 5] 元のDOMを破壊しないようクローンを作成して操作する
+        const workElement = sourceElement.cloneNode(true);
 
         // 計測用のコンテナを配置。
         // visibility: hidden を使うことで、表示はされないがレイアウト計算が行われる状態にする。
         const measureContainer = document.createElement('div');
-        measureContainer.className = sourceElement.className;
+        measureContainer.className = workElement.className;
         Object.assign(measureContainer.style, {
             position: 'fixed',
             top: '0',
@@ -46,18 +48,18 @@ const PageSplitter = {
         document.body.appendChild(measureContainer);
 
         try {
-            sourceElement.querySelectorAll('details').forEach(d => d.open = true);
+            workElement.querySelectorAll('details').forEach(d => d.open = true);
 
             // [FIX] content-visibility: auto はパフォーマンス最適化のために
             // ビューポート外の要素の高さを contain-intrinsic-size で代替するが、
             // 計測コンテナ（visibility:hidden）内ではSVGの実際の高さが反映されず、
             // ページ分割が正しく行われない。分割処理前に無効化して正確な高さ計測を保証する。
-            sourceElement.querySelectorAll('.svg-view-wrapper').forEach(el => {
+            workElement.querySelectorAll('.svg-view-wrapper').forEach(el => {
                 el.style.contentVisibility = 'visible';
                 el.style.containIntrinsicSize = 'none';
             });
 
-            let remainingChildren = Array.from(sourceElement.childNodes);
+            let remainingChildren = Array.from(workElement.childNodes);
             let loopCount = 0;
             const MAX_LOOPS = 5000;
 
@@ -66,7 +68,7 @@ const PageSplitter = {
                 if (loopCount > MAX_LOOPS) {
                     console.error("[PageSplitter] MAX_LOOPS exceeded.");
                     // 無限ループ時は残りを最後のページとして救済
-                    const emergencyPage = this.createNewPageContainer(sourceElement);
+                    const emergencyPage = this.createNewPageContainer(workElement);
                     remainingChildren.forEach(child => emergencyPage.appendChild(child));
                     pages.push(emergencyPage);
                     break;
@@ -81,7 +83,7 @@ const PageSplitter = {
                     const first = remainingChildren[0];
                     if (first.nodeType === Node.TEXT_NODE && first.textContent.trim().length === 0) {
                         remainingChildren.shift();
-                    } else if (AppState.config.pageBreakOnHr && first.nodeType === Node.ELEMENT_NODE && first.tagName === 'HR') {
+                    } else if (globalThis.AppState?.config?.pageBreakOnHr && first.nodeType === Node.ELEMENT_NODE && first.tagName === 'HR') {
                         remainingChildren.shift();
                     } else {
                         break;
@@ -89,7 +91,7 @@ const PageSplitter = {
                 }
                 if (remainingChildren.length === 0) break;
 
-                const currentPage = this.createNewPageContainer(sourceElement);
+                const currentPage = this.createNewPageContainer(workElement);
                 measureContainer.appendChild(currentPage);
 
                 // 【改善ポイント: チャンク・インサート方式】
@@ -100,13 +102,15 @@ const PageSplitter = {
                 for (let i = 0; i < remainingChildren.length; i++) {
                     const child = remainingChildren[i];
                     currentPage.appendChild(child);
+                    // 追加直後に横幅のフィット処理を実行
+                    this.fitElementWidth(child, widthPx);
                     insertedCount++;
                     
                     if (child.nodeType === Node.ELEMENT_NODE) {
                         estimatedHeight += parseFloat(child.getAttribute('data-original-height') || "0") || 0;
                     }
                     
-                    if (AppState.config.pageBreakOnHr && child.nodeType === Node.ELEMENT_NODE && child.tagName === 'HR') {
+                    if (globalThis.AppState?.config?.pageBreakOnHr && child.nodeType === Node.ELEMENT_NODE && child.tagName === 'HR') {
                         break;
                     }
 
@@ -123,12 +127,14 @@ const PageSplitter = {
                 // [フェイルセーフ] もし見積もりが甘く、実際の高さがページに満たない場合は超えるまで追加
                 while (containerHeight <= pageHeightPx && insertedCount < remainingChildren.length) {
                     const nextChild = remainingChildren[insertedCount];
-                    if (AppState.config.pageBreakOnHr && nextChild.nodeType === Node.ELEMENT_NODE && nextChild.tagName === 'HR') {
+                    if (globalThis.AppState?.config?.pageBreakOnHr && nextChild.nodeType === Node.ELEMENT_NODE && nextChild.tagName === 'HR') {
                         currentPage.appendChild(nextChild);
+                        this.fitElementWidth(nextChild, widthPx);
                         insertedCount++;
                         break;
                     }
                     currentPage.appendChild(nextChild);
+                    this.fitElementWidth(nextChild, widthPx);
                     insertedCount++;
                     
                     containerRect = currentPage.getBoundingClientRect();
@@ -154,7 +160,7 @@ const PageSplitter = {
                     const child = childNodes[i];
                     if (child.nodeType === Node.TEXT_NODE && child.textContent.trim().length === 0) continue;
 
-                    if (AppState.config.pageBreakOnHr && child.nodeType === Node.ELEMENT_NODE && child.tagName === 'HR') {
+                    if (globalThis.AppState?.config?.pageBreakOnHr && child.nodeType === Node.ELEMENT_NODE && child.tagName === 'HR') {
                         overflowIndex = i;
                         overflowChild = child;
                         isHrBreak = true;
@@ -192,15 +198,9 @@ const PageSplitter = {
 
                 if (isHrBreak) {
                     currentPage.removeChild(overflowChild);
-                    if (!this._isEffectivelyEmpty(currentPage)) {
-                        pages.push(currentPage.cloneNode(true));
-                    }
                     nextRemaining = remainingChildren.slice(overflowIndex + 1);
                 } else if (containerHeight <= pageHeightPx) {
                     // 全て収まった（最後のページ等）
-                    if (!this._isEffectivelyEmpty(currentPage)) {
-                        pages.push(currentPage.cloneNode(true));
-                    }
                     nextRemaining = uninsertedChildren;
                 } else {
                     // 要素の分割処理
@@ -248,10 +248,28 @@ const PageSplitter = {
                     } else {
                          nextRemaining = leftoverChildren;
                     }
+                }
 
-                    if (!this._isEffectivelyEmpty(currentPage)) {
-                        pages.push(currentPage.cloneNode(true));
+                // --- 孤立見出し（Widow）防止処理 ---
+                if (nextRemaining.length > 0) {
+                    const currentChildren = Array.from(currentPage.childNodes);
+                    if (currentChildren.length > 0) {
+                        const lastChild = currentChildren[currentChildren.length - 1];
+                        if (lastChild && lastChild.nodeType === Node.ELEMENT_NODE && /^H[1-6]$/.test(lastChild.tagName)) {
+                            const hasOtherContent = currentChildren.slice(0, -1).some(n => 
+                                n.nodeType === Node.ELEMENT_NODE || 
+                                (n.nodeType === Node.TEXT_NODE && n.textContent.trim().length > 0)
+                            );
+                            if (hasOtherContent) {
+                                currentPage.removeChild(lastChild);
+                                nextRemaining.unshift(lastChild);
+                            }
+                        }
                     }
+                }
+
+                if (!this._isEffectivelyEmpty(currentPage)) {
+                    pages.push(currentPage.cloneNode(true));
                 }
 
                 remainingChildren = nextRemaining;
@@ -284,6 +302,53 @@ const PageSplitter = {
     },
 
     /**
+     * 要素の横幅がコンテナの幅を超えている場合、スケール縮小処理を適用する
+     * @param {Node} node - 対象ノード
+     * @param {number} availableWidth - 許容される最大幅
+     */
+    fitElementWidth(node, availableWidth) {
+        if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
+
+        const tagName = node.tagName.toUpperCase();
+        
+        // Pタグなどのインラインテキストが含まれる標準ブロックには自然な折り返しを促す
+        const nonScaleTags = ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'LI'];
+        if (nonScaleTags.includes(tagName)) {
+            node.style.maxWidth = '100%';
+            node.style.boxSizing = 'border-box';
+            node.style.overflowWrap = 'anywhere';
+            node.style.wordBreak = 'break-word';
+            return;
+        }
+
+        // すでにクリッピングラッパーで囲まれているか、またはクリッピングラッパー自身である場合
+        let targetElement = node;
+        if (node.classList.contains('page-split-clipping-wrapper')) {
+            targetElement = node.firstElementChild;
+            if (!targetElement) return;
+        }
+
+        // 要素の横幅を測定
+        const elementWidth = targetElement.offsetWidth || targetElement.getBoundingClientRect().width;
+
+        if (elementWidth > availableWidth && elementWidth > 0) {
+            const horizontalScale = Math.min((availableWidth / elementWidth), 1.0);
+            
+            targetElement.style.transformOrigin = 'top left';
+            targetElement.style.transform = `scale(${horizontalScale})`;
+            targetElement.style.width = `${elementWidth}px`; // 100%ではなく元の幅を維持
+            targetElement.style.display = 'block';
+
+            // スケールによって生じた下部の「見えない余白」をマイナスマージンで相殺
+            if (!node.classList.contains('page-split-clipping-wrapper')) {
+                const originalHeight = targetElement.offsetHeight || targetElement.getBoundingClientRect().height;
+                const reducedHeight = originalHeight * (1 - horizontalScale);
+                targetElement.style.marginBottom = `-${reducedHeight}px`; // 直下の要素を引き上げる
+            }
+        }
+    },
+
+    /**
      * ページ高さを超えた要素を分割し、現在のページに残す部分と、次ページに送る部分に分ける。
      * @param {HTMLElement} element - 分割対象の要素
      * @param {number} maxHeight - 現在のページ内で許容される最大高さ
@@ -298,45 +363,12 @@ const PageSplitter = {
             element.open = true;
         }
         const upperTagName = tagName ? tagName.toUpperCase() : '';
-        // console.log(\`[PageSplitter] splitElement: <${upperTagName}>, MaxHeight: ${maxHeight.toFixed(1)}px, containerH: ${container.offsetHeight.toFixed(1)}px / ${pageHeightPx.toFixed(1)}px\`);
-        // オプショナルチェーンを使用して TypeError を回避
         const isCodeWrapper = element.classList?.contains('code-block-wrapper');
 
         // [NEW] コードブロックの場合、操作パネルを事前に取得しておく
         let controls = null;
         if (isCodeWrapper) {
             controls = element.querySelector('.code-controls');
-        }
-
-        // [NEW] 水平方向がページ幅を超えている場合、モードに関わらずまず横幅に収まるよう縮小する
-        // ページパディングは廃止処理済みのため、ページ幅全体を利用する
-        const paddingBuffer = 0;
-        const pageWidth = (container.offsetWidth || 820);
-        const availableWidth = pageWidth - paddingBuffer;
-
-        let elementWidth = 0;
-        if (element.nodeType === Node.ELEMENT_NODE) {
-            elementWidth = element.offsetWidth || (element.getBoundingClientRect().width);
-        }
-
-        if (elementWidth > availableWidth && elementWidth > 0) {
-            // console.log(`[PageSplitter] Element width (${elementWidth}px) exceeds available width (${availableWidth}px). Scaling down.`);
-            // 縮小時に1.3倍等の拡大補正をかけるとページ幅を超えてクリッピングされるため、正確な縮小率のみを使用する
-            const horizontalScale = Math.min((availableWidth / elementWidth), 1.0);
-            
-            // [FIX] P タグなどのインラインテキストが含まれる標準ブロックには transform scale を使わずに自然な折り返しを促す
-            const nonScaleTags = ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'LI'];
-            if (nonScaleTags.includes(tagName)) {
-                element.style.maxWidth = '100%';
-                element.style.boxSizing = 'border-box';
-                element.style.overflowWrap = 'anywhere';
-                element.style.wordBreak = 'break-word';
-            } else {
-                element.style.transformOrigin = 'top left'; // Leftに戻す（paddingで右にずれるため）
-                element.style.transform = `scale(${horizontalScale})`;
-                element.style.width = '100%';
-                element.style.display = 'block';
-            }
         }
 
         if (tagName === 'DETAILS') {
@@ -368,7 +400,7 @@ const PageSplitter = {
         const result = await this.splitTextNodeBlock(element, maxHeight, container, pageHeightPx);
 
         // [CRITICAL] 修正: isCodeWrapper の場合も行番号の再構成を行う
-        if ((tagName === 'PRE' || isCodeWrapper) && AppState.config.lineNumbers) {
+        if ((tagName === 'PRE' || isCodeWrapper) && globalThis.AppState?.config?.lineNumbers) {
             this.reconstructLineNumbers(element, result);
         }
 
@@ -377,11 +409,11 @@ const PageSplitter = {
         if (isCodeWrapper && controls) {
             // 1ページ目(element)に controls が無くなっていたら戻す（splitTextNodeBlockでクリアされるため）
             if (!element.querySelector('.code-controls')) {
-                element.appendChild(controls.cloneNode(true));
+                element.prepend(controls.cloneNode(true));
             }
             // 2ページ目(result)にも controls を追加する
             if (result && result !== element && !result.querySelector('.code-controls')) {
-                result.appendChild(controls.cloneNode(true));
+                result.prepend(controls.cloneNode(true));
             }
         }
 
@@ -437,7 +469,7 @@ const PageSplitter = {
             
             // [FIX 5] 末尾の余分な改行（\n）を正規表現で完全に除去してから行数を数える
             firstPageContent = firstPageContent.replace(/[\r\n]+$/, '');
-            const firstPageLines = firstPageContent.split('\n');
+            const firstPageLines = firstPageContent ? firstPageContent.split('\n') : [];
             const nextStartNum = originalStart + firstPageLines.length;
 
             updateGutter(result, nextStartNum);
@@ -497,13 +529,13 @@ const PageSplitter = {
                         partialLi.removeChild(node);
 
                         if (node.nodeType === Node.TEXT_NODE && node.textContent.length > 40) {
-                            // テキストノードで40文字以上なら文字単位の二分探索
-                            const origText = node.textContent;
-                            let left = 0, right = origText.length, bestFit = 0, loopCount = 0;
+                            // テキストノードで40文字以上なら文字単位の二分探索（サロゲートペア対応）
+                            const textArr = [...node.textContent];
+                            let left = 0, right = textArr.length, bestFit = 0, loopCount = 0;
                             while (left <= right) {
                                 if (++loopCount % 10 === 0) await new Promise(r => setTimeout(r, 0));
                                 const mid = Math.floor((left + right) / 2);
-                                node.textContent = origText.substring(0, mid);
+                                node.textContent = textArr.slice(0, mid).join('');
                                 partialLi.appendChild(node);
                                 if (container.offsetHeight <= pageHeightPx) {
                                     bestFit = mid;
@@ -513,7 +545,7 @@ const PageSplitter = {
                                 }
                                 if (node.parentNode === partialLi) partialLi.removeChild(node);
                             }
-                            node.textContent = origText;
+                            node.textContent = textArr.join('');
 
                             // 継続テキスト要素を生成（マーカーなし）
                             liContinuation = document.createElement('li');
@@ -521,8 +553,8 @@ const PageSplitter = {
                             liContinuation.style.marginTop = '0';
                             liContinuation.style.marginBottom = '0.5em';
                             if (bestFit > 0) {
-                                partialLi.appendChild(document.createTextNode(origText.substring(0, bestFit)));
-                                liContinuation.appendChild(document.createTextNode(origText.substring(bestFit)));
+                                partialLi.appendChild(document.createTextNode(textArr.slice(0, bestFit).join('')));
+                                liContinuation.appendChild(document.createTextNode(textArr.slice(bestFit).join('')));
                             } else {
                                 liContinuation.appendChild(node);
                             }
@@ -536,7 +568,10 @@ const PageSplitter = {
                         } else if (node.nodeType === Node.ELEMENT_NODE) {
                             // 要素ノードの場合：万能な splitElement に委譲して再帰的に分割
                             partialLi.appendChild(node);
-                            const elementOverflow = await this.splitElement(node, maxHeight, container, pageHeightPx);
+                            const containerTop = container.getBoundingClientRect().top;
+                            const nodeTop = node.getBoundingClientRect().top;
+                            const childAvailable = Math.max(0, pageHeightPx - (nodeTop - containerTop));
+                            const elementOverflow = await this.splitElement(node, childAvailable, container, pageHeightPx);
                             
                             if (elementOverflow) {
                                 liContinuation = document.createElement('li');
@@ -676,7 +711,7 @@ const PageSplitter = {
      */
     async splitDetails(element, maxHeight, container, pageHeightPx) {
         const summary = element.querySelector('summary');
-        const contentNodes = Array.from(element.children).filter(node => node.tagName !== 'SUMMARY');
+        const contentNodes = Array.from(element.childNodes).filter(node => node.nodeName.toUpperCase() !== 'SUMMARY');
 
         if (contentNodes.length === 0) {
             return await this.splitTextNodeBlock(element, maxHeight, container, pageHeightPx);
@@ -706,7 +741,10 @@ const PageSplitter = {
                 if (node.nodeType === Node.ELEMENT_NODE) {
                     // 要素自体を再帰的に分割してみる
                     element.appendChild(node);
-                    const overflowChild = await this.splitElement(node, maxHeight, container, pageHeightPx);
+                    const containerTop = container.getBoundingClientRect().top;
+                    const nodeTop = node.getBoundingClientRect().top;
+                    const childAvailable = Math.max(0, pageHeightPx - (nodeTop - containerTop));
+                    const overflowChild = await this.splitElement(node, childAvailable, container, pageHeightPx);
                     if (overflowChild && overflowChild !== node) {
                         nextDetails.appendChild(overflowChild);
                         wasSplitRecursively = true;
@@ -756,12 +794,13 @@ const PageSplitter = {
             // その見出しも巻き込んで次ページへ送る（可能であれば）
             const prevSibling = element.previousElementSibling;
             if (prevSibling && /^H[1-6]$/.test(prevSibling.tagName)) {
-                // コンテナの最後の子要素が今のH2であるかの確認
-                if (container.lastElementChild === element || container.lastElementChild === prevSibling) {
-                    // return null して丸ごと送る処理は splitToPages で扱うには element 自体を戻すので、
-                    // 見出しも抜いて兄弟として送るには一工夫必要だが、ここではシンプルに、
-                    // 「見出しの後ろに改ページ」という不自然さを防ぐため要素を element と分離しない。
-                    // 実際には splitToPages の中で処理するのが最適。
+                // Widows: ヘッダーが見出し単独でページ末尾にある場合は、一緒に次ページへ送る
+                const isHeadingOnly = element.parentNode.lastElementChild === element || 
+                                     (element.nextElementSibling?.tagName.startsWith('H'));
+                if (isHeadingOnly) {
+                    const parent = element.parentNode;
+                    parent.insertBefore(element, prevSibling);
+                    return prevSibling;
                 }
             }
 
@@ -793,6 +832,12 @@ const PageSplitter = {
         }
 
         const nextTable = element.cloneNode(false); // テーブル属性などをコピー
+        
+        // colgroup を複製して次ページのテーブルに追加
+        element.querySelectorAll('colgroup').forEach(cg => {
+            nextTable.appendChild(cg.cloneNode(true));
+        });
+
         if (thead) {
             nextTable.appendChild(thead.cloneNode(true)); // thead(ヘッダー)を次ページにも保持
         }
@@ -861,7 +906,7 @@ const PageSplitter = {
         const currentOffset = parseFloat(element.dataset.splitOffset || '0');
 
         // [FIX 1] コードブロックの場合はパディングを維持し、水平スクロールバーが文字に被るのを防ぐ
-        const isCodeBlock = (element.classList && element.classList.contains('code-block-wrapper')) || element.tagName === 'PRE' || element.tagName === 'CODE';
+        const isCodeBlock = element.closest ? element.closest('.code-block-wrapper, pre, code') !== null : false;
 
         if (!isCodeBlock) {
             nextElement.style.paddingTop = '0';
@@ -897,9 +942,9 @@ const PageSplitter = {
                 const isHeadingOrStrong = /^(H[1-6]|STRONG|B)$/.test(element.tagName);
                 // [FIX 3] コードブロックの場合は短いテキストでも分割対象にし、改行でのスナップを効かせる
                 if (node.nodeType === Node.TEXT_NODE && (node.textContent.length > 40 || isCodeBlock) && !isHeadingOrStrong) {
-                    const originalText = node.textContent;
+                    const textArr = [...node.textContent];
                     let left = 0;
-                    let right = originalText.length;
+                    let right = textArr.length;
                     let bestFitLength = 0;
                     let loopCounter = 0;
 
@@ -907,7 +952,7 @@ const PageSplitter = {
                         if (++loopCounter % 20 === 0) await new Promise(resolve => setTimeout(resolve, 0));
 
                         const mid = Math.floor((left + right) / 2);
-                        node.textContent = originalText.substring(0, mid);
+                        node.textContent = textArr.slice(0, mid).join('');
                         element.appendChild(node);
 
                         if (container.getBoundingClientRect().height <= (pageHeightPx - tolerance)) {
@@ -922,19 +967,17 @@ const PageSplitter = {
                     }
 
                     if (bestFitLength > 0) {
-                        if (isCodeBlock && bestFitLength < originalText.length) {
-                            const lastNewline = originalText.lastIndexOf('\n', bestFitLength - 1);
+                        if (isCodeBlock && bestFitLength < textArr.length) {
+                            const lastNewline = textArr.slice(0, bestFitLength).lastIndexOf('\n');
                             if (lastNewline >= 0) { // [FIX 4] 先頭が改行の場合（0）も正しく処理する
                                 bestFitLength = lastNewline + 1;
-                            } else {
-                                // 改行がない場合は単語の途中切断を防ぐためノード全体を次ページへ送る
-                                bestFitLength = 0;
                             }
+                            // 改行が無い場合は元の bestFitLength をそのまま採用する
                         }
 
                         if (bestFitLength > 0) {
-                            let fitText = originalText.substring(0, bestFitLength);
-                            let overflowText = originalText.substring(bestFitLength);
+                            let fitText = textArr.slice(0, bestFitLength).join('');
+                            let overflowText = textArr.slice(bestFitLength).join('');
 
                             element.appendChild(document.createTextNode(fitText));
                             
@@ -942,20 +985,28 @@ const PageSplitter = {
                             // 行を結合させてしまう原因だったため、完全撤廃しました。
                             nextElement.appendChild(document.createTextNode(overflowText));
                         } else {
-                            node.textContent = originalText;
+                            node.textContent = textArr.join('');
                             nextElement.appendChild(node);
                         }
                     } else {
-                        node.textContent = originalText;
+                        node.textContent = textArr.join('');
                         nextElement.appendChild(node);
                     }
                 } else if (node.nodeType === Node.ELEMENT_NODE) {
                     element.appendChild(node);
-                    const overflowChild = await this.splitElement(node, maxHeight, container, pageHeightPx);
+                    const containerTop = container.getBoundingClientRect().top;
+                    const nodeTop = node.getBoundingClientRect().top;
+                    const childAvailable = Math.max(0, pageHeightPx - (nodeTop - containerTop) - tolerance);
+                    const overflowChild = await this.splitElement(node, childAvailable, container, pageHeightPx);
                     
                     if (overflowChild && overflowChild !== node) {
                         nextElement.appendChild(overflowChild);
                     } else {
+                        // 【追加】もし縮小等によって完全に収まるようになった場合はループを継続
+                        if (!overflowChild && container.getBoundingClientRect().height <= (pageHeightPx - tolerance)) {
+                            continue;
+                        }
+                        
                         // [CRITICAL FIX] 1文字も入らなかった要素が虚空に消滅するバグを修正。
                         // 条件を外し、確実に次ページ (nextElement) へ移動させます。
                         if (node.parentNode === element) {
@@ -1006,6 +1057,15 @@ const PageSplitter = {
         let baseTransform = targetElement.style.transform || '';
         baseTransform = baseTransform.replace(/translateY\([^)]+\)/gi, '').trim();
 
+        // 【追加】スケール率（Y軸）の抽出
+        let scaleY = 1.0;
+        const scaleMatch = baseTransform.match(/scale\(([^,)]+)(?:,\s*([^)]+))?\)/);
+        if (scaleMatch) {
+            const sx = parseFloat(scaleMatch[1]);
+            const sy = scaleMatch[2] ? parseFloat(scaleMatch[2]) : sx;
+            if (!isNaN(sy) && sy > 0) scaleY = sy;
+        }
+
         // [FIX No.5(B)] コンテンツ全体の高さを取得
         // data-computed-height 属性が存在する場合（processSVGBlocksで計算済みのSVG等）は
         // それを優先使用して offsetHeight の呼び出し（Layout Thrashing）を回避する。
@@ -1014,20 +1074,23 @@ const PageSplitter = {
         const hAttr = targetElement.getAttribute('data-original-height');
         const computedH = element.getAttribute('data-computed-height') ||
                           targetElement.getAttribute('data-computed-height');
-        let contentHeight;
+        let rawContentHeight;
         if (computedH) {
             // 事前計算済みの高さを使用（リフローゼロ）
-            contentHeight = parseFloat(computedH);
+            rawContentHeight = parseFloat(computedH);
         } else {
             // フォールバック: 従来通りoffsetHeightを読み取る（SVG以外の要素）
             const offsetH = targetElement.offsetHeight || targetElement.scrollHeight || 0;
-            contentHeight = offsetH > 0 ? offsetH : (hAttr ? parseFloat(hAttr) : 0);
+            rawContentHeight = offsetH > 0 ? offsetH : (hAttr ? parseFloat(hAttr) : 0);
             if (offsetH > 0) {
                 targetElement.dataset.splitMeasureHeight = String(offsetH);
             }
         }
 
-        // console.log(\`[PageSplitter][Clip] contentHeight=${contentHeight}px (hAttr=${hAttr}), offsetH=${targetElement.offsetHeight}px, scrollH=${targetElement.scrollHeight}px\`);
+        // 【修正】高さを画面上の視覚的ピクセルに変換
+        const contentHeight = rawContentHeight * scaleY;
+
+        // console.log(`[PageSplitter][Clip] contentHeight=${contentHeight}px (hAttr=${hAttr}), offsetH=${targetElement.offsetHeight}px, scrollH=${targetElement.scrollHeight}px`);
         if (contentHeight <= 0) {
             // 高さが計測できない場合は丸ごと次ページへ
             // console.warn('[PageSplitter][Clip] contentHeight=0 -> 丸ごと次ページへ');
@@ -1115,15 +1178,16 @@ const PageSplitter = {
         const nextInner = nextWrapper.firstElementChild;
         if (!nextInner) return null; // 安全ガード
 
+        // 【追加】2ページ目以降の先頭に元の marginTop が引き継がれて隙間ができるのを防ぐ
+        nextWrapper.style.marginTop = '0';
+
         // 次ページの表示開始位置 = 現在までのオフセット + 今回のページ高さ
         const nextOffset = currentOffset + maxHeight;
         nextInner.dataset.splitOffset = String(nextOffset);
 
-        // translateY で内容を上にずらして「続き」を表示
-        // （position:relative + translateY はレイアウトに影響しないためスペースが生じるが、
-        //  ラッパーの height と overflowY:hidden でクリップするため問題ない）
-        // 既存のベース transform の後ろに translateY を追加して適用する（縮尺を維持しながらスライドさせる）
-        nextInner.style.transform = `${baseTransform} translateY(-${nextOffset}px)`.trim();
+        // 【修正】translateY はスケール率で割り戻してローカル座標で指定する
+        const localTranslateY = nextOffset / scaleY;
+        nextInner.style.transform = `${baseTransform} translateY(-${localTranslateY}px)`.trim();
         nextInner.style.marginTop = '0'; // 念のためリセット
 
         // [FIX] 次ページに送られるはみ出しコンテンツの暫定高さをセットし、隠す

@@ -460,6 +460,8 @@ function initEditor() {
     const lineNumbersComp = new Compartment();
     const themeComp = new Compartment();
     const searchHighlightComp = new Compartment(); // Compartment for search highlights
+    window._historyCompartment = new Compartment();
+    window._readOnlyCompartment = new Compartment();
 
     // [NEW] Focus Mode Compartment & Theme
     window._cmFocusModeComp = new Compartment();
@@ -666,8 +668,11 @@ function initEditor() {
     const extensions = [
         ...fmExtensions,
         basicSetup,
-        history(),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        window._historyCompartment.of([
+            history(),
+            keymap.of(historyKeymap)
+        ]),
+        keymap.of(defaultKeymap),
         markdown({ base: markdownLanguage, codeLanguages: customCodeLanguages }),
         syntaxHighlighting(lightHighlightStyle),
         baseTheme,
@@ -682,10 +687,10 @@ function initEditor() {
         // SVG Number Slider Extension
         sliderField,
 
-        // Dynamic configurations with Compartments
         lineWrappingComp.of(AppState.config.lineWrapping !== false ? EditorView.lineWrapping : []),
         themeComp.of([]), // Initialized in updateEditorTheme
         window._cmFocusModeComp.of(AppState.config.focusMode ? window._cmFocusModeTheme : []), // [NEW] Initial Focus Mode State
+        window._readOnlyCompartment.of(EditorState.readOnly.of(false)),
 
         // [NEW] 共同編集 (yCollab) 用 Compartment
         // 最初の読み込み時に生成し、CollabManager.getCompartment() で参照可能にする
@@ -1412,12 +1417,45 @@ function initEditor() {
         set scrollTop(v) { editorView.scrollDOM.scrollTop = v; },
 
         // [NEW] Surgical Update Methods for CodeMirror 6
-        replaceRange: (from, to, text) => {
-            editorView.dispatch({
+        replaceRange: (from, to, text, addToHistory = true, isolateHistory = false) => {
+            console.log(`[editor_core] replaceRange called: textLength=${text.length}, addToHistory=${addToHistory}, isolateHistory=${isolateHistory}`);
+            const spec = {
                 changes: { from, to, insert: text }
-            });
+            };
+            const annos = [];
+            let addToHistoryAnno = null;
+            if (window.CM6) {
+                if (window.CM6.addToHistory) {
+                    addToHistoryAnno = window.CM6.addToHistory;
+                } else if (window.CM6.Transaction && window.CM6.Transaction.addToHistory) {
+                    addToHistoryAnno = window.CM6.Transaction.addToHistory;
+                }
+            }
+            if (addToHistoryAnno) {
+                console.log(`[editor_core] replaceRange: Adding addToHistory.of(${addToHistory})`);
+                annos.push(addToHistoryAnno.of(addToHistory));
+            }
+            if (isolateHistory) {
+                if (window.CM6) {
+                    if (window.CM6.isolateHistory) {
+                        console.log("[editor_core] replaceRange: Adding isolateHistory.of('before')");
+                        annos.push(window.CM6.isolateHistory.of("before"));
+                    } else {
+                        console.warn("[editor_core] replaceRange: isolateHistory requested but window.CM6.isolateHistory is missing!");
+                    }
+                    if (window.CM6.Transaction && window.CM6.Transaction.userEvent) {
+                        console.log("[editor_core] replaceRange: Adding Transaction.userEvent.of('svg-edit')");
+                        annos.push(window.CM6.Transaction.userEvent.of("svg-edit"));
+                    }
+                }
+            }
+            if (annos.length > 0) {
+                spec.annotations = annos;
+            }
+            editorView.dispatch(spec);
         },
-        replaceLines: (fromLine, toLine, text) => {
+        replaceLines: (fromLine, toLine, text, addToHistory = true, isolateHistory = false) => {
+            console.log(`[editor_core] replaceLines called: lines ${fromLine}-${toLine}, addToHistory=${addToHistory}, isolateHistory=${isolateHistory}`);
             // fromLine, toLine are 1-based (toLine is inclusive)
             // matching CM5 replaceRange(start, end, text) behavior for blocks
             const docLines = editorView.state.doc.lines;
@@ -1428,11 +1466,43 @@ function initEditor() {
             const startLineObj = editorView.state.doc.line(safeFrom);
             const endLineObj = editorView.state.doc.line(safeTo);
 
+            const spec = {
+                changes: { from: startLineObj.from, to: endLineObj.to, insert: text }
+            };
+            const annos = [];
+            let addToHistoryAnno = null;
+            if (window.CM6) {
+                if (window.CM6.addToHistory) {
+                    addToHistoryAnno = window.CM6.addToHistory;
+                } else if (window.CM6.Transaction && window.CM6.Transaction.addToHistory) {
+                    addToHistoryAnno = window.CM6.Transaction.addToHistory;
+                }
+            }
+            if (addToHistoryAnno) {
+                console.log(`[editor_core] replaceLines: Adding addToHistory.of(${addToHistory})`);
+                annos.push(addToHistoryAnno.of(addToHistory));
+            }
+            if (isolateHistory) {
+                if (window.CM6) {
+                    if (window.CM6.isolateHistory) {
+                        console.log("[editor_core] replaceLines: Adding isolateHistory.of('before')");
+                        annos.push(window.CM6.isolateHistory.of("before"));
+                    } else {
+                        console.warn("[editor_core] replaceLines: isolateHistory requested but window.CM6.isolateHistory is missing!");
+                    }
+                    if (window.CM6.Transaction && window.CM6.Transaction.userEvent) {
+                        console.log("[editor_core] replaceLines: Adding Transaction.userEvent.of('svg-edit')");
+                        annos.push(window.CM6.Transaction.userEvent.of("svg-edit"));
+                    }
+                }
+            }
+            if (annos.length > 0) {
+                spec.annotations = annos;
+            }
+
             window._isDispatchingSvgSync = true;
             try {
-                editorView.dispatch({
-                    changes: { from: startLineObj.from, to: endLineObj.to, insert: text }
-                });
+                editorView.dispatch(spec);
             } finally {
                 window._isDispatchingSvgSync = false;
             }
@@ -1808,4 +1878,18 @@ function createBase64FoldPlugin() {
 
     return base64FoldPlugin;
 }
+
+/**
+ * エディタを動的に読み取り専用（ReadOnly）状態に設定する
+ * @param {boolean} value
+ */
+function setEditorReadOnly(value) {
+    if (!editorView || !window._readOnlyCompartment || !window.CM6) return;
+    const { EditorState } = window.CM6;
+    editorView.dispatch({
+        effects: window._readOnlyCompartment.reconfigure(EditorState.readOnly.of(value))
+    });
+}
+window.setEditorReadOnly = setEditorReadOnly;
+
 

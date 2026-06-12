@@ -4,6 +4,10 @@
 
 window.MermaidErInteraction = {
     
+    _escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    },
+    
     initDiagram(diagramContainer, originalCode) {
         if (!diagramContainer) return;
         
@@ -43,11 +47,12 @@ window.MermaidErInteraction = {
 
                 const copiedEntities = [];
                 for (const mId of selectedNodes) {
+                    const safeId = window.MermaidErInteraction._escapeRegExp(mId);
                     let entityBlock = [];
                     let insideBlock = false;
                     for (let i = startIdx + 1; i < endIdx; i++) {
                         const line = lines[i];
-                        if (new RegExp(`^\\s*(?:entity\\s+)?${mId}\\s*\\{`).test(line)) {
+                        if (new RegExp(`^\\s*(?:entity\\s+)?${safeId}\\s*\\{`).test(line)) {
                             insideBlock = true;
                             entityBlock.push(line);
                             continue;
@@ -59,8 +64,8 @@ window.MermaidErInteraction = {
                             }
                             continue;
                         }
-                        if (new RegExp(`^\\s*(?:entity\\s+)?${mId}\\b\\s*(?!\\s*\\{)`).test(line) ||
-                            new RegExp(`^\\s*${mId}\\s*:`).test(line)) {
+                        if (new RegExp(`^\\s*(?:entity\\s+)?${safeId}\\b\\s*(?!\\s*\\{)`).test(line) ||
+                            new RegExp(`^\\s*${safeId}\\s*:`).test(line)) {
                             entityBlock.push(line);
                         }
                     }
@@ -115,7 +120,8 @@ window.MermaidErInteraction = {
 
                     ent.lines.forEach(line => {
                         // ID部分を置換
-                        const newLine = line.replace(new RegExp(`\\b${ent.id}\\b`, 'g'), newId);
+                        const safeEntId = window.MermaidErInteraction._escapeRegExp(ent.id);
+                        const newLine = line.replace(new RegExp(`\\b${safeEntId}\\b`, 'g'), newId);
                         pastedLines.push(newLine);
                     });
                 });
@@ -550,11 +556,12 @@ window.MermaidErInteraction = {
                         if (endIdx !== -1) {
                             for (let i = startIdx + 1; i < endIdx; i++) {
                                 const line = lines[i];
-                                if (new RegExp(`^\\s*${mId}\\s*\\{`).test(line) ||
+                                const safeId = window.MermaidErInteraction._escapeRegExp(mId);
+                                if (new RegExp(`^\\s*${safeId}\\s*\\{`).test(line) ||
                                     (line.includes(mId) && !line.match(/--|<\||\*|o|\.\./))) {
                                     targetLineIndex = i;
                                     // { 開始があれば優先
-                                    if (new RegExp(`^\\s*${mId}\\s*\\{`).test(line)) {
+                                    if (new RegExp(`^\\s*${safeId}\\s*\\{`).test(line)) {
                                         break;
                                     }
                                 }
@@ -579,8 +586,8 @@ window.MermaidErInteraction = {
         const existingMenu = document.getElementById('mermaid-context-menu');
         if (existingMenu) existingMenu.remove();
 
-        if (!window._mermaidGlobalEventsBoundClass) {
-            window._mermaidGlobalEventsBoundClass = true;
+        if (!window._mermaidGlobalEventsBoundEr) {
+            window._mermaidGlobalEventsBoundEr = true;
             document.addEventListener('click', e => {
                 const menu = document.getElementById('mermaid-context-menu');
                 if (menu && !e.target.closest('#mermaid-context-menu')) {
@@ -792,11 +799,14 @@ window.MermaidErInteraction = {
             wRect, startX, startY, nodes
         };
 
-        this._onMouseMove = this._onMouseMove.bind(this);
-        this._onMouseUp = this._onMouseUp.bind(this);
+        // 関数を上書きせず、プロパティにバインド済みの関数を保持する
+        if (!this._boundOnMouseMove) {
+            this._boundOnMouseMove = this._onMouseMove.bind(this);
+            this._boundOnMouseUp = this._onMouseUp.bind(this);
+        }
 
-        document.addEventListener('mousemove', this._onMouseMove);
-        document.addEventListener('mouseup', this._onMouseUp);
+        document.addEventListener('mousemove', this._boundOnMouseMove);
+        document.addEventListener('mouseup', this._boundOnMouseUp);
     },
 
     _onMouseMove(e) {
@@ -843,8 +853,8 @@ window.MermaidErInteraction = {
 
     _onMouseUp(e) {
         if (!this._dragState) return;
-        document.removeEventListener('mousemove', this._onMouseMove);
-        document.removeEventListener('mouseup', this._onMouseUp);
+        document.removeEventListener('mousemove', this._boundOnMouseMove);
+        document.removeEventListener('mouseup', this._boundOnMouseUp);
 
         const { wrapper, overlay, line, sourceNode, snapTarget } = this._dragState;
         this._dragState = null;
@@ -978,9 +988,17 @@ window.MermaidErInteraction = {
         input.focus();
         input.select();
         
-        const saveAndClose = () => {
+        let outsideClickListener; // スコープを広げる
+        const closeEditor = () => {
             if (!container.parentNode) return;
             container.remove();
+            if (outsideClickListener) {
+                document.removeEventListener('mousedown', outsideClickListener);
+            }
+        };
+
+        const saveAndClose = () => {
+            if (!container.parentNode) return;
             
             let newLabel = input.value.trim();
             if (newLabel === '') {
@@ -1000,6 +1018,8 @@ window.MermaidErInteraction = {
             const savedDataLine  = wrapper.getAttribute('data-line') || wrapper.closest('.code-block-wrapper')?.getAttribute('data-line');
             const savedEdgeId    = mId;
 
+            closeEditor(); // エディタを閉じる
+
             (async () => {
                 await window.MermaidBase.updateTextAndRender(wrapper, lines.join('\n'));
                 if (window.activeMermaidErToolbar) {
@@ -1014,7 +1034,7 @@ window.MermaidErInteraction = {
                 saveAndClose();
             } else if (ev.key === 'Escape') {
                 ev.preventDefault();
-                container.remove();
+                closeEditor();
             }
         });
         
@@ -1026,10 +1046,9 @@ window.MermaidErInteraction = {
         
         // Add a click outside listener to the document
         setTimeout(() => {
-            const outsideClickListener = (ev) => {
+            outsideClickListener = (ev) => {
                 if (!container.contains(ev.target)) {
                     saveAndClose();
-                    document.removeEventListener('mousedown', outsideClickListener);
                 }
             };
             document.addEventListener('mousedown', outsideClickListener);
@@ -1063,10 +1082,11 @@ window.MermaidErInteraction = {
         let entityBlockEnd = -1;
         let members = [];
         
+        const safeId = window.MermaidErInteraction._escapeRegExp(mId);
         for (let i = startIdx + 1; i < endIdx; i++) {
             const line = lines[i];
             // ER図の「EntityName {」を探す
-            if (new RegExp(`^\\s*${mId}\\s*\\{`).test(line)) {
+            if (new RegExp(`^\\s*${safeId}\\s*\\{`).test(line)) {
                 entityBlockStart = i;
                 for (let j = i + 1; j < endIdx; j++) {
                     const innerLine = lines[j];
@@ -1458,8 +1478,10 @@ window.MermaidErInteraction = {
     _applyEntityUpdate(wrapper, oldId, newId, lines, startIdx, endIdx, entityBlockStart, entityBlockEnd, members) {
         // IDが変更された場合、関係定義のIDも置換する
         if (oldId !== newId) {
+            const safeOldId = window.MermaidErInteraction._escapeRegExp(oldId);
             for (let i = startIdx + 1; i < endIdx; i++) {
-                const re = new RegExp(`\\b${oldId}\\b`, 'g');
+                if (lines[i].trim().startsWith('%%')) continue; // コメント行はスキップ
+                const re = new RegExp(`\\b${safeOldId}\\b`, 'g');
                 lines[i] = lines[i].replace(re, newId);
             }
         }
@@ -1482,7 +1504,8 @@ window.MermaidErInteraction = {
             }
             
             // 単一行の古い定義等のゴミを削除
-            if (new RegExp(`^\\s*${oldId}\\b\\s*$`).test(line)) {
+            const safeOldId = window.MermaidErInteraction._escapeRegExp(oldId);
+            if (new RegExp(`^\\s*${safeOldId}\\b\\s*$`).test(line)) {
                 if (insertIndex === -1) insertIndex = newLines.length;
                 continue;
             }
@@ -1564,7 +1587,7 @@ window.MermaidErInteraction = {
         const existingNodeHitboxes = wrapper.querySelectorAll('.mermaid-er-hitbox-title, .mermaid-er-hitbox-attributes, .mermaid-er-hitbox-methods');
         existingNodeHitboxes.forEach(el => el.remove());
 
-        const classNodes = wrapper.querySelectorAll('.node, .node');
+        const classNodes = wrapper.querySelectorAll('g.node[id*="entity-"]');
         classNodes.forEach(node => {
             try {
                 // 空の要素による枠ズレを防ぐため、outer-path要素があればそちらのBBoxを優先して使用する
@@ -1647,7 +1670,7 @@ window.MermaidErInteraction = {
         }
         if (endIdx === -1) return;
 
-        const arrowSplitRegex = /\s*(?:<\|--|--\|>|<-->|-->|<--|o--|--o|\*--|--\*|--|\.\.>|<\.\.|\.\.\|>|<\|\.\.|\.\.)\s*/;
+        const arrowSplitRegex = /\s*(?:--|\.\.)\s*/;
 
         // エッジの削除対象となる行を抽出
         const edgeLinesToRemove = new Set();
@@ -1681,19 +1704,20 @@ window.MermaidErInteraction = {
 
             // ノード削除チェック
             for (const mId of selectedNodes) {
-                if (new RegExp(`^\\s*(?:entity\\s+)?${mId}\\b\\s*\\{`).test(line)) {
+                const safeId = window.MermaidErInteraction._escapeRegExp(mId);
+                if (new RegExp(`^\\s*(?:entity\\s+)?${safeId}\\b\\s*\\{`).test(line)) {
                     insideBlockFor = mId;
                     shouldDelete = true;
                     break;
                 }
-                if (new RegExp(`^\\s*(?:entity\\s+)?${mId}\\b\\s*(?!\\s*\\{)`).test(line) ||
-                    new RegExp(`^\\s*${mId}\\s*:`).test(line)) {
+                if (new RegExp(`^\\s*(?:entity\\s+)?${safeId}\\b\\s*(?!\\s*\\{)`).test(line) ||
+                    new RegExp(`^\\s*${safeId}\\s*:`).test(line)) {
                     shouldDelete = true;
                     break;
                 }
                 
                 // ノードが含まれる矢印行も削除
-                if (new RegExp(`\\b${mId}\\b`).test(line) && arrowSplitRegex.test(line)) {
+                if (new RegExp(`\\b${safeId}\\b`).test(line) && arrowSplitRegex.test(line)) {
                     shouldDelete = true;
                     break;
                 }
@@ -1858,8 +1882,24 @@ window.MermaidErInteraction = {
 
         const lines = getEditorText().split('\n');
         
-        // 矢印の方向(rel.lineType)は変えずに、始点と終点、多重度を入れ替える
-        let newLine = `    ${rel.to} ${rel.rightMulti}${rel.lineType}${rel.leftMulti} ${rel.from}`;
+        // 多重度文字列を反転させるヘルパー関数
+        const reverseLeftMulti = (m) => {
+            if (m === 'o|') return '|o';
+            if (m === 'o{') return '}o';
+            if (m === '|{') return '}|';
+            return m; // '||' はそのまま
+        };
+        const reverseRightMulti = (m) => {
+            if (m === '|o') return 'o|';
+            if (m === '}o') return 'o{';
+            if (m === '}|') return '|{';
+            return m; // '||' はそのまま
+        };
+        
+        const newLeftMulti = reverseLeftMulti(rel.rightMulti);
+        const newRightMulti = reverseRightMulti(rel.leftMulti);
+
+        let newLine = `    ${rel.to} ${newLeftMulti}${rel.lineType}${newRightMulti} ${rel.from}`;
 
         const colonIdx = rel.lineText.indexOf(':');
         if (colonIdx !== -1) {

@@ -1616,39 +1616,60 @@ function importSVGContent(svgString, dropPoint = null) {
         let contentToImport;
         const children = Array.from(svgRoot.childNodes);
 
-        // [NEW] すでに単一のGタグで囲まれているかチェック
-        const firstLevelElements = children.filter(node => node.nodeType === 1); // Element nodes
-        if (firstLevelElements.length === 1 && firstLevelElements[0].tagName.toLowerCase() === 'g') {
-            // 単一のGタグなので、その中身をさらに吸い出すか、そのまま使うか
-            // 今回は「gタグが2つ続けて指定される場合は1つだけに」という要件なので、
-            // svg -> g に置換した結果、g -> g になるのを防ぐため、中身を直接使う
-            contentToImport = firstLevelElements[0].innerHTML;
-        } else {
-            contentToImport = svgRoot.innerHTML;
-        }
+        // [FIX] 単一Gタグ of 剥ぎ取りによる属性（transform等）の消失を防ぐため、
+        // 常に svgRoot.innerHTML を使用する（二重Gによる接続ポイント表示バグは解決済み）。
+        contentToImport = svgRoot.innerHTML;
 
         // 一時的なグループを作成してインポート
         const importGroup = draw.group();
         importGroup.svg(contentToImport);
+
+        // [FIX] ネストされたtspanの絶対座標x/yが親のtransformと競合して文字がずれるのを防止する
+        if (window.SVGUtils && typeof window.SVGUtils.cleanupNestedTspanCoordinates === 'function') {
+            window.SVGUtils.cleanupNestedTspanCoordinates(importGroup);
+        }
 
         // [NEW] リサイズロジック (最大辺を100pxにする)
         const bbox = importGroup.bbox();
         const maxDim = Math.max(bbox.w, bbox.h);
         const targetSize = 100;
 
+        let scale = 1;
         if (maxDim > 0) {
-            const scale = targetSize / maxDim;
-            importGroup.scale(scale);
+            scale = targetSize / maxDim;
         }
 
-        // [NEW] 配置座標の調整 (ドロップ位置、またはキャンバス中心)
+        console.log('[DEBUG SVG Import] Initial group bbox:', { x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h });
+        console.log('[DEBUG SVG Import] calculated scale:', scale, 'maxDim:', maxDim);
+
+        // [NEW] 配置座標の一括トランスフォーム調整 (ドロップ位置、またはキャンバス中心)
+        // 個別に .scale() と .translate() を適用するとマトリクス合成が狂い、
+        // かつ変形後の bbox() がスケール前の元座標を返すため、位置ズレが発生する。
+        // これを防ぐために元の bbox に基づいて一括で transform (matrix) を適用する。
         if (dropPoint) {
-            // 要素の中心が dropPoint に来るように移動
-            const newBbox = importGroup.bbox();
-            const dx = dropPoint.x - (newBbox.x + newBbox.w / 2);
-            const dy = dropPoint.y - (newBbox.y + newBbox.h / 2);
-            importGroup.translate(dx, dy);
+            const cx = bbox.x + bbox.w / 2;
+            const cy = bbox.y + bbox.h / 2;
+            const tx = dropPoint.x - cx * scale;
+            const ty = dropPoint.y - cy * scale;
+
+            console.log('[DEBUG SVG Import] dropPoint:', { x: dropPoint.x, y: dropPoint.y });
+            console.log('[DEBUG SVG Import] calculated center:', { cx, cy }, 'translation:', { tx, ty });
+
+            importGroup.transform({
+                a: scale, b: 0, c: 0, d: scale,
+                e: tx, f: ty
+            });
+        } else {
+            console.log('[DEBUG SVG Import] No dropPoint, default scaling applied.');
+            importGroup.transform({
+                a: scale, b: 0, c: 0, d: scale,
+                e: 0, f: 0
+            });
         }
+
+        console.log('[DEBUG SVG Import] Applied transform attribute:', importGroup.attr('transform'));
+        const appliedBbox = importGroup.bbox();
+        console.log('[DEBUG SVG Import] Group bbox after transform:', { x: appliedBbox.x, y: appliedBbox.y, w: appliedBbox.w, h: appliedBbox.h });
 
         // グループの中身を個別にインタラクティブ化して選択（要件の「gタグ置換」を実質的に反映）
         // importGroup自体をインタラクティブな一つの要素として扱うのが最適

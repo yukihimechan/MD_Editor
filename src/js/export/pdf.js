@@ -76,7 +76,12 @@ async function exportPDFAsImage(orientation = 'portrait') {
     window.scrollTo(0, 0);
 
     // Add printing class to disable sticky headers via CSS
-    document.body.classList.add('printing-mode');
+    // 並行処理の競合を防ぐため、参照カウント方式で制御する。
+    if (typeof window.enterPrintingMode === 'function') {
+        window.enterPrintingMode('pdf', false);
+    } else {
+        document.body.classList.add('printing-mode');
+    }
 
     // Apply page break classes before HR if enabled to hide them via CSS
     if (AppState.config.pageBreakOnHr) {
@@ -129,7 +134,16 @@ async function exportPDFAsImage(orientation = 'portrait') {
         // Calculate available height in PX (DOM coordinates)
         const pageHeightPx = contentHeightPt / scalePxToPt;
 
-        console.log(`Starting PDF export. Total Height: ${element.scrollHeight}px`);
+        console.log(`Starting PDF export. Total Height: ${element.scrollHeight}px, pdfWidth: ${pdfWidth}, pdfHeight: ${pdfHeight}, pageHeightPx: ${pageHeightPx}`);
+
+        // [CRITICAL] クローン前にライブDOMで各要素の高さを計測し、属性として記録。
+        // これによりPageSplitter側で計測不能（0pxなど）になるのを防ぐ。
+        element.querySelectorAll('*').forEach(el => {
+            const h = el.offsetHeight || el.scrollHeight;
+            const w = el.offsetWidth || el.scrollWidth;
+            if (h > 0) el.setAttribute('data-original-height', h);
+            if (w > 0) el.setAttribute('data-original-width', w);
+        });
 
         // PageSplitterを使ってプレビュー全体をページごとのDOMに分割
         // ※ PageSplitterは内部で要素の移動（破壊的変更）を行うため、必ずプレビューの複製を渡す
@@ -138,6 +152,12 @@ async function exportPDFAsImage(orientation = 'portrait') {
 
         // [NEW] PDF出力に含めないプレースホルダー（ダミーブロック）を削除
         clonedPreview.querySelectorAll('.dummy-tail-block').forEach(el => el.remove());
+
+        // 改ページ表示用の一時的な線を削除
+        clonedPreview.querySelectorAll('.preview-page-break-line').forEach(el => el.remove());
+
+        // テーブル編集用などの一時的なUI要素・ドラッグハンドルを削除
+        clonedPreview.querySelectorAll('.drag-handle, .dummy-height-block, .table-row-resizer, .table-col-resizer, .column-resize-handle, .row-resize-handle').forEach(el => el.remove());
 
         // [NEW] PDF出力に含めない選択枠・選択ハイライトクラスを除去（ルート要素と子孫要素の両方）
         const selectClasses = ['preview-focused', 'preview-selected-element', 'preview-focused-parent'];
@@ -155,8 +175,9 @@ async function exportPDFAsImage(orientation = 'portrait') {
         });
 
         // [FIX] html2canvasはSVGのoverflow:visibleコンテンツ（SVG境界外の要素）を
-        // キャプチャできないため、Mermaid SVGをPNG画像に事前変換してIMGタグに置換する。
-        // PageSplitter実行「前」に行うことでページ分割も正しい高さで行われる。
+        // キャプチャできないため、Mermaid SVGをPNG画像に事前変換して置換するが、
+        // PageSplitterの分割計算時には、通常表示側（getPageBreakTopPositions）と全く同一のダミー画像（空のインラインSVG）を使用して
+        // 計算を行い、分割完了後に元のPNG画像を復元します。
         status = "Converting SVGs to PNG...";
         const svgsInClone = Array.from(clonedPreview.querySelectorAll('svg'));
         for (const svg of svgsInClone) {
@@ -174,8 +195,6 @@ async function exportPDFAsImage(orientation = 'portrait') {
             // SVGの自然な幅（プレビューで実際に表示されている幅）を使用する。
             // 常に elementWidthPx に引き伸ばすとプレビューより大きくなり余白がなくなるため、
             // naturalWidth を上限として使う。
-            // [変更] ページ高さを超えるSVGは縮小せず、PageSplitterのクリッピング分割で
-            // 複数ページにまたがって表示する方針に統一。
             const naturalWidth = Math.min(parseFloat(origWidth) || elementWidthPx, elementWidthPx);
             let targetW = Math.round(naturalWidth);
             const targetH = Math.round(targetW * aspectRatio);
@@ -203,44 +222,55 @@ async function exportPDFAsImage(orientation = 'portrait') {
 
                 await new Promise((resolve) => {
                     const tempImg = new Image();
+                    const timer = setTimeout(() => {
+                        console.warn('[PDF Fix] SVG→PNG変換タイムアウト (2秒超過、スキップ)');
+                        resolve();
+                    }, 2000);
                     tempImg.onload = () => {
+                        clearTimeout(timer);
                         ctx.drawImage(tempImg, 0, 0, targetW, targetH);
                         resolve();
                     };
                     tempImg.onerror = (e) => {
+                        clearTimeout(timer);
                         console.warn('[PDF Fix] SVG→PNG変換失敗（フォールバック: SVGのまま）', e);
                         resolve(); // 失敗してもスキップして続行
                     };
                     tempImg.src = svgDataUrl;
                 });
 
-                // SVGをIMGタグに置き換え（html2canvasはIMGを正しくキャプチャできる）
-                const imgEl = document.createElement('img');
-                imgEl.src = cvs.toDataURL('image/png');
+                // 本物のPNG画像
+                const pngDataUrl = cvs.toDataURL('image/png');
+
+                // ダミー画像（空のインラインSVG）を作成して置換（getPageBreakTopPositions と完全に一致）
+                const dummyImg = document.createElement('img');
+                dummyImg.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"/>';
+                dummyImg.style.width = targetW + 'px';
+                dummyImg.style.height = targetH + 'px';
+                dummyImg.style.display = 'block';
+                dummyImg.style.margin = '0 auto';
                 
+                // 退避
+                dummyImg.setAttribute('data-real-png-src', pngDataUrl);
+
                 // 元のSVGの属性（id, class, style等）をコピー。
                 // SVG固有の属性やサイズ計算に影響する属性は除外する。
-                const excludeAttrs = ['width', 'height', 'viewBox', 'xmlns', 'xmlns:xlink', 'version'];
+                const excludeAttrs = ['width', 'height', 'viewBox', 'xmlns', 'xmlns:xlink', 'version', 'style', 'src'];
                 for (const attr of svg.attributes) {
                     if (!excludeAttrs.includes(attr.name) && !attr.name.startsWith('xmlns:')) {
-                        imgEl.setAttribute(attr.name, attr.value);
+                        dummyImg.setAttribute(attr.name, attr.value);
                     }
                 }
                 
-                // 変換用のレイアウトスタイルを上書き適用（元のstyle.width/heightなどを上書き）
-                imgEl.style.width = targetW + 'px';
-                imgEl.style.height = targetH + 'px';
-                imgEl.style.display = 'block';
-                imgEl.style.margin = '0 auto';
-                imgEl.setAttribute('data-pdf-converted-svg', '1');
+                // SVGのtransformスタイルを引き継ぐ（PDF出力時のスケール維持用）
+                if (svg.style.transform) {
+                    dummyImg.style.transform = svg.style.transform;
+                }
 
-                svg.parentNode.replaceChild(imgEl, svg);
+                svg.parentNode.replaceChild(dummyImg, svg);
 
-                // [FIX] SVG→IMG変換後、親ラッパー(svg-view-wrapper)のdata-computed-heightを更新する。
-                // PageSplitterはこの属性を参照してページ分割の高さ計算を行うため、
-                // 変換後のIMGの実際の高さに合わせないと、ページ分割が不正になり
-                // 見出しが消失したりコンテンツが途中で切れる原因になる。
-                const svgParent = imgEl.parentElement;
+                // 親ラッパー(svg-view-wrapper)のdata-computed-heightを更新する
+                const svgParent = dummyImg.parentElement;
                 if (svgParent) {
                     if (svgParent.hasAttribute('data-computed-height')) {
                         svgParent.setAttribute('data-computed-height', String(targetH));
@@ -274,6 +304,17 @@ async function exportPDFAsImage(orientation = 'portrait') {
         });
 
         const pages = await PageSplitter.splitToPages(clonedPreview, pageHeightPx, elementWidthPx);
+
+        // 分割完了後、ダミー画像を本物のPNG画像に戻す
+        pages.forEach(page => {
+            page.querySelectorAll('img[data-real-png-src]').forEach(img => {
+                const realSrc = img.getAttribute('data-real-png-src');
+                if (realSrc) {
+                    img.src = realSrc;
+                    img.removeAttribute('data-real-png-src');
+                }
+            });
+        });
 
         // 分割されたページを描画するための専用の一時コンテナを作成
         const renderContainer = document.createElement('div');
@@ -388,7 +429,11 @@ async function exportPDFAsImage(orientation = 'portrait') {
         }
     } finally {
         // Restore UI state
-        document.body.classList.remove('printing-mode');
+        if (typeof window.leavePrintingMode === 'function') {
+            window.leavePrintingMode('pdf', false);
+        } else {
+            document.body.classList.remove('printing-mode');
+        }
 
         // [FIX] Restore inline styles
         stickyElements.forEach(el => {

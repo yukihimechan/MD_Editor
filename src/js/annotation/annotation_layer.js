@@ -425,101 +425,104 @@ window.AnnotationLayer = (function () {
 
         if (!_isDrawing) return;
         _isDrawing = false;
-        _svgRectCache = null; // 【追加】キャッシュ解放
-        _svgEl.style.pointerEvents = ''; // 【修正】CSSによる制御に戻すため空にする
+        _svgRectCache = null; // キャッシュ解放
 
-        if (_activeShape) {
-            let keep = true;
-            if (_currentTool === 'marker') {
-                // 【追加】一時的なプレビュー線を削除
-                if (_activeShape.previewLine) {
-                    _activeShape.previewLine.remove();
-                    _activeShape.previewLine = null;
-                }
-
-                // 【追加】マウスアップされた時点の座標から確定範囲を算出して getClientRects() を計算
-                let currentRange = null;
-                if (document.caretRangeFromPoint) {
-                    currentRange = document.caretRangeFromPoint(e.clientX, e.clientY);
-                } else if (document.caretPositionFromPoint) {
-                    const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
-                    if (pos) {
-                        currentRange = document.createRange();
-                        currentRange.setStart(pos.offsetNode, pos.offset);
-                        currentRange.setEnd(pos.offsetNode, pos.offset);
+        try {
+            if (_activeShape) {
+                let keep = true;
+                if (_currentTool === 'marker') {
+                    // 一時的なプレビュー線を削除
+                    if (_activeShape.previewLine) {
+                        _activeShape.previewLine.remove();
+                        _activeShape.previewLine = null;
                     }
-                }
 
-                if (currentRange && _markerStartNode) {
-                    const range = _getSafeRange(_markerStartNode, _markerStartOffset, currentRange.startContainer, currentRange.startOffset);
-                    const rects = range.getClientRects();
-                    // この時点でのみ SVGレイヤーの bounding rect を取得する
-                    const rect = _svgEl.getBoundingClientRect();
-                    
-                    let pathStr = '';
-                    for (let i = 0; i < rects.length; i++) {
-                        const r = rects[i];
-                        if (r.width > 0 && r.height > 0) {
-                            const rx = r.left - rect.left;
-                            const ry = r.top - rect.top;
-                            pathStr += `M${rx},${ry} h${r.width} v${r.height} h-${r.width} Z `;
+                    // マウスアップされた時点の座標から確定範囲を算出して getClientRects() を計算
+                    let currentRange = null;
+                    if (document.caretRangeFromPoint) {
+                        currentRange = document.caretRangeFromPoint(e.clientX, e.clientY);
+                    } else if (document.caretPositionFromPoint) {
+                        const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
+                        if (pos) {
+                            currentRange = document.createRange();
+                            currentRange.setStart(pos.offsetNode, pos.offset);
+                            currentRange.setEnd(pos.offsetNode, pos.offset);
                         }
                     }
-                    if (_activeShape.markerPath) {
-                        _activeShape.markerPath.plot(pathStr);
+
+                    if (currentRange && _markerStartNode) {
+                        const range = _getSafeRange(_markerStartNode, _markerStartOffset, currentRange.startContainer, currentRange.startOffset);
+                        const rects = range.getClientRects();
+                        // この時点でのみ SVGレイヤーの bounding rect を取得する
+                        const rect = _svgEl.getBoundingClientRect();
+                        
+                        let pathStr = '';
+                        for (let i = 0; i < rects.length; i++) {
+                            const r = rects[i];
+                            if (r.width > 0 && r.height > 0) {
+                                const rx = r.left - rect.left;
+                                const ry = r.top - rect.top;
+                                pathStr += `M${rx},${ry} h${r.width} v${r.height} h-${r.width} Z `;
+                            }
+                        }
+                        if (_activeShape.markerPath) {
+                            _activeShape.markerPath.plot(pathStr);
+                        }
+                    }
+
+                    // 子要素の数ではなく、pathのd属性が空かどうかで判定
+                    if (!_activeShape.markerPath || !_activeShape.markerPath.attr('d')) keep = false;
+                } else {
+                    const bbox = _activeShape.bbox();
+                    if (_currentTool !== 'freehand' && bbox.width < 3 && bbox.height < 3) keep = false;
+                }
+
+                if (!keep) {
+                    _activeShape.remove();
+                } else {
+                    _activeShape.attr('data-annotation', 'true');
+
+                    // 吹き出しの場合はステータス属性を付与
+                    if (_currentTool === 'bubble') {
+                        _activeShape.attr('data-read-status', 'unread');
+                        _activeShape.attr('data-action-status', 'pending');
+                    }
+
+                    _history.push(_activeShape);
+
+                    if (typeof window.makeInteractive === 'function') {
+                        window.makeInteractive(_activeShape);
+                        if (typeof window.selectElement === 'function') {
+                            window.selectElement(_activeShape);
+                        }
+                    }
+
+                    // 描画完了直後にアンカーを設定
+                    _attachNearestAnchor(_activeShape);
+
+                    // 吹き出しの場合はステータスアイコンを描画
+                    if (_currentTool === 'bubble') {
+                        _renderStatusIcons(_activeShape);
+                    }
+
+                    _notifyChange();
+
+                    // コメントパネルを更新
+                    if (typeof window.AnnotationCommentPanel !== 'undefined') {
+                        window.AnnotationCommentPanel.refresh();
                     }
                 }
-
-                // 【修正】子要素の数ではなく、pathのd属性が空かどうかで判定
-                if (!_activeShape.markerPath || !_activeShape.markerPath.attr('d')) keep = false;
-            } else {
-                const bbox = _activeShape.bbox();
-                if (_currentTool !== 'freehand' && bbox.width < 3 && bbox.height < 3) keep = false;
             }
+        } finally {
+            _activeShape    = null;
+            _freehandPoints = [];
+            _markerStartNode = null;
+            _svgEl.style.pointerEvents = ''; // 確実にここで元に戻す
 
-            if (!keep) {
-                _activeShape.remove();
-            } else {
-                _activeShape.attr('data-annotation', 'true');
-
-                // 吹き出しの場合はステータス属性を付与
-                if (_currentTool === 'bubble') {
-                    _activeShape.attr('data-read-status', 'unread');
-                    _activeShape.attr('data-action-status', 'pending');
-                }
-
-                _history.push(_activeShape);
-
-                if (typeof window.makeInteractive === 'function') {
-                    window.makeInteractive(_activeShape);
-                    if (typeof window.selectElement === 'function') {
-                        window.selectElement(_activeShape);
-                    }
-                }
-
-                // 描画完了直後にアンカーを設定
-                _attachNearestAnchor(_activeShape);
-
-                // 吹き出しの場合はステータスアイコンを描画
-                if (_currentTool === 'bubble') {
-                    _renderStatusIcons(_activeShape);
-                }
-
-                _notifyChange();
-
-                // コメントパネルを更新
-                if (typeof window.AnnotationCommentPanel !== 'undefined') {
-                    window.AnnotationCommentPanel.refresh();
-                }
+            // 描画後は自動的に選択ツールに戻る
+            if (window.activeAnnotationToolbar && typeof window.activeAnnotationToolbar.setActiveTool === 'function') {
+                window.activeAnnotationToolbar.setActiveTool('select');
             }
-        }
-        _activeShape    = null;
-        _freehandPoints = [];
-        _markerStartNode = null;
-
-        // 描画後は自動的に選択ツールに戻る
-        if (window.activeAnnotationToolbar && typeof window.activeAnnotationToolbar.setActiveTool === 'function') {
-            window.activeAnnotationToolbar.setActiveTool('select');
         }
     }
 
@@ -749,6 +752,7 @@ window.AnnotationLayer = (function () {
             if (_svgEl.style.left !== `${newLeft}px`) _svgEl.style.left = `${newLeft}px`;
         }
 
+        // left更新後にsvgRectを取得（更新前の値を使うと座標がズレる）
         const svgRect = _svgEl.getBoundingClientRect();
         if (svgRect.width === 0 && svgRect.height === 0) return;
 
@@ -815,14 +819,12 @@ window.AnnotationLayer = (function () {
             const targetY = newParaTopInCanvas + anchor.offsetY;
             const newTy = targetY - anchor.initialBboxY;
 
-            const currentTransform = shapeEl.node.getAttribute('transform') || '';
-            const matchX = currentTransform.match(/translate\s*\(\s*([+-]?\d*\.?\d+)/);
-            const currentTx = matchX ? parseFloat(matchX[1]) : 0;
-            const matchY = currentTransform.match(/translate\s*\(\s*[+-]?\d*\.?\d+\s*,\s*([+-]?\d*\.?\d+)/);
-            const currentTy = matchY ? parseFloat(matchY[1]) : 0;
+            const t = shapeEl.transform();
+            const currentTx = t.translateX || 0;
+            const currentTy = t.translateY || 0;
             
             if (Math.abs(newTy - currentTy) < 0.5) return;
-            shapeEl.node.setAttribute('transform', `translate(${currentTx},${newTy})`);
+            shapeEl.transform({ translateX: currentTx, translateY: newTy });
 
             // 吹き出しの場合、ステータスアイコンも新座標に合わせて再描画
             if (shapeEl.attr('data-tool-id') === 'bubble') {
@@ -992,10 +994,11 @@ window.AnnotationLayer = (function () {
     }
 
     /** 変更をエディタに通知（保存フラグを立てる） */
+
     function _notifyChange() {
         if (typeof AppState !== 'undefined') AppState.isModified = true;
         if (typeof updateTitle === 'function') updateTitle();
-        // エディタテキストに注釈データを反映（Ctrl+Z に対応）
+        // エディタテキストに注釈データを反映（Ctrl+Z Undo対応）
         _updateEditorAnnotationData();
     }
 
@@ -1143,7 +1146,7 @@ window.AnnotationLayer = (function () {
     function clearSilent() {
         if (!_draw) return;
         _draw.find('[data-annotation="true"]').forEach(el => el.remove());
-        // ステータスアイコングループも剩らないよう削除
+        // ステータスアイコングループも残らないよう削除
         _draw.find('[data-status-icon="true"]').forEach(el => el.remove());
         _history = [];
         _anchorMap.clear();
@@ -1165,16 +1168,21 @@ window.AnnotationLayer = (function () {
         // ステータスアイコングループは保存しないよう、一時的にDOMから完全に取り除く
         // （アイコンは毎回再生成するため、マークアップへの保存は不要かつゴミになるため）
         const iconGroups = Array.from(_svgEl.querySelectorAll('[data-status-icon="true"]'));
-        const parents = iconGroups.map(g => g.parentNode);
+        // 親要素と、元々自分の次だった要素（挿入位置）を記憶する
+        const restoreInfo = iconGroups.map(g => ({
+            parent: g.parentNode,
+            nextSibling: g.nextSibling
+        }));
 
         iconGroups.forEach(g => g.remove());
         
         const html = _svgEl.outerHTML;
         
-        // 元に戻す（appendChildで末尾に追加して最前面を維持）
+        // 元の正確な位置に戻す
         iconGroups.forEach((g, i) => {
-            if (parents[i]) {
-                parents[i].appendChild(g);
+            const info = restoreInfo[i];
+            if (info.parent) {
+                info.parent.insertBefore(g, info.nextSibling);
             }
         });
 
@@ -1260,47 +1268,6 @@ window.AnnotationLayer = (function () {
      * @param {string} newContent - レンダリングされる新しいMarkdownテキスト
      */
     function trackContentChange(newContent) {
-        if (_anchorMap.size === 0 || _prevContent === null) {
-            _prevContent = newContent;
-            return;
-        }
-        if (_prevContent === newContent) return;
-
-        // 【最適化】splitによる巨大配列生成をやめ、文字列比較で差分を計算
-        let firstDiffIdx = 0;
-        const minLen = Math.min(_prevContent.length, newContent.length);
-        while (firstDiffIdx < minLen && _prevContent[firstDiffIdx] === newContent[firstDiffIdx]) {
-            firstDiffIdx++;
-        }
-
-        // 差異が発生した箇所までの改行の数をカウント
-        let firstDiffLine = 0;
-        let idx = _prevContent.indexOf('\n');
-        while (idx !== -1 && idx < firstDiffIdx) {
-            firstDiffLine++;
-            idx = _prevContent.indexOf('\n', idx + 1);
-        }
-
-        const countNewlines = (str) => {
-            let count = 0, i = str.indexOf('\n');
-            while (i !== -1) { count++; i = str.indexOf('\n', i + 1); }
-            return count;
-        };
-
-        const oldLinesCount = countNewlines(_prevContent) + 1;
-        const newLinesCount = countNewlines(newContent) + 1;
-        const delta = newLinesCount - oldLinesCount;
-        
-        if (delta === 0) {
-            _prevContent = newContent;
-            return; 
-        }
-
-        // 【修正】HTML文字列の行数差分（delta）をMarkdownの行番号（sourceLine）に加算する
-        // 誤ったロジックを無効化。要素の特定は syncId による追跡を主軸とする。
-        // （Markdown本来の行シフトは別途 CodeMirror の Transaction から取得すべきだが、
-        //   syncId があれば大部分のズレは防げるため一旦無効化する）
-
         _prevContent = newContent;
     }
 

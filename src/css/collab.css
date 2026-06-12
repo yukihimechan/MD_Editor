@@ -230,6 +230,17 @@
     animation: collab-pulse 1s infinite;
 }
 
+.collab-status--waiting {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.collab-status--waiting::before {
+    background: #ff9800;
+    box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.3);
+    animation: collab-pulse 2s infinite;
+}
+
 /* フォームフィールド */
 .collab-field {
     margin-bottom: 14px;
@@ -372,4 +383,66 @@
 
 #btn-collab-close:hover {
     background: #e8e8e8;
+}
+
+/* =============================================
+   共同編集シグナリングサーバー検出ダイアログ関連
+   ============================================= */
+
+#dialog-collab-scan {
+    max-width: 95vw;
+    border: none;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+#dialog-collab-scan::backdrop {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(3px);
+}
+
+.collab-scan-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #ccc;
+    border-top-color: #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.collab-scan-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.collab-scan-item:hover {
+    background-color: #f1f8ff;
+}
+
+.collab-scan-item:last-child {
+    border-bottom: none;
+}
+
+.collab-scan-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: #333;
+}
+
+.collab-scan-url {
+    font-size: 11px;
+    color: #666;
+    background: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 4px;
 }

@@ -406,6 +406,10 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
     }
 
     // If it's a container element (like g), check if it contains any internal editor elements
+    // 【バグ修正】選択中のカスタム図形（bubble等）に一時的な編集用UI（hitarea等）が含まれている場合に、
+    // 図形ごと消去されてしまう不具合を防ぐため、g要素自体の巻き込み削除処理をコメントアウトしました。
+    // 一時的UI自体は個別要素のクラス名や属性判定（IGNORE_CLASSES等）で直列化から正しく除外されます。
+    /*
     if (tagName === 'g') {
         const toolId = node.getAttribute('data-tool-id');
         const hasGradient = node.getAttribute('data-has-gradient') === 'true';
@@ -425,6 +429,7 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
             if (hasInternal) return '';
         }
     }
+    */
 
     // Skip empty g tags
     if (tagName === 'g' && node.childNodes.length === 0 && (!node.textContent || !node.textContent.trim())) return '';

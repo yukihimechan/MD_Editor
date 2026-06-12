@@ -82,6 +82,25 @@ const PreviewInlineEdit = {
                 return;
             }
 
+            // [NEW] 表セルのクリック処理：表がフォーカス済みの場合はセル単体フォーカスに委譲する
+            const clickedCell = e.target.closest('td, th');
+            if (clickedCell) {
+                const clickedTable = clickedCell.closest('table');
+                if (clickedTable && this.focusedElement === clickedTable) {
+                    // 表がすでにフォーカスされている場合:
+                    // ダブルクリックによる編集開始は dblclick イベントで行い、
+                    // セルの選択（単体・複数選択・ドラッグ）は table_editor.js の mousedown リスナーで処理するため、
+                    // ここではインライン編集セルの保存処理のみを行い、選択処理は委譲します。
+                    if (typeof TableEditor !== 'undefined') {
+                        // セル単体編集中のセルと異なるセルがクリックされた場合は先に保存する
+                        if (TableEditor.editingCellElement && TableEditor.editingCellElement !== clickedCell) {
+                            TableEditor.saveCellEdit();
+                        }
+                    }
+                    return;
+                }
+            }
+
             const target = this.getSelectableTarget(e.target);
             if (target) {
                 // [NEW] ドラッグ選択の開始準備
@@ -111,16 +130,59 @@ const PreviewInlineEdit = {
 
                 // [FIX] Excelのように「まずはフォーカス、既にフォーカスされていれば編集開始」に変更
                 if (this.focusedElement !== target || this.selectedElements.size > 1) {
+                    // 表がクリックされた場合: セル単体フォーカス状態をクリアしてから表全体をフォーカス
+                    if (target.tagName === 'TABLE' && typeof TableEditor !== 'undefined') {
+                        TableEditor.clearCellFocus();
+                        if (TableEditor.editingCellElement) {
+                            TableEditor.saveCellEdit();
+                        }
+                    }
                     this.startFocus(target, true, false); // 単一選択でリセット
                 } else {
                     // SVGや画像はテキスト編集モードには入らない
-                    if (!isMediaBlock) {
+                    // 表は startEditing 内で弾かれるため、ここでは TABLE も isMediaBlock 扱いにする
+                    const isTable = target.tagName === 'TABLE';
+                    if (!isMediaBlock && !isTable) {
                         this.startEditing(target, '', e.clientX, e.clientY);
                     }
                 }
             } else if (this.isEditing) {
                 // 明示的な外部クリック時はフォーカスを外れたとみなして保存を実行
                 this.saveEditing();
+            }
+        });
+
+        // [NEW] ダブルクリックによるセル単体インライン編集開始
+        preview.addEventListener('dblclick', (e) => {
+            console.log('[dblclick] 検知 target:', e.target);
+
+            // 表エディタが起動中の場合はセル単体編集をスキップ
+            if (typeof TableEditor !== 'undefined' && TableEditor.activeTable) {
+                console.log('[dblclick] 表エディタ起動中 → スキップ');
+                return;
+            }
+
+            const cell = e.target.closest('td, th');
+            if (!cell) {
+                console.log('[dblclick] セルが見つからない target=', e.target);
+                return;
+            }
+            const table = cell.closest('table');
+            if (!table) {
+                console.log('[dblclick] tableが見つからない');
+                return;
+            }
+
+            console.log('[dblclick] focusedElement:', this.focusedElement, '/ table:', table, '/ 一致?', this.focusedElement === table);
+
+            // 表フォーカス済みかつセルが選択済みの場合のみ編集開始
+            // （表未フォーカス状態でのダブルクリックは表フォーカスのみ行い編集は開始しない）
+            if (this.focusedElement === table && typeof TableEditor !== 'undefined') {
+                console.log('[dblclick] → TableEditor.startCellEdit() 呼び出し cell:', cell);
+                e.preventDefault();
+                TableEditor.startCellEdit(cell, e.clientX, e.clientY);
+            } else {
+                console.log('[dblclick] → 表がフォーカス未済のため編集開始しない');
             }
         });
 
@@ -148,6 +210,13 @@ const PreviewInlineEdit = {
         document.addEventListener('keydown', (e) => {
             // モーダルダイアログ（設定画面など）でのキー操作は無視する
             if (e.target.closest('dialog')) return;
+
+            // テーブルでセルが選択状態（かつ編集中でない時）の場合、TableEditor にキーハンドリングを委譲する（論理フォーカスがプレビュー側にある場合のみ）
+            if (typeof TableEditor !== 'undefined' && this._logicalFocus === 'preview' && (TableEditor.activeCellElement || (TableEditor.selectedCells && TableEditor.selectedCells.length > 0)) && !TableEditor.editingCellElement) {
+                if (TableEditor.handleFocusedCellKeydown(e)) {
+                    return;
+                }
+            }
 
             // [FIX] CodeMirrorエディタ内など、プレビュー外の入力フィールド操作時は
             // プレビューのブロックナビゲーションでキーイベントを奪わないように先にチェックする
@@ -456,6 +525,37 @@ const PreviewInlineEdit = {
                 // [FIX] タイピング中に毎回 scrollIntoView が同期実行されて強制Reflowが発生するのを防ぐため、skipScroll = true を指定
                 this.startFocus(targetElement, false, false, true);
             }
+
+            // テーブルセルフォーカス復旧処理
+            const activeTable = targetElement || this.focusedElement;
+            if (activeTable && activeTable.tagName === 'TABLE' && typeof TableEditor !== 'undefined') {
+                if (TableEditor.pendingEditCellIndex) {
+                    const { rowIndex, colIndex } = TableEditor.pendingEditCellIndex;
+                    TableEditor.pendingEditCellIndex = null;
+                    setTimeout(() => {
+                        const freshTable = document.querySelector(`table[data-line="${activeTable.getAttribute('data-line')}"]`) || activeTable;
+                        if (freshTable && freshTable.rows[rowIndex]) {
+                            const cell = freshTable.rows[rowIndex].cells[colIndex];
+                            if (cell) {
+                                TableEditor.startCellEdit(cell);
+                            }
+                        }
+                    }, 50);
+                } else if (TableEditor.pendingFocusCellIndex) {
+                    const { rowIndex, colIndex } = TableEditor.pendingFocusCellIndex;
+                    TableEditor.pendingFocusCellIndex = null;
+                    setTimeout(() => {
+                        const freshTable = document.querySelector(`table[data-line="${activeTable.getAttribute('data-line')}"]`) || activeTable;
+                        if (freshTable && freshTable.rows[rowIndex]) {
+                            const cell = freshTable.rows[rowIndex].cells[colIndex];
+                            if (cell) {
+                                TableEditor.focusCell(cell);
+                            }
+                        }
+                    }, 50);
+                }
+            }
+
             this.restoreFocusLine = null; // 一度復元したら予約用フラグは消す
         }
     },
@@ -558,6 +658,10 @@ const PreviewInlineEdit = {
         this.isFocused = false;
         this.focusedElement = null;
         this.focusedLineIndex = null;
+
+        if (typeof TableEditor !== 'undefined') {
+            TableEditor.clearSelection();
+        }
     },
 
     // [NEW] 複数選択状態をすべてクリア
@@ -1622,26 +1726,33 @@ const PreviewInlineEdit = {
                 prefix = match[1] + match[2] + space;
             }
             if (isSplit) {
-                let nextPrefix = prefix || '- ';
-                // 次の行のタスクリストは未完了状態([ ])で引き継ぐ
-                nextPrefix = nextPrefix.replace(/\[x\]/i, '[ ]');
+                const isContentEmpty = (textBefore.trim() === '' && textAfter.trim() === '');
+                if (isContentEmpty) {
+                    newText = "\n";
+                    this.pendingFocusNext = true;
+                    this.pendingFocusNextLine = originalLineNum;
+                } else {
+                    let nextPrefix = prefix || '- ';
+                    // 次の行のタスクリストは未完了状態([ ])で引き継ぐ
+                    nextPrefix = nextPrefix.replace(/\[x\]/i, '[ ]');
 
-                // タスクリスト記号で終わる場合、末尾に半角スペースを保証する
-                if (nextPrefix.match(/\[[ xX]\]$/)) {
-                    nextPrefix += ' ';
-                }
-
-                // 新しい行が空になる場合、ゼロ幅スペースを補完してプレビューで正しく認識・フォーカスできるようにする
-                if (textAfter.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim() === '') {
-                    if (nextPrefix.match(/\[[ xX]\]\s+$/)) {
-                        nextPrefix += '\u200B';
+                    // タスクリスト記号で終わる場合、末尾に半角スペースを保証する
+                    if (nextPrefix.match(/\[[ xX]\]$/)) {
+                        nextPrefix += ' ';
                     }
-                }
 
-                textBefore = prefix + textBefore;
-                newText = textBefore + '\n' + nextPrefix + textAfter;
-                this.pendingFocusNext = true;
-                this.pendingFocusNextLine = originalLineNum !== null ? originalLineNum + 1 : null;
+                    // 新しい行が空になる場合、ゼロ幅スペースを補完してプレビューで正しく認識・フォーカスできるようにする
+                    if (textAfter.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim() === '') {
+                        if (nextPrefix.match(/\[[ xX]\]\s+$/)) {
+                            nextPrefix += '\u200B';
+                        }
+                    }
+
+                    textBefore = prefix + textBefore;
+                    newText = textBefore + '\n' + nextPrefix + textAfter;
+                    this.pendingFocusNext = true;
+                    this.pendingFocusNextLine = originalLineNum !== null ? originalLineNum + 1 : null;
+                }
             } else {
                 newText = prefix + newText;
             }

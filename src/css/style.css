@@ -1068,21 +1068,22 @@ body.dark-theme .preview-page-break-line::after {
     }
 }
 
+
 /* Printing mode (for PDF export via html2canvas) */
-.printing-mode header,
-.printing-mode #editor-pane,
-.printing-mode nav,
-.printing-mode .outline-panel,
-.printing-mode .search-dialog,
-.printing-mode .search-results-dialog,
-.printing-mode .export-menu-dropdown,
-.printing-mode .context-menu,
-.printing-mode #toast,
-.printing-mode dialog:not(#dialog-progress):not(#dialog-docx-progress) {
+body.printing-mode:not(.measuring-mode) header,
+body.printing-mode:not(.measuring-mode) #editor-pane,
+body.printing-mode:not(.measuring-mode) nav,
+body.printing-mode:not(.measuring-mode) .outline-panel,
+body.printing-mode:not(.measuring-mode) .search-dialog,
+body.printing-mode:not(.measuring-mode) .search-results-dialog,
+body.printing-mode:not(.measuring-mode) .export-menu-dropdown,
+body.printing-mode:not(.measuring-mode) .context-menu,
+body.printing-mode:not(.measuring-mode) #toast,
+body.printing-mode:not(.measuring-mode) dialog:not(#dialog-progress):not(#dialog-docx-progress) {
     display: none !important;
 }
 
-.printing-mode main.split {
+body.printing-mode:not(.measuring-mode) main.split {
     margin-left: 0 !important;
 }
 
@@ -1098,11 +1099,6 @@ body.dark-theme .preview-page-break-line::after {
 
 .printing-mode .md-preview hr.page-break-before {
     visibility: hidden;
-}
-
-.printing-mode .md-preview pre {
-    white-space: pre-wrap !important;
-    word-wrap: break-word !important;
 }
 
 .md-preview tbody tr:nth-child(odd) td {
@@ -2995,6 +2991,67 @@ circle.svg_select_handle {
     visibility: hidden;
 }
 
+/* セル単体フォーカス（選択状態）
+   box-shadow: inset を使用してセル内側に枠を描画（tdのoutlineは border-collapse の影響で外側に出るため）*/
+/* セル複数選択ハイライト */
+.table-cell-selected {
+    background-color: rgba(3, 102, 214, 0.12) !important;
+}
+body.dark-theme .table-cell-selected {
+    background-color: rgba(86, 156, 214, 0.15) !important;
+}
+
+/* セルドラッグ選択中のテキスト選択防止 */
+.selecting-cells,
+.selecting-cells * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+
+.table-cell-focused {
+    box-shadow: inset 0 0 0 2px var(--primary) !important;
+    outline: none !important;
+    background-color: rgba(3, 102, 214, 0.05) !important;
+    cursor: default;
+}
+
+/* セル単体編集状態 - 選択状態と同じ枠スタイル */
+.table-cell-editing {
+    box-shadow: inset 0 0 0 2px var(--primary) !important;
+    outline: none !important;
+    background-color: rgba(3, 102, 214, 0.05) !important;
+    caret-color: var(--primary);
+    cursor: text;
+}
+
+/* 編集中セルのボタン（コピーボタン等）を非表示にする
+   ボタンが display:block でセルを占有しカーソルが隠れるのを防ぐ */
+.table-cell-editing button {
+    display: none !important;
+}
+
+/* contentEditable 時のブラウザ標準フォーカス枠を完全に抑制 */
+.table-cell-editing:focus,
+.table-cell-editing:focus-visible {
+    outline: none !important;
+    box-shadow: inset 0 0 0 2px var(--primary) !important;
+}
+
+body.dark-theme .table-cell-focused {
+    box-shadow: inset 0 0 0 2px rgba(86, 156, 214, 0.9) !important;
+    background-color: rgba(86, 156, 214, 0.08) !important;
+}
+
+body.dark-theme .table-cell-editing {
+    box-shadow: inset 0 0 0 2px rgba(86, 156, 214, 0.9) !important;
+    background-color: rgba(86, 156, 214, 0.08) !important;
+}
+
+body.dark-theme .table-cell-editing:focus,
+body.dark-theme .table-cell-editing:focus-visible {
+    outline: none !important;
+    box-shadow: inset 0 0 0 2px rgba(86, 156, 214, 0.9) !important;
+}
 
 /* Done Button */
 .table-editor-done-btn {
@@ -4829,4 +4886,45 @@ g[data-tool-id="shape-text-group"] text tspan {
 .svg-gradient-indicators::-webkit-scrollbar {
     display: none;
 }
+
+/* ==========================================================================
+   テーブル行ドラッグ＆ドロップ用スタイル
+   ========================================================================== */
+.table-row-drag-handle {
+    position: fixed; /* 画面基準で浮かせる */
+    cursor: grab;
+    color: #bbb;
+    user-select: none;
+    font-size: 14px;
+    padding: 4px;
+    z-index: 9999; /* 最前面に配置 */
+    pointer-events: auto; /* ドラッグを可能にする */
+    background: transparent;
+    line-height: 1;
+    display: none; /* デフォルトは非表示 */
+}
+
+.table-row-drag-handle:hover {
+    color: #666;
+}
+
+.table-col-drag-handle {
+    position: fixed; /* 画面基準で浮かせる */
+    cursor: grab;
+    color: #bbb;
+    user-select: none;
+    font-size: 14px;
+    padding: 4px;
+    z-index: 9999; /* 最前面に配置 */
+    pointer-events: auto; /* ドラッグを可能にする */
+    background: transparent;
+    line-height: 1;
+    display: none; /* デフォルトは非表示 */
+}
+
+.table-col-drag-handle:hover {
+    color: #666;
+}
+
+
 

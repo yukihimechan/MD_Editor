@@ -492,7 +492,7 @@ class MermaidSequenceToolbar extends window.SVGToolbarBase {
         if (!this._resizeHandler) {
             this._resizeHandler = () => this.updatePosition();
             window.addEventListener('resize', this._resizeHandler);
-            if (DOM && DOM.preview) DOM.preview.addEventListener('scroll', this._resizeHandler);
+            if (typeof DOM !== 'undefined' && DOM.preview) DOM.preview.addEventListener('scroll', this._resizeHandler);
         }
     }
 

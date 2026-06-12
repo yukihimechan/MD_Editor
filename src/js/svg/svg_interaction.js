@@ -12,6 +12,73 @@ function isSVGEditing() {
 }
 window.isSVGEditing = isSVGEditing;
 
+// --- UI更新のデバウンスタイマー ---
+let _selectionUIUpdateTimer = null;
+
+function scheduleSelectionUIUpdate(silent = false) {
+    if (_selectionUIUpdateTimer) {
+        clearTimeout(_selectionUIUpdateTimer);
+    }
+    // 約15ms（1フレーム相当）待ってから1回だけ更新処理を走らせる
+    _selectionUIUpdateTimer = setTimeout(() => {
+        _selectionUIUpdateTimer = null;
+        if (!window.currentEditingSVG) return;
+
+        // 1. 変形ツールバーの更新
+        if (typeof updateTransformToolbarValues === 'function') {
+            updateTransformToolbarValues();
+        }
+
+        // 2. 各種スタイルツールバーの更新
+        const selected = Array.from(window.currentEditingSVG.selectedElements);
+        const hasStyleTarget = selected.some(item => item.type !== 'text');
+
+        if (window.SVGFontToolbar) {
+            window.SVGFontToolbar.show();
+            window.SVGFontToolbar.updateFromSelection();
+        }
+        if (window.SVGLineToolbar && hasStyleTarget) {
+            window.SVGLineToolbar.show();
+            window.SVGLineToolbar.updateFromSelection();
+        }
+        if (window.colorToolbar && hasStyleTarget) {
+            window.colorToolbar.show();
+            if (typeof window.colorToolbar.updateFromSelection === 'function') window.colorToolbar.updateFromSelection();
+        }
+        if (window.styleToolbar && hasStyleTarget) {
+            window.styleToolbar.show();
+            if (typeof window.styleToolbar.updateFromSelection === 'function') window.styleToolbar.updateFromSelection();
+        }
+        if (window.gradientToolbar) {
+            window.gradientToolbar.show();
+            if (typeof window.gradientToolbar.updateFromSelection === 'function') window.gradientToolbar.updateFromSelection();
+        }
+        if (window.airbrushToolbar) {
+            window.airbrushToolbar.show();
+            if (typeof window.airbrushToolbar.updateFromSelection === 'function') window.airbrushToolbar.updateFromSelection();
+        }
+        if (window.shadowToolbar) {
+            window.shadowToolbar.show();
+            if (typeof window.shadowToolbar.updateFromSelection === 'function') window.shadowToolbar.updateFromSelection();
+        }
+        if (window.cssToolbar && typeof window.cssToolbar.updateFromSelection === 'function') {
+            window.cssToolbar.updateFromSelection();
+        }
+        if (window.SVGTextAlignmentToolbar && typeof window.SVGTextAlignmentToolbar.updateFromSelection === 'function') {
+            window.SVGTextAlignmentToolbar.updateFromSelection();
+        }
+
+        // 3. ハイライトとSVG要素リストの同期
+        if (typeof window.updateSVGSourceHighlight === 'function') {
+            window.updateSVGSourceHighlight();
+        }
+        if (!silent && typeof buildSvgList === 'function') {
+            buildSvgList();
+        }
+    }, 15);
+}
+
+
 /**
  * Make an element interactive (Selectable, Draggable, Sync)
  */
@@ -19,6 +86,20 @@ function makeInteractive(el) {
     if (!el || !el.node) return;
     const tagName = el.node.tagName.toLowerCase();
     if (['tspan', 'textpath'].includes(tagName)) return;
+
+    // [NEW] すでに親・先祖要素がインタラクティブ化されている場合は、重複処理や表示バグを防ぐためにスキップ
+    let parentNode = el.node.parentNode;
+    const svgElement = window.currentEditingSVG && window.currentEditingSVG.container ? window.currentEditingSVG.container.querySelector('svg') : null;
+    const drawNode = window.currentEditingSVG && window.currentEditingSVG.draw ? window.currentEditingSVG.draw.node : null;
+    while (parentNode && parentNode !== svgElement && parentNode !== drawNode) {
+        if (parentNode.nodeType === 1) {
+            if (parentNode.instance && parentNode.instance.remember('_shapeInstance')) {
+                console.log(`[makeInteractive] Skipping element #${el.id()} because its ancestor #${parentNode.id || parentNode.tagName} is already interactive.`);
+                return;
+            }
+        }
+        parentNode = parentNode.parentNode;
+    }
 
     // [NEW] グラデーション内部の構成要素（輪郭線やクリップ背景など）はインタラクティブ化しない
     if (el.hasClass('svg-gradient-stroke') || (el.node.closest && el.node.closest('[data-has-gradient="true"]'))) {
@@ -210,9 +291,6 @@ function selectElement(el, isMulti, silent = false, force = false) {
         window.currentEditingSVG.selectedElements.add(el);
     }
     // ▲▲▲ ここまで ▲▲▲
-    // [NEW] Update transform toolbar after adding element to selection
-    updateTransformToolbarValues();
-
     // [NEW] Delegate Selection UI to SvgShape instance
     let shape = el.remember('_shapeInstance');
     if (!shape && typeof wrapShape === 'function') {
@@ -250,72 +328,6 @@ function selectElement(el, isMulti, silent = false, force = false) {
         }
     }
 
-    // [NEW] Toolbars Visibility & Update
-    const selected = Array.from(window.currentEditingSVG.selectedElements);
-    const hasStyleTarget = selected.some(item => item.type !== 'text');
-
-    if (window.SVGFontToolbar) {
-        window.SVGFontToolbar.show();
-        window.SVGFontToolbar.updateFromSelection();
-    }
-
-    if (window.SVGLineToolbar) {
-        if (hasStyleTarget) {
-            window.SVGLineToolbar.show();
-            window.SVGLineToolbar.updateFromSelection();
-        }
-    }
-
-    if (window.colorToolbar) {
-        if (hasStyleTarget) {
-            window.colorToolbar.show();
-            if (typeof window.colorToolbar.updateFromSelection === 'function') {
-                window.colorToolbar.updateFromSelection();
-            }
-        }
-    }
-
-    if (window.styleToolbar) {
-        if (hasStyleTarget) {
-            window.styleToolbar.show();
-            if (typeof window.styleToolbar.updateFromSelection === 'function') {
-                window.styleToolbar.updateFromSelection();
-            }
-        }
-    }
-
-    if (window.gradientToolbar) {
-        window.gradientToolbar.show();
-        if (typeof window.gradientToolbar.updateFromSelection === 'function') {
-            window.gradientToolbar.updateFromSelection();
-        }
-    }
-
-    // [NEW] エアブラシツールバーの選択状態を更新
-    if (window.airbrushToolbar) {
-        window.airbrushToolbar.show();
-        if (typeof window.airbrushToolbar.updateFromSelection === 'function') {
-            window.airbrushToolbar.updateFromSelection();
-        }
-    }
-
-    // [NEW] シャドウツールバーの選択状態を更新
-    if (window.shadowToolbar) {
-        window.shadowToolbar.show();
-        if (typeof window.shadowToolbar.updateFromSelection === 'function') {
-            window.shadowToolbar.updateFromSelection();
-        }
-    }
-
-    // [NEW] CSSツールバーの選択状態を更新
-    if (window.cssToolbar && typeof window.cssToolbar.updateFromSelection === 'function') {
-        window.cssToolbar.updateFromSelection();
-    }
-
-    // [NEW] テキスト配置ツールバーの選択状態を更新
-    if (window.SVGTextAlignmentToolbar && typeof window.SVGTextAlignmentToolbar.updateFromSelection === 'function') {
-        window.SVGTextAlignmentToolbar.updateFromSelection();
-    }
 
     if (typeof el.resize === 'function') {
         // [NEW] Snap to dynamic grid on Resize/Rotate
@@ -489,10 +501,8 @@ function selectElement(el, isMulti, silent = false, force = false) {
         }
     });
 
-    // [NEW] SVGリスト情報の再構築（キャンバス選択を反映）
-    if (!silent && typeof buildSvgList === 'function') {
-        buildSvgList();
-    }
+    // UIの同期更新をデバウンスして呼び出す
+    scheduleSelectionUIUpdate(silent);
 }
 window.selectElement = selectElement;
 
@@ -543,16 +553,8 @@ function deselectElement(el, silent = false) {
 
         window.currentEditingSVG.selectedElements.delete(existingWrapper);
 
-        // UI Updates
-        updateTransformToolbarValues();
-        if (typeof window.updateSVGSourceHighlight === 'function') {
-            window.updateSVGSourceHighlight();
-        }
-
-        // [NEW] SVGリスト情報の再構築
-        if (!silent && typeof buildSvgList === 'function') {
-            buildSvgList();
-        }
+        // UIの同期更新をデバウンスして呼び出す
+        scheduleSelectionUIUpdate(silent);
     }
 }
 window.deselectElement = deselectElement;
@@ -599,25 +601,8 @@ function deselectAll(silent = false) {
 
     // Keep Style/Line toolbars always visible
 
-    updateTransformToolbarValues();
-
-    // [NEW] 同期ハイライトの更新呼び出し
-    if (typeof window.updateSVGSourceHighlight === 'function') {
-        window.updateSVGSourceHighlight();
-    }
-
-    if (window.gradientToolbar && typeof window.gradientToolbar.updateFromSelection === 'function') {
-        window.gradientToolbar.updateFromSelection();
-    }
-
-    if (window.shadowToolbar && typeof window.shadowToolbar.updateFromSelection === 'function') {
-        window.shadowToolbar.updateFromSelection();
-    }
-
-    // [NEW] SVGリスト情報の再構築
-    if (!silent && typeof buildSvgList === 'function') {
-        buildSvgList();
-    }
+    // UIの同期更新をデバウンスして呼び出す
+    scheduleSelectionUIUpdate(silent);
 }
 window.deselectAll = deselectAll;
 

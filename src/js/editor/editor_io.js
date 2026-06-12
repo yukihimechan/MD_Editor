@@ -40,7 +40,7 @@ function bindDragDrop() {
                const container = window.currentEditingSVG.container;
                const rect = container.getBoundingClientRect();
                const draw = window.currentEditingSVG.draw;
-               const dropPoint = draw.point(e.clientX - rect.left, e.clientY - rect.top);
+               const dropPoint = draw.point(e.clientX, e.clientY);
                
                const reader = new FileReader();
                reader.onload = (event) => {

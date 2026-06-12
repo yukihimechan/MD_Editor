@@ -1359,7 +1359,15 @@ class StandardShape extends SvgShape {
                                 startOffsetAttr = tp.getAttribute('startOffset') || '0%';
                                 const pathHref = tp.getAttribute('href') || tp.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
                                 if (pathHref) {
-                                    textPathNode = document.querySelector(pathHref);
+                                    try {
+                                        textPathNode = document.querySelector(pathHref);
+                                    } catch (e) {
+                                        // セレクタが無効な場合はID検索を試みる
+                                        if (pathHref.startsWith('#')) {
+                                            const id = pathHref.substring(1);
+                                            textPathNode = document.getElementById(id);
+                                        }
+                                    }
                                     if (textPathNode && typeof textPathNode.getTotalLength === 'function') {
                                         try { textPathLength = textPathNode.getTotalLength() || 1000; } catch(e){}
                                     }
@@ -1759,6 +1767,7 @@ class StandardShape extends SvgShape {
         }
 
         const children = this.el.children().filter(c => {
+            if (!c || !c.node || typeof c.bbox !== 'function') return false;
             const tag = c.node.tagName.toLowerCase();
             const isInternal = c.hasClass('svg-interaction-hitarea') ||
                 c.hasClass('svg-select-handle') ||
@@ -2874,6 +2883,9 @@ class StandardShape extends SvgShape {
         const anchor = textEl.css('text-anchor') || textEl.attr('text-anchor') || 'middle';
         const baseline = textEl.css('dominant-baseline') || textEl.attr('dominant-baseline') || 'central';
 
+        console.log('[DEBUG applyTextWrap] Clearing textEl and rebuilding multiline text node structure.');
+        const clearStartTime = performance.now();
+
         textEl.clear();
         textEl.attr('pointer-events', 'none'); // [NEW] text要素自体の pointer-events を none に設定
         textEl.text(add => {
@@ -2891,6 +2903,8 @@ class StandardShape extends SvgShape {
                 });
             });
         });
+
+        console.log(`[DEBUG applyTextWrap] Finished rebuilding text node. Elapsed time: ${(performance.now() - clearStartTime).toFixed(2)}ms`);
         
         // 自動位置調整の再呼び出し
         if (window.SVGTextAlignmentToolbar && typeof window.SVGTextAlignmentToolbar.updateTextPosition === 'function') {
@@ -3402,13 +3416,16 @@ class StandardShape extends SvgShape {
         const parent = el.parent();
         if (!parent) return;
 
+        console.log('[DEBUG setupHitArea] Start hitarea setup for:', { id: el.id(), tagName: el.node.tagName.toLowerCase(), type: el.type });
+
         // 【No.3 修正】 複雑なパスやポリゴンはクローンせず、矩形で代用してDOM爆発を防ぐ
         const dStr = el.attr('d') || '';
         const ptsStr = el.attr('points') || el.attr('data-poly-points') || '';
         const isComplex = (el.type === 'path' && dStr.length > 200) || 
                           ((el.type === 'polyline' || el.type === 'polygon') && ptsStr.length > 200);
 
-        if (el.type === 'g' || isComplex || el.type === 'image') {
+        if (el.type === 'g' || el.type === 'text' || isComplex || el.type === 'image') {
+            console.log('[DEBUG setupHitArea] Bypassing clone, using transparent rect hitarea.');
             this.hitArea = parent.rect(0, 0)
                 .addClass('svg-interaction-hitarea')
                 .attr({
@@ -3418,7 +3435,7 @@ class StandardShape extends SvgShape {
                     'opacity': 0
                 });
         } else {
-            // 単純な図形のみクローンを許容
+            console.log('[DEBUG setupHitArea] Cloning element for hitarea.');
             this.hitArea = el.clone()
                 .addClass('svg-interaction-hitarea')
                 .attr({

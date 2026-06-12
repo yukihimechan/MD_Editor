@@ -918,7 +918,38 @@ class CustomTool extends BaseTool {
         // 一時的なグループを作成してコンテンツを読み込む
         // これにより複数の要素が含まれるカスタムツールでも一括で扱える
         this.activeElement = this.draw.group();
-        this.activeElement.svg(tool.content);
+
+        // [NEW] 挿入対象の tool.content が単一の g タグで囲まれている場合、
+        // 中身（innerHTML）のみを展開して挿入し、二重の g グループ化を防ぐ。
+        // その際、元の g タグが持っていた属性（transformなど）が消失しないよう、
+        // 新しい activeElement にコピーして引き継ぐ。
+        let contentToInsert = tool.content;
+        let originalAttributes = {};
+        try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(`<svg>${tool.content}</svg>`, 'image/svg+xml');
+            const svgRoot = doc.documentElement;
+            const children = Array.from(svgRoot.childNodes);
+            const firstLevelElements = children.filter(node => node.nodeType === 1);
+            if (firstLevelElements.length === 1 && firstLevelElements[0].tagName.toLowerCase() === 'g') {
+                contentToInsert = firstLevelElements[0].innerHTML;
+                const origEl = firstLevelElements[0];
+                Array.from(origEl.attributes).forEach(attr => {
+                    if (attr.name !== 'id' && attr.name !== 'class') {
+                        originalAttributes[attr.name] = attr.value;
+                    }
+                });
+            }
+        } catch(err) {
+            console.warn('[CustomTool] Parse content error:', err);
+        }
+
+        this.activeElement.svg(contentToInsert);
+
+        // 元の g タグの属性（transform等）を引き継ぐ
+        Object.keys(originalAttributes).forEach(name => {
+            this.activeElement.attr(name, originalAttributes[name]);
+        });
 
         // [FIX] カスタムツール作成時の正規化オフセットをクリア
         // e, f (translation) を 0, 0 にリセットすることで center() の計算を確実にする
@@ -927,10 +958,13 @@ class CustomTool extends BaseTool {
 
         // とりあえずクリック位置に配置
         this.activeElement.center(pt.x, pt.y);
+
+        // [NEW] オリジナルのバウンディングボックスを保持（ドラッグ時の比率スケール計算用）
+        this.originalBbox = this.activeElement.bbox();
     }
 
     mousemove(e, pt) {
-        if (!this.activeElement) return;
+        if (!this.activeElement || !this.originalBbox) return;
         this.isDragging = true;
 
         const dx = pt.x - this.startPoint.x;
@@ -939,13 +973,21 @@ class CustomTool extends BaseTool {
 
         // 5px以上の移動があればドラッグとみなす
         if (dist > 5) {
-            const bbox = this.activeElement.bbox();
-            if (bbox.width > 0 && bbox.height > 0) {
+            const origBbox = this.originalBbox;
+            if (origBbox.width > 0 && origBbox.height > 0) {
                 // アスペクト比を維持してサイズ変更
                 const newSize = dist * 2;
-                const maxDim = Math.max(bbox.width, bbox.height);
+                const maxDim = Math.max(origBbox.width, origBbox.height);
                 const scale = newSize / maxDim;
-                this.activeElement.size(bbox.width * scale, bbox.height * scale);
+
+                // [FIX] Group に対する直接 of .size() は子要素（styleやdefs）に scale() を再帰適用しようとして
+                // 「t.scale is not a function」でクラッシュするため、グループ自体への .transform({ scale }) を使用する
+                this.activeElement.transform({
+                    scale: scale,
+                    cx: origBbox.cx,
+                    cy: origBbox.cy
+                });
+
                 // 中心位置を維持する
                 this.activeElement.center(this.startPoint.x, this.startPoint.y);
             }
@@ -956,17 +998,28 @@ class CustomTool extends BaseTool {
         if (!this.activeElement) return;
 
         // クリックのみ（ドラッグなし）の場合、デフォルトの100pxサイズで配置
-        if (!this.isDragging) {
-            const bbox = this.activeElement.bbox();
-            if (bbox.width > 0 && bbox.height > 0) {
-                const maxDim = Math.max(bbox.width, bbox.height);
+        if (!this.isDragging && this.originalBbox) {
+            const origBbox = this.originalBbox;
+            if (origBbox.width > 0 && origBbox.height > 0) {
+                const maxDim = Math.max(origBbox.width, origBbox.height);
                 const scale = 100 / maxDim;
-                this.activeElement.size(bbox.width * scale, bbox.height * scale);
+
+                // [FIX] size() の代わりに安全な transform を使用
+                this.activeElement.transform({
+                    scale: scale,
+                    cx: origBbox.cx,
+                    cy: origBbox.cy
+                });
             }
         }
 
         // 最終的な中心位置をクリック位置に合わせる
         this.activeElement.center(this.startPoint.x, this.startPoint.y);
+
+        // [FIX] ネストされたtspanの絶対座標x/yが親のtransformと競合して文字がずれるのを防止する
+        if (window.SVGUtils && typeof window.SVGUtils.cleanupNestedTspanCoordinates === 'function') {
+            window.SVGUtils.cleanupNestedTspanCoordinates(this.activeElement);
+        }
 
         const finalBbox = this.activeElement.bbox();
         console.log(`[CustomTool DEBUG] Before makeInteractive: element=${this.activeElement.type}#${this.activeElement.id()}`);

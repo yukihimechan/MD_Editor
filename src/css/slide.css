@@ -188,3 +188,12 @@ html.slideshow-active {
     overflow-y: hidden !important;
 }
 
+/* スライドモード表示中のテーブルヘッダー固定表示解除 */
+.slideshow-content thead th {
+    position: static !important;
+    top: auto !important;
+}
+.slideshow-content thead {
+    display: table-row-group !important;
+}
+

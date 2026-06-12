@@ -70,10 +70,21 @@ window.MermaidSequenceInteraction = {
 
     _currentSelections: [],
     _clipboard: [],
-    _arrowDragState: null,      // 矢印ドラッグの状態管理
-    _activateDragState: null,   // activateドラッグの状態管理
-    _hoverActorIndex: -1,       // ホバー中のactorインデックス
-    _lifelineCache: null,       // ライフライン情報のキャッシュ
+    _arrowDragState: null,
+    _activateDragState: null,
+    _hoverActorIndex: -1,
+    _lifelineCache: null,
+
+    // ドラッグ状態管理（グローバルイベント用）
+    _isDraggingActor: false,
+    _dragStartActorIndex: -1,
+    _currentDropTargetIndex: -1,
+    _dragIndicator: null,
+    _actorCentersInfo: [],
+    _currentContainer: null,
+    _currentSvg: null,
+    _globalKeydownBound: false,
+    _globalMouseEventsBound: false,
 
     /**
      * イベントリスナーのアタッチ
@@ -84,11 +95,10 @@ window.MermaidSequenceInteraction = {
             if (!wrapper) return;
             
             if (!container.classList.contains('mermaid-sequence-edit-mode')) {
-                if (typeof PreviewInlineEdit !== 'undefined' && typeof PreviewInlineEdit.startMermaidEdit === 'function') {
-                    PreviewInlineEdit.startMermaidEdit(wrapper);
+                if (typeof InlineCodeEditor !== 'undefined' && typeof InlineCodeEditor.startMermaidEdit === 'function') {
+                    InlineCodeEditor.startMermaidEdit(wrapper);
                 }
             } else {
-                // 編集モード中のダブルクリック：インラインエディタを表示
                 e.preventDefault();
                 e.stopPropagation();
                 
@@ -99,7 +109,6 @@ window.MermaidSequenceInteraction = {
                 const classes = (target.getAttribute('class') || '').toLowerCase();
                 const parentClasses = (target.parentElement && target.parentElement.getAttribute('class') || '').toLowerCase();
                 
-                // ヒットボックスがダブルクリックされた場合はメッセージとして扱う
                 if (classes.includes('seq-msg-hitbox')) {
                     isMessage = true;
                 } else if (classes.includes('actor') || classes.includes('participant') || parentClasses.includes('actor') || parentClasses.includes('participant')) {
@@ -125,9 +134,7 @@ window.MermaidSequenceInteraction = {
         });
 
         svg.addEventListener('click', (e) => {
-            if (!container.classList.contains('mermaid-sequence-edit-mode')) {
-                return;
-            }
+            if (!container.classList.contains('mermaid-sequence-edit-mode')) return;
 
             if (e.target.tagName.toLowerCase() === 'svg') {
                 this._clearSelection(container);
@@ -143,7 +150,6 @@ window.MermaidSequenceInteraction = {
             const classes = (target.getAttribute('class') || '').toLowerCase();
             const parentClasses = (target.parentElement && target.parentElement.getAttribute('class') || '').toLowerCase();
             
-            // ヒットボックス（透明な当たり判定エリア）がクリックされた場合はメッセージとして扱う
             if (classes.includes('seq-msg-hitbox')) {
                 isMessage = true;
             } else if (classes.includes('actor') || classes.includes('participant') || parentClasses.includes('actor') || parentClasses.includes('participant')) {
@@ -181,34 +187,13 @@ window.MermaidSequenceInteraction = {
             }
         });
 
-        // キーボードショートカット
-        document.addEventListener('keydown', (e) => {
-            if (!container.classList.contains('mermaid-sequence-edit-mode')) return;
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable || e.target.closest('dialog')) return;
-
-            if (e.key === 'Delete' || e.key === 'Backspace') {
-                e.preventDefault();
-                this._deleteSelection(container);
-            } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-                e.preventDefault();
-                this._copySelection(container);
-            } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-                e.preventDefault();
-                this._pasteSelection(container);
-            }
-        });
-
-        // ドラッグ状態の管理
-        let isDraggingActor = false;
-        let dragStartActorIndex = -1;
-        let currentDropTargetIndex = -1;
-        let dragIndicator = null;
-        let actorCentersInfo = [];
-
         svg.addEventListener('mousedown', (e) => {
             if (!container.classList.contains('mermaid-sequence-edit-mode')) return;
+            
+            // ドラッグ用のコンテキストを保存
+            this._currentContainer = container;
+            this._currentSvg = svg;
 
-            // ホバーアイコン（↔矢印）のドラッグ開始チェック
             const arrowHoverIcon = e.target.closest('.mermaid-seq-hover-icon[data-icon-type="arrow"]');
             if (arrowHoverIcon) {
                 e.preventDefault();
@@ -238,7 +223,6 @@ window.MermaidSequenceInteraction = {
                 return;
             }
 
-            // ホバーアイコン（↕ activate）のドラッグ開始チェック
             const activateHoverIcon = e.target.closest('.mermaid-seq-hover-icon[data-icon-type="activate"]');
             if (activateHoverIcon) {
                 e.preventDefault();
@@ -264,20 +248,18 @@ window.MermaidSequenceInteraction = {
                 return;
             }
 
-            // 既存のactorドラッグハンドル処理
             const handle = e.target.closest('.mermaid-sequence-drag-handle');
             if (!handle || this._currentSelections.length === 0 || this._currentSelections[0].type !== 'actor') return;
 
             e.preventDefault();
             e.stopPropagation();
 
-            isDraggingActor = true;
-            // 複数選択時はドラッグ移動の対象を最初の1つとする
-            dragStartActorIndex = this._currentSelections[0].index;
+            this._isDraggingActor = true;
+            this._dragStartActorIndex = this._currentSelections[0].index;
             handle.style.cursor = 'grabbing';
             
             const textNodesAll = Array.from(svg.querySelectorAll('text'));
-            actorCentersInfo = [];
+            this._actorCentersInfo = [];
             textNodesAll.forEach(node => {
                 const cls = (node.getAttribute('class') || '').toLowerCase();
                 const parentCls = (node.parentElement ? node.parentElement.getAttribute('class') || '' : '').toLowerCase();
@@ -286,185 +268,189 @@ window.MermaidSequenceInteraction = {
                     if (node.parentElement && node.parentElement.tagName.toLowerCase() === 'g') tNode = node.parentElement;
                     const b = this._getSVGBBox(svg, tNode);
                     const cx = b.x + b.width / 2;
-                    if (!actorCentersInfo.some(existing => Math.abs(existing.cx - cx) < 20)) {
-                        actorCentersInfo.push({ cx, text: node.textContent.trim() });
+                    if (!this._actorCentersInfo.some(existing => Math.abs(existing.cx - cx) < 20)) {
+                        this._actorCentersInfo.push({ cx, text: node.textContent.trim() });
                     }
                 }
             });
-            actorCentersInfo.sort((a, b) => a.cx - b.cx);
+            this._actorCentersInfo.sort((a, b) => a.cx - b.cx);
 
-            dragIndicator = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            dragIndicator.setAttribute('class', 'mermaid-sequence-selection-line');
-            dragIndicator.setAttribute('stroke', '#0d6efd');
-            dragIndicator.setAttribute('stroke-width', '4');
-            dragIndicator.setAttribute('stroke-dasharray', '5,5');
-            dragIndicator.setAttribute('y1', '0');
-            dragIndicator.setAttribute('y2', svg.getBoundingClientRect().height);
-            dragIndicator.style.display = 'none';
-            svg.appendChild(dragIndicator);
+            this._dragIndicator = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            this._dragIndicator.setAttribute('class', 'mermaid-sequence-selection-line');
+            this._dragIndicator.setAttribute('stroke', '#0d6efd');
+            this._dragIndicator.setAttribute('stroke-width', '4');
+            this._dragIndicator.setAttribute('stroke-dasharray', '5,5');
+            this._dragIndicator.setAttribute('y1', '0');
+            this._dragIndicator.setAttribute('y2', svg.getBoundingClientRect().height);
+            this._dragIndicator.style.display = 'none';
+            svg.appendChild(this._dragIndicator);
         });
 
-        document.addEventListener('mousemove', (e) => {
-            // 矢印ドラッグ中のプレビュー更新
-            if (this._arrowDragState && this._arrowDragState.active) {
+        // マウスイベントを一度だけ登録
+        if (!this._globalMouseEventsBound) {
+            this._globalMouseEventsBound = true;
+
+            document.addEventListener('mousemove', (e) => {
+                const actContainer = this._currentContainer;
+                const actSvg = this._currentSvg;
+                if (!actContainer || !actSvg || !actContainer.classList.contains('mermaid-sequence-edit-mode')) return;
+
+                if (this._arrowDragState && this._arrowDragState.active) {
+                    e.preventDefault();
+                    const pt = actSvg.createSVGPoint();
+                    pt.x = e.clientX;
+                    pt.y = e.clientY;
+                    const svgP = pt.matrixTransform(actSvg.getScreenCTM().inverse());
+
+                    const fromX = this._arrowDragState.fromCenterX;
+                    const fromY = this._arrowDragState.fromY;
+                    let toX = svgP.x;
+                    let snapIdx = -1;
+
+                    const snapDist = 40;
+                    let minDist = snapDist;
+                    this._arrowDragState.actorCenters.forEach((ac, idx) => {
+                        if (idx === this._arrowDragState.fromActorIndex) return;
+                        const dist = Math.abs(ac.cx - svgP.x);
+                        if (dist < minDist) { minDist = dist; snapIdx = idx; toX = ac.cx; }
+                    });
+                    this._arrowDragState.snapTargetIndex = snapIdx;
+
+                    const dx = svgP.x - fromX;
+                    const dy = svgP.y - fromY;
+                    const isUturn = dy > Math.abs(dx) && dy > 10;
+                    this._arrowDragState.uturnMode = isUturn;
+
+                    if (isUturn) {
+                        this._removeArrowPreview(actSvg); // 直線矢印のプレビューを消去
+                        this._drawUTurnPreview(actSvg, fromX, fromY);
+                    } else {
+                        // Uターン矢印のプレビューを消去
+                        actSvg.querySelectorAll('.mermaid-seq-uturn-preview').forEach(el => el.remove());
+                        this._updateArrowPreview(actSvg, fromX, fromY, toX, fromY, snapIdx !== -1);
+                    }
+                    return;
+                }
+
+                if (this._activateDragState && this._activateDragState.active) {
+                    e.preventDefault();
+                    const pt = actSvg.createSVGPoint();
+                    pt.x = e.clientX; pt.y = e.clientY;
+                    const svgP = pt.matrixTransform(actSvg.getScreenCTM().inverse());
+
+                    const msgs = this._activateDragState.messages;
+                    let snapMsgIdx = this._activateDragState.fromMsgIdx;
+                    let minDist2 = 20;
+                    msgs.forEach((m, idx) => {
+                        const d = Math.abs(m.y - svgP.y);
+                        if (d < minDist2) { minDist2 = d; snapMsgIdx = idx; }
+                    });
+                    this._activateDragState.snapMsgIdx = snapMsgIdx;
+                    this._drawActivatePreview(actSvg, this._activateDragState);
+                    return;
+                }
+
+                if (!this._isDraggingActor) return;
                 e.preventDefault();
-                const pt = svg.createSVGPoint();
+                
+                const pt = actSvg.createSVGPoint();
                 pt.x = e.clientX;
                 pt.y = e.clientY;
-                const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+                const svgP = pt.matrixTransform(actSvg.getScreenCTM().inverse());
+                
+                const mouseX = svgP.x;
 
-                const fromX = this._arrowDragState.fromCenterX;
-                const fromY = this._arrowDragState.fromY;
-                let toX = svgP.x;
-                let snapIdx = -1;
-
-                // スナップ判定：自分以外の最も近いライフラインに吸着（40px以内）
-                const snapDist = 40;
-                let minDist = snapDist;
-                this._arrowDragState.actorCenters.forEach((ac, idx) => {
-                    if (idx === this._arrowDragState.fromActorIndex) return;
-                    const dist = Math.abs(ac.cx - svgP.x);
-                    if (dist < minDist) { minDist = dist; snapIdx = idx; toX = ac.cx; }
-                });
-                this._arrowDragState.snapTargetIndex = snapIdx;
-
-                // Uターン判定：45度以上下向きの場合
-                const dx = svgP.x - fromX;
-                const dy = svgP.y - fromY;
-                const isUturn = dy > Math.abs(dx) && dy > 10;
-                this._arrowDragState.uturnMode = isUturn;
-
-                if (isUturn) {
-                    this._drawUTurnPreview(svg, fromX, fromY);
+                let targetIndex = 0;
+                for (let i = 0; i < this._actorCentersInfo.length; i++) {
+                    if (mouseX > this._actorCentersInfo[i].cx) {
+                        targetIndex = i + 1;
+                    } else {
+                        break;
+                    }
+                }
+                
+                this._currentDropTargetIndex = targetIndex;
+                
+                let lineX = 0;
+                if (targetIndex === 0) {
+                    lineX = this._actorCentersInfo[0].cx - 50;
+                } else if (targetIndex >= this._actorCentersInfo.length) {
+                    lineX = this._actorCentersInfo[this._actorCentersInfo.length - 1].cx + 50;
                 } else {
-                    this._updateArrowPreview(svg, fromX, fromY, toX, fromY, snapIdx !== -1);
-                }
-                return;
-            }
-
-            // activate ドラッグ中のプレビュー更新
-            if (this._activateDragState && this._activateDragState.active) {
-                e.preventDefault();
-                const pt = svg.createSVGPoint();
-                pt.x = e.clientX; pt.y = e.clientY;
-                const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
-
-                const msgs = this._activateDragState.messages;
-                let snapMsgIdx = this._activateDragState.fromMsgIdx;
-                let minDist2 = 20;
-                msgs.forEach((m, idx) => {
-                    const d = Math.abs(m.y - svgP.y);
-                    if (d < minDist2) { minDist2 = d; snapMsgIdx = idx; }
-                });
-                this._activateDragState.snapMsgIdx = snapMsgIdx;
-                this._drawActivatePreview(svg, this._activateDragState);
-                return;
-            }
-
-            if (!isDraggingActor) return;
-            e.preventDefault();
-            
-            const pt = svg.createSVGPoint();
-            pt.x = e.clientX;
-            pt.y = e.clientY;
-            const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
-            
-            const mouseX = svgP.x;
-
-            let targetIndex = 0;
-            for (let i = 0; i < actorCentersInfo.length; i++) {
-                if (mouseX > actorCentersInfo[i].cx) {
-                    targetIndex = i + 1;
-                } else {
-                    break;
-                }
-            }
-            
-            currentDropTargetIndex = targetIndex;
-            
-            let lineX = 0;
-            if (targetIndex === 0) {
-                lineX = actorCentersInfo[0].cx - 50;
-            } else if (targetIndex >= actorCentersInfo.length) {
-                lineX = actorCentersInfo[actorCentersInfo.length - 1].cx + 50;
-            } else {
-                lineX = (actorCentersInfo[targetIndex - 1].cx + actorCentersInfo[targetIndex].cx) / 2;
-            }
-
-            if (dragIndicator) {
-                dragIndicator.setAttribute('x1', lineX);
-                dragIndicator.setAttribute('x2', lineX);
-                dragIndicator.style.display = 'block';
-            }
-        });
-
-        document.addEventListener('mouseup', (e) => {
-            // 矢印ドラッグの確定処理
-            if (this._arrowDragState && this._arrowDragState.active) {
-                const state = this._arrowDragState;
-                this._arrowDragState = null;
-                this._removeArrowPreview(svg);
-                if (state.uturnMode) {
-                    // 自己メッセージ
-                    this._addMessageLine(container, state.fromActorIndex, state.fromActorIndex, state.actorCenters, state.insertBeforeIdx);
-                } else if (state.snapTargetIndex !== -1) {
-                    this._addMessageLine(container, state.fromActorIndex, state.snapTargetIndex, state.actorCenters, state.insertBeforeIdx);
-                }
-                return;
-            }
-
-            // activate ドラッグの確定処理
-            if (this._activateDragState && this._activateDragState.active) {
-                const state = this._activateDragState;
-                this._activateDragState = null;
-                this._removeActivatePreview(svg);
-                const startIdx = Math.min(state.fromMsgIdx, state.snapMsgIdx);
-                const endIdx   = Math.max(state.fromMsgIdx, state.snapMsgIdx);
-                if (startIdx !== endIdx) {
-                    this._addActivation(container, state.actorIndex, startIdx, endIdx, state.messages);
-                }
-                return;
-            }
-
-            if (!isDraggingActor) return;
-            isDraggingActor = false;
-            if (dragIndicator) {
-                dragIndicator.remove();
-                dragIndicator = null;
-            }
-
-            if (currentDropTargetIndex !== -1) {
-                let insertIndex = currentDropTargetIndex;
-                if (insertIndex > dragStartActorIndex) {
-                    insertIndex -= 1;
+                    lineX = (this._actorCentersInfo[targetIndex - 1].cx + this._actorCentersInfo[targetIndex].cx) / 2;
                 }
 
-                if (dragStartActorIndex !== insertIndex) {
-                    this._moveActorSequence(container, dragStartActorIndex, insertIndex, actorCentersInfo);
+                if (this._dragIndicator) {
+                    this._dragIndicator.setAttribute('x1', lineX);
+                    this._dragIndicator.setAttribute('x2', lineX);
+                    this._dragIndicator.style.display = 'block';
                 }
-            }
-            
-            currentDropTargetIndex = -1;
-            dragStartActorIndex = -1;
-        });
+            });
 
-        // =========================================================
-        // SVGホバー検出：ライフライン付近でアイコンを表示
-        // =========================================================
+            document.addEventListener('mouseup', (e) => {
+                const actContainer = this._currentContainer;
+                const actSvg = this._currentSvg;
+                if (!actContainer || !actSvg || !actContainer.classList.contains('mermaid-sequence-edit-mode')) return;
+
+                if (this._arrowDragState && this._arrowDragState.active) {
+                    const state = this._arrowDragState;
+                    this._arrowDragState = null;
+                    this._removeArrowPreview(actSvg);
+                    if (state.uturnMode) {
+                        this._addMessageLine(actContainer, state.fromActorIndex, state.fromActorIndex, state.actorCenters, state.insertBeforeIdx);
+                    } else if (state.snapTargetIndex !== -1) {
+                        this._addMessageLine(actContainer, state.fromActorIndex, state.snapTargetIndex, state.actorCenters, state.insertBeforeIdx);
+                    }
+                    return;
+                }
+
+                if (this._activateDragState && this._activateDragState.active) {
+                    const state = this._activateDragState;
+                    this._activateDragState = null;
+                    this._removeActivatePreview(actSvg);
+                    const startIdx = Math.min(state.fromMsgIdx, state.snapMsgIdx);
+                    const endIdx   = Math.max(state.fromMsgIdx, state.snapMsgIdx);
+                    if (startIdx !== endIdx) {
+                        this._addActivation(actContainer, state.actorIndex, startIdx, endIdx, state.messages);
+                    }
+                    return;
+                }
+
+                if (!this._isDraggingActor) return;
+                this._isDraggingActor = false;
+                if (this._dragIndicator) {
+                    this._dragIndicator.remove();
+                    this._dragIndicator = null;
+                }
+
+                if (this._currentDropTargetIndex !== -1) {
+                    let insertIndex = this._currentDropTargetIndex;
+                    if (insertIndex > this._dragStartActorIndex) {
+                        insertIndex -= 1;
+                    }
+
+                    if (this._dragStartActorIndex !== insertIndex) {
+                        this._moveActorSequence(actContainer, this._dragStartActorIndex, insertIndex, this._actorCentersInfo);
+                    }
+                }
+                
+                this._currentDropTargetIndex = -1;
+                this._dragStartActorIndex = -1;
+            });
+        }
+
         svg.addEventListener('mousemove', (e) => {
             if (!container.classList.contains('mermaid-sequence-edit-mode')) return;
             if (this._arrowDragState && this._arrowDragState.active) return;
             if (this._activateDragState && this._activateDragState.active) return;
-            if (isDraggingActor) return;
+            if (this._isDraggingActor) return;
 
             const pt = svg.createSVGPoint();
             pt.x = e.clientX; pt.y = e.clientY;
             const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
 
-            // キャッシュを使ってライフライン情報を取得
             const cache = this._buildLifelineCache(svg, container);
 
-            // ±15px 以内の最も近いライフラインを探す
             let nearestIdx = -1;
             let minD = 15;
             cache.actors.forEach((actor, idx) => {
@@ -486,16 +472,14 @@ window.MermaidSequenceInteraction = {
             this._hoverActorIndex = -1;
         });
 
-        // APIのセットアップ
-        if (!container._mermaidSequenceAPI) {
-            container._mermaidSequenceAPI = {
+        if (!container._mermaidAPI) {
+            container._mermaidAPI = {
                 deleteSelection: () => this._deleteSelection(container),
                 copySelection: () => this._copySelection(container),
                 pasteSelection: () => this._pasteSelection(container)
             };
         }
 
-        // コンテキストメニュー (右クリック)
         svg.addEventListener('contextmenu', (e) => {
             if (!container.classList.contains('mermaid-sequence-edit-mode')) return;
             e.preventDefault();
@@ -509,7 +493,6 @@ window.MermaidSequenceInteraction = {
             const parentClasses = (target.parentElement && target.parentElement.getAttribute('class') || '').toLowerCase();
             
             let isActor = classes.includes('actor') || classes.includes('participant') || parentClasses.includes('actor') || parentClasses.includes('participant');
-            // ヒットボックスは常にメッセージとして扱う
             let isMsg = classes.includes('seq-msg-hitbox') || classes.includes('message') || parentClasses.includes('message');
             let isAct = classes.includes('activation') || parentClasses.includes('activation');
             
@@ -622,7 +605,7 @@ window.MermaidSequenceInteraction = {
                             let targetLineIndex = -1;
                             if (sel.type === 'message' && sel.index !== -1) {
                                 const skipWords = "note|loop|alt|opt|par|and|rect|break|critical|option|end|else|activate|deactivate|autonumber|participant|actor|box|title|link|links|create|destroy";
-                                const re = new RegExp(`^(?!\\s*%%)(\\s*(?!(?:${skipWords})\\b).+?(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->).*?:\\s*)(.*)$`, 'i');
+                                const re = new RegExp(`^(?!\\s*%%)(\\s*(?!(?:${skipWords})\\b).+?(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->))(.*)$`, 'i');
                                 let count = 0;
                                 for (let i = startIdx + 1; i < endIdx; i++) {
                                     if (lines[i].match(re)) {
@@ -634,16 +617,19 @@ window.MermaidSequenceInteraction = {
                                     }
                                 }
                             } else if (sel.type === 'actor' && sel.index !== -1) {
+                                // テキスト(表示名)で逆引きしてハイライト対象を決定
+                                const dispText = sel.text;
                                 const reDef = /^\s*(participant|actor)\s+([^\s]+)(?:\s+as\s+(.*))?\s*$/i;
-                                const defLines = [];
                                 for (let i = startIdx + 1; i < endIdx; i++) {
                                     const match = lines[i].match(reDef);
                                     if (match) {
-                                        defLines.push({ index: i, match: match });
+                                        const id = match[2];
+                                        const alias = match[3];
+                                        if ((alias && alias === dispText) || (!alias && id === dispText)) {
+                                            targetLineIndex = i;
+                                            break;
+                                        }
                                     }
-                                }
-                                if (defLines.length > sel.index) {
-                                    targetLineIndex = defLines[sel.index].index;
                                 }
                             }
 
@@ -940,15 +926,25 @@ window.MermaidSequenceInteraction = {
             }
         } else if (type === 'message' && targetIndex !== -1) {
             const skipWords = "note|loop|alt|opt|par|and|rect|break|critical|option|end|else|activate|deactivate|autonumber|participant|actor|box|title|link|links|create|destroy";
-            const re = new RegExp(`^(?!\\s*%%)(\\s*(?!(?:${skipWords})\\b).+?(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->).*?:\\s*)(.*)$`, 'i');
+            const re = new RegExp(`^(?!\\s*%%)(\\s*(?!(?:${skipWords})\\b).+?(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->))(.*)$`, 'i');
             let count = 0;
             
             for (let i = startIdx + 1; i < endIdx; i++) {
                 const match = lines[i].match(re);
                 if (match) {
                     if (count === targetIndex) {
-                        // match[1] は 「A->>B: 」まで
-                        lines[i] = `${match[1]}${newLabel}`;
+                        let prefix = match[1];
+                        let suffix = match[2];
+                        
+                        // コロンがあればそこまでを保持、なければ付与
+                        const colonIdx = suffix.indexOf(':');
+                        if (colonIdx !== -1) {
+                            prefix += suffix.substring(0, colonIdx + 1) + ' ';
+                        } else {
+                            prefix += ': ';
+                        }
+                        
+                        lines[i] = `${prefix}${newLabel}`;
                         replaced = true;
                         break;
                     }
@@ -962,12 +958,12 @@ window.MermaidSequenceInteraction = {
             this._clearSelection(container);
 
             (async () => {
-                const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
-                if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                    const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
-                    window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
-                    window.activeMermaidSequenceToolbar._restoreEditMode();
-                }
+                await window.MermaidBase.applyEditorTextAndRestore(
+                    container,
+                    newText.split('\n'),
+                    'mermaid-sequence-edit-mode',
+                    window.activeMermaidSequenceToolbar
+                );
             })();
         } else {
             if (typeof showToast === 'function') showToast('指定されたメッセージの編集に失敗しました。ソースコードを確認してください。', 'error');
@@ -1396,11 +1392,11 @@ window.MermaidSequenceInteraction = {
                 menu.remove();
                 
                 if (item.action === 'copy') {
-                    container._mermaidSequenceAPI.copySelection();
+                    container._mermaidAPI.copySelection();
                 } else if (item.action === 'paste') {
-                    container._mermaidSequenceAPI.pasteSelection();
+                    container._mermaidAPI.pasteSelection();
                 } else if (item.action === 'delete') {
-                    container._mermaidSequenceAPI.deleteSelection();
+                    container._mermaidAPI.deleteSelection();
                 }
             };
             menu.appendChild(el);
@@ -1450,33 +1446,37 @@ window.MermaidSequenceInteraction = {
 
         this._currentSelections.forEach(sel => {
             if (sel.type === 'actor' && sel.index !== -1) {
+                const dispText = sel.text;
+                let targetId = dispText;
+                
                 const reDef = /^\s*(participant|actor)\s+([^\s]+)(?:\s+as\s+(.*))?\s*$/i;
-                const defLines = [];
                 for (let i = startIdx + 1; i < endIdx; i++) {
                     const match = lines[i].match(reDef);
                     if (match) {
-                        defLines.push({ index: i, match: match });
+                        const id = match[2];
+                        const alias = match[3];
+                        if ((alias && alias === dispText) || (!alias && id === dispText)) {
+                            targetId = id;
+                            break;
+                        }
                     }
                 }
-                if (defLines.length > sel.index) {
-                    const targetId = defLines[sel.index].match[2];
-                    const safeId = targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    
-                    const reTargetDef = new RegExp(`^\\s*(participant|actor)\\s+${safeId}(?:\\s+as\\s+.*)?\\s*$`, 'i');
-                    const reTargetAct = new RegExp(`^\\s*(activate|deactivate)\\s+${safeId}\\s*$`, 'i');
-                    const reTargetMsgFrom = new RegExp(`^\\s*${safeId}\\s*(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->)`, 'i');
-                    const reTargetMsgTo = new RegExp(`(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->)\\s*${safeId}\\s*:`, 'i');
 
-                    for (let i = startIdx + 1; i < endIdx; i++) {
-                        const line = lines[i];
-                        if (reTargetDef.test(line) || reTargetAct.test(line) || reTargetMsgFrom.test(line) || reTargetMsgTo.test(line)) {
-                            linesToDelete.add(i);
-                        }
+                const safeId = targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const reTargetDef = new RegExp(`^\\s*(participant|actor)\\s+${safeId}(?:\\s+as\\s+.*)?\\s*$`, 'i');
+                const reTargetAct = new RegExp(`^\\s*(activate|deactivate)\\s+${safeId}\\s*$`, 'i');
+                const reTargetMsgFrom = new RegExp(`^\\s*${safeId}\\s*(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->)`, 'i');
+                const reTargetMsgTo = new RegExp(`(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->)\\s*${safeId}\\s*:`, 'i');
+
+                for (let i = startIdx + 1; i < endIdx; i++) {
+                    const line = lines[i];
+                    if (reTargetDef.test(line) || reTargetAct.test(line) || reTargetMsgFrom.test(line) || reTargetMsgTo.test(line)) {
+                        linesToDelete.add(i);
                     }
                 }
             } else if (sel.type === 'message' && sel.index !== -1) {
                 const skipWords = "note|loop|alt|opt|par|and|rect|break|critical|option|end|else|activate|deactivate|autonumber|participant|actor|box|title|link|links|create|destroy";
-                const re = new RegExp(`^(?!\\s*%%)(\\s*(?!(?:${skipWords})\\b).+?(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->).*?:\\s*)(.*)$`, 'i');
+                const re = new RegExp(`^(?!\\s*%%)(\\s*(?!(?:${skipWords})\\b).+?(?:->>|-->>|-\\)|--\\)|-x|--x|->|-->))(.*)$`, 'i');
                 let count = 0;
                 for (let i = startIdx + 1; i < endIdx; i++) {
                     // linesToDeleteに入っている行はカウントに含めるかどうか？
@@ -1555,12 +1555,12 @@ window.MermaidSequenceInteraction = {
             this._clearSelection(container);
             const newText = lines.join('\n');
             (async () => {
-                const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
-                if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                    const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
-                    window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
-                    window.activeMermaidSequenceToolbar._restoreEditMode();
-                }
+                await window.MermaidBase.applyEditorTextAndRestore(
+                    container,
+                    newText.split('\n'),
+                    'mermaid-sequence-edit-mode',
+                    window.activeMermaidSequenceToolbar
+                );
             })();
             if (typeof showToast === 'function') showToast('削除しました', 'success');
         } else {
@@ -1594,24 +1594,33 @@ window.MermaidSequenceInteraction = {
         }
 
         const reDef = /^\s*(participant|actor)\s+([^\s]+)(?:\s+as\s+(.*))?\s*$/i;
-        const defLines = [];
+        const defMap = new Map();
         for (let i = startIdx + 1; i < endIdx; i++) {
             const match = lines[i].match(reDef);
             if (match) {
-                defLines.push({ index: i, match: match });
+                const keyword = match[1];
+                const id = match[2];
+                const alias = match[3];
+                defMap.set(alias || id, { keyword, id, alias });
             }
         }
         
         this._clipboard = [];
         
         actors.forEach(sel => {
-            if (defLines.length > sel.index) {
-                const targetDef = defLines[sel.index];
+            const dispText = sel.text;
+            if (defMap.has(dispText)) {
                 this._clipboard.push({
                     type: 'actor',
-                    keyword: targetDef.match[1],
-                    id: targetDef.match[2],
-                    alias: targetDef.match[3] || targetDef.match[2]
+                    ...defMap.get(dispText)
+                });
+            } else {
+                // 暗黙の定義をコピーする場合
+                this._clipboard.push({
+                    type: 'actor',
+                    keyword: 'participant',
+                    id: dispText,
+                    alias: null
                 });
             }
         });
@@ -1677,12 +1686,12 @@ window.MermaidSequenceInteraction = {
         if (typeof showToast === 'function') showToast(`${this._clipboard.length}個の要素を貼り付けました`, 'success');
         
         (async () => {
-            const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
-            if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
-                window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
-                window.activeMermaidSequenceToolbar._restoreEditMode();
-            }
+            await window.MermaidBase.applyEditorTextAndRestore(
+                container,
+                newText.split('\n'),
+                'mermaid-sequence-edit-mode',
+                window.activeMermaidSequenceToolbar
+            );
         })();
     },
 
@@ -1785,11 +1794,36 @@ window.MermaidSequenceInteraction = {
         const blockLines = lines.slice(startIdx + 1, endIdx);
 
         const reDef = /^\s*(participant|actor)\s+([^\s]+)(?:\s+as\s+(.*))?\s*$/i;
-        const extractedDefs = [];
+        const defMap = new Map(); 
         
+        // 現在ソース上にある定義を抽出し、エイリアスまたはIDをキーにして保持
+        for (let i = 0; i < blockLines.length; i++) {
+            const match = blockLines[i].match(reDef);
+            if (match) {
+                const id = match[2];
+                const alias = match[3];
+                defMap.set(alias || id, blockLines[i].trim());
+            }
+        }
+
+        // SVG上の表示名（actorCentersInfo）をベースに新しい並び順を作成
+        const newOrder = [...actorCentersInfo];
+        const [moved] = newOrder.splice(fromIndex, 1);
+        newOrder.splice(toIndex, 0, moved);
+
+        // 新しい並び順で定義行テキストを構築
+        const newDefLines = newOrder.map(actor => {
+            const dispText = actor.text;
+            if (defMap.has(dispText)) {
+                return `    ${defMap.get(dispText)}`;
+            } else {
+                return `    participant ${dispText}`; // 暗黙定義だったものを明示化
+            }
+        });
+
+        // 既存の定義行を削除して新しいものを一括挿入する
         const newBlockLines = [];
         let seqDiagramLineIdx = -1;
-
         for (let i = 0; i < blockLines.length; i++) {
             const line = blockLines[i];
             if (line.trim().toLowerCase().startsWith('sequencediagram')) {
@@ -1797,29 +1831,15 @@ window.MermaidSequenceInteraction = {
                 newBlockLines.push(line);
                 continue;
             }
-
-            const match = line.match(reDef);
-            if (match) {
-                extractedDefs.push({ originalText: line.trim() });
-            } else {
+            if (!line.match(reDef)) {
                 newBlockLines.push(line);
             }
         }
 
-        // actorCentersInfo の数が extractedDefs より多い場合、暗黙のActorとして扱う
-        for (let i = extractedDefs.length; i < actorCentersInfo.length; i++) {
-            const implicitId = actorCentersInfo[i].text;
-            extractedDefs.push({ originalText: `participant ${implicitId}` });
-        }
-
-        if (fromIndex >= 0 && fromIndex < extractedDefs.length && toIndex >= 0 && toIndex <= extractedDefs.length) {
-            const [moved] = extractedDefs.splice(fromIndex, 1);
-            extractedDefs.splice(toIndex, 0, moved);
-        }
-
         if (seqDiagramLineIdx !== -1) {
-            const newDefLines = extractedDefs.map(def => `    ${def.originalText}`);
             newBlockLines.splice(seqDiagramLineIdx + 1, 0, ...newDefLines);
+        } else {
+            newBlockLines.splice(0, 0, ...newDefLines);
         }
 
         const newText = [
@@ -1829,12 +1849,12 @@ window.MermaidSequenceInteraction = {
         ].join('\n');
 
         (async () => {
-            const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
-            if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
-                window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
-                window.activeMermaidSequenceToolbar._restoreEditMode();
-            }
+            await window.MermaidBase.applyEditorTextAndRestore(
+                container,
+                newText.split('\n'),
+                'mermaid-sequence-edit-mode',
+                window.activeMermaidSequenceToolbar
+            );
         })();
     },
 
@@ -2031,7 +2051,10 @@ window.MermaidSequenceInteraction = {
      * 定義行が見つからない場合は actorCenters[index].text をフォールバックとして使用
      */
     _getActorIdByIndex(container, index, actorCenters) {
-        const editorText = getEditorText();
+        if (!actorCenters[index]) return null;
+        const displayedText = actorCenters[index].text; // SVG上の表示名
+
+        const editorText = typeof getEditorText === 'function' ? getEditorText() : '';
         const lines = editorText.split('\n');
 
         let dataLine = parseInt(container.getAttribute('data-line'), 10);
@@ -2039,7 +2062,7 @@ window.MermaidSequenceInteraction = {
             const cbw = container.closest('.code-block-wrapper');
             if (cbw) dataLine = parseInt(cbw.getAttribute('data-line'), 10);
         }
-        if (!dataLine || isNaN(dataLine)) return actorCenters[index] ? actorCenters[index].text : null;
+        if (!dataLine || isNaN(dataLine)) return displayedText;
 
         const startIdx = dataLine - 1;
         let endIdx = lines.length;
@@ -2047,16 +2070,23 @@ window.MermaidSequenceInteraction = {
             if (lines[i].trim().startsWith('\`\`\`')) { endIdx = i; break; }
         }
 
-        const reDef = /^\s*(participant|actor)\s+([^\s]+)(?:\s+as\s+.*)?\s*$/i;
-        const defLines = [];
+        const reDef = /^\s*(participant|actor)\s+([^\s]+)(?:\s+as\s+(.*))?\s*$/i;
+        let matchedId = null;
         for (let i = startIdx + 1; i < endIdx; i++) {
             const m = lines[i].match(reDef);
-            if (m) defLines.push(m[2]);
+            if (m) {
+                const id = m[2];
+                const alias = m[3];
+                // 表示名がエイリアス、もしくはエイリアスなしのIDと一致するか確認
+                if ((alias && alias === displayedText) || (!alias && id === displayedText)) {
+                    matchedId = id;
+                    break;
+                }
+            }
         }
 
-        if (defLines.length > index) return defLines[index];
-        // 暗黙定義のフォールバック
-        return actorCenters[index] ? actorCenters[index].text : null;
+        // 明示的な定義から見つかればそれを、なければ暗黙定義とみなして表示名をそのまま返す
+        return matchedId || displayedText;
     },
 
     /**
@@ -2104,12 +2134,12 @@ window.MermaidSequenceInteraction = {
         if (typeof showToast === 'function') showToast('矢印を追加しました', 'success');
 
         (async () => {
-            const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(wrapper, newText);
-            if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
-                window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
-                window.activeMermaidSequenceToolbar._restoreEditMode();
-            }
+            await window.MermaidBase.applyEditorTextAndRestore(
+                container,
+                newText.split('\n'),
+                'mermaid-sequence-edit-mode',
+                window.activeMermaidSequenceToolbar
+            );
         })();
     },
 
@@ -2207,7 +2237,7 @@ window.MermaidSequenceInteraction = {
 
         // メッセージ行を抽出（participant/actor/activate/deactivate/note等を除外）
         const skip = /^\s*(participant|actor|activate|deactivate|note|loop|alt|opt|par|and|rect|break|critical|option|end|else|box|title|link|links|create|destroy|autonumber|%%)\b/i;
-        const msgRe = /->>|-->>/;
+        const msgRe = /(?:->>|-->>|-\)|--\)|-x|--x|->|-->)/;
         const result = [];
         for (let i = startIdx + 1; i < endIdx; i++) {
             const t = lines[i].trim();
@@ -2432,12 +2462,12 @@ window.MermaidSequenceInteraction = {
         }
 
         (async () => {
-            const { newCodeBlockWrapper } = await window.MermaidBase.updateTextAndRender(container, newText);
-            if (window.activeMermaidSequenceToolbar && typeof window.activeMermaidSequenceToolbar._restoreEditMode === 'function') {
-                const actualDataLine = newCodeBlockWrapper ? newCodeBlockWrapper.getAttribute('data-line') : dataLine;
-                window.activeMermaidSequenceToolbar._lastEditedLine = actualDataLine;
-                window.activeMermaidSequenceToolbar._restoreEditMode();
-            }
+            await window.MermaidBase.applyEditorTextAndRestore(
+                container,
+                newText.split('\n'),
+                'mermaid-sequence-edit-mode',
+                window.activeMermaidSequenceToolbar
+            );
         })();
     }
 };

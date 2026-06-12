@@ -12,6 +12,7 @@ class PointerDragManager {
         this.handleSelector = options.handleSelector || options.itemSelector;
         
         // Callbacks
+        this.getDragItem = options.getDragItem || null;      // (handleElement, event) => itemElement
         this.onDragStart = options.onDragStart || null;      // (dragElement, startEvent) => data
         this.onDragMove = options.onDragMove || null;        // (data, moveEvent, ghostInfo) => void
         this.onDragEnd = options.onDragEnd || null;          // (data, endEvent) => void
@@ -54,7 +55,7 @@ class PointerDragManager {
         const handle = e.target.closest(this.handleSelector);
         if (!handle) return;
         
-        const item = e.target.closest(this.itemSelector);
+        const item = this.getDragItem ? this.getDragItem(handle, e) : e.target.closest(this.itemSelector);
         if (!item) return;
 
         // Ensure we're in the container
@@ -130,7 +131,36 @@ class PointerDragManager {
 
     _createGhost() {
         const rect = this.dragElement.getBoundingClientRect();
-        this.ghostElement = this.dragElement.cloneNode(true);
+        
+        let ghostContainer;
+        if (this.dragElement.tagName === 'TR') {
+            const originalTable = this.dragElement.closest('table');
+            ghostContainer = document.createElement('table');
+            if (originalTable) {
+                ghostContainer.className = originalTable.className;
+                ghostContainer.style.cssText = originalTable.style.cssText;
+                ghostContainer.style.borderCollapse = 'collapse';
+            }
+            const tbody = document.createElement('tbody');
+            const clonedRow = this.dragElement.cloneNode(true);
+            
+            // 各セルの元の幅を維持する
+            const originalTds = this.dragElement.querySelectorAll('td, th');
+            const clonedTds = clonedRow.querySelectorAll('td, th');
+            originalTds.forEach((td, idx) => {
+                if (clonedTds[idx]) {
+                    clonedTds[idx].style.width = `${td.offsetWidth}px`;
+                    clonedTds[idx].style.boxSizing = 'border-box';
+                }
+            });
+
+            tbody.appendChild(clonedRow);
+            ghostContainer.appendChild(tbody);
+        } else {
+            ghostContainer = this.dragElement.cloneNode(true);
+        }
+
+        this.ghostElement = ghostContainer;
         // Setup ghost styles to follow pointer exactly
         this.ghostElement.style.position = 'fixed';
         this.ghostElement.style.top = `${rect.top}px`;
@@ -148,8 +178,32 @@ class PointerDragManager {
     }
 
     _findDropTarget(x, y) {
+        let targetX = x;
+        let targetY = y;
+        
+        if (this.dragElement) {
+            if (this.dragElement.tagName === 'TR') {
+                // 行（TR）ドラッグ時は、x座標をテーブルの水平中央付近に固定してドロップ先を探す
+                const table = this.dragElement.closest('table');
+                if (table) {
+                    const tableRect = table.getBoundingClientRect();
+                    targetX = tableRect.left + tableRect.width / 2;
+                }
+            } else if (this.dragElement.tagName === 'TH' || this.dragElement.tagName === 'TD') {
+                // 列（TH/TD）ドラッグ時は、y座標をヘッダーの垂直中央付近に固定してドロップ先を探す
+                const table = this.dragElement.closest('table');
+                if (table) {
+                    const header = table.querySelector('thead tr') || table.querySelector('tr');
+                    if (header) {
+                        const headerRect = header.getBoundingClientRect();
+                        targetY = headerRect.top + headerRect.height / 2;
+                    }
+                }
+            }
+        }
+
         // Since ghost has pointer-events: none, elementFromPoint will get the underlying element
-        const el = document.elementFromPoint(x, y);
+        const el = document.elementFromPoint(targetX, targetY);
         if (!el) return null;
         
         const item = el.closest(this.itemSelector);

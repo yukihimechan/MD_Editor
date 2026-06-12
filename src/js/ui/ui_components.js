@@ -639,6 +639,11 @@ function updateUndoRedoButtonState(canUndo, canRedo) {
 function updateStatusBar(info) {
     if (!DOM.previewStatusBar) return;
 
+    // テーブルセルが複数選択中の場合は上書きしない
+    if (window.TableEditor && window.TableEditor.selectedCells && window.TableEditor.selectedCells.length > 1) {
+        return;
+    }
+
     if (info.previewLine !== undefined) {
         if (info.previewLine) {
             DOM.previewStatusBar.textContent = `プレビュー行: ${info.previewLine}`;
@@ -1996,7 +2001,35 @@ function initTableCellCopy() {
             
             const text = clone.innerText.trim();
             
-            navigator.clipboard.writeText(text).then(() => {
+            // クリップボード書き込み用のフォールバック関数
+            const copyTextToClipboard = (textToCopy) => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    return navigator.clipboard.writeText(textToCopy);
+                } else {
+                    return new Promise((resolve, reject) => {
+                        try {
+                            const textArea = document.createElement("textarea");
+                            textArea.value = textToCopy;
+                            textArea.style.position = "fixed";
+                            textArea.style.top = "-9999px";
+                            document.body.appendChild(textArea);
+                            textArea.focus();
+                            textArea.select();
+                            const successful = document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            if (successful) {
+                                resolve();
+                            } else {
+                                reject(new Error('execCommand copy failed'));
+                            }
+                        } catch (err) {
+                            reject(err);
+                        }
+                    });
+                }
+            };
+
+            copyTextToClipboard(text).then(() => {
                 const originalText = copyBtn.textContent;
                 copyBtn.textContent = typeof I18n !== 'undefined' ? I18n.translate("code.copiedButton") : "コピーしました!";
                 setTimeout(() => {
@@ -2004,7 +2037,10 @@ function initTableCellCopy() {
                 }, 2000);
             }).catch(err => {
                 console.error('Failed to copy cell text:', err);
-                if (typeof showToast === 'function') showToast(t('toast.copyFailed'), 'error');
+                if (typeof showToast === 'function') {
+                    const msg = typeof t === 'function' ? t('toast.copyFailed') : 'コピーに失敗しました';
+                    showToast(msg, 'error');
+                }
             });
         }
     });
@@ -2012,8 +2048,16 @@ function initTableCellCopy() {
     DOM.preview.addEventListener('mouseover', (e) => {
         const cell = e.target.closest('td, th');
         if (cell && DOM.preview.contains(cell)) {
+            // 編集中のセルにはコピーボタンを表示しない
+            if (cell.classList.contains('table-cell-editing') || cell.contentEditable === 'true') {
+                if (copyBtn.parentElement) {
+                    copyBtn.parentElement.removeChild(copyBtn);
+                }
+                return;
+            }
             // Move button into the hovered cell if it's not already there
             if (copyBtn.parentElement !== cell) {
+                copyBtn.style.pointerEvents = ''; // 無効化されていた場合に備えてリセット
                 cell.appendChild(copyBtn);
                 copyBtn.style.display = 'block';
             }
