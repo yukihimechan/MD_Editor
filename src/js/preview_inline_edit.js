@@ -1769,7 +1769,7 @@ const PreviewInlineEdit = {
         if (this.enterAction === 'split' && tagName !== 'LI') {
             const afterDoc = fullText.substring(sourceInfo.end);
             if (afterDoc.match(/^[\s]*[-=]/)) {
-                if (textAfter.trim() === '') {
+                if (textAfter.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim() === '') {
                     newText += '\n'; // 余分に改行を挟んでSetext化を阻止
                 }
             }

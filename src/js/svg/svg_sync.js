@@ -259,7 +259,7 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
             if (['data-is-proxy', 'data-is-canvas', 'data-internal', 'data-locked'].includes(name) && id !== '__root__') continue;
 
             if (name === 'class') {
-                val = val.split(' ').filter(c => !c.includes('svg_select') && !c.includes('svg-interaction')).join(' ').trim();
+                val = val.split(' ').filter(c => !c.includes('svg_select') && !c.includes('svg-interaction') && c !== 'svg-edit-selected').join(' ').trim();
                 if (!val) { docEl.removeAttribute('class'); hasChange = true; continue; }
             }
 
@@ -382,7 +382,9 @@ const IGNORE_CLASSES = new Set([
 ]);
 
 function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
-    if (node.nodeType === 3) return node.nodeValue; // Text node
+    if (node.nodeType === 3) {
+        return typeof escapeHtml === 'function' ? escapeHtml(node.nodeValue) : node.nodeValue; // XML escape
+    }
     if (node.nodeType !== 1) return ''; // Skip comments etc.
 
     // O(1) exclusion of editor-only elements
@@ -395,7 +397,7 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
         for (let i = 0; i < node.classList.length; i++) {
             const cls = node.classList[i];
             if (IGNORE_CLASSES.has(cls) || 
-                cls.includes('svg-select') || 
+                (cls.includes('svg-select') && cls !== 'svg-edit-selected') || 
                 cls.includes('svg_select') || 
                 cls.includes('select-handle') ||
                 cls.includes('select_handle') ||
@@ -448,7 +450,7 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
 
     if (attrMap.has('class')) {
         const cleanedClass = attrMap.get('class').split(' ')
-            .filter(c => !c.includes('svg_select') && !c.includes('svg-interaction') && c !== 'svg-editable' && c !== 'isSelected')
+            .filter(c => !c.includes('svg_select') && !c.includes('svg-interaction') && c !== 'svg-editable' && c !== 'isSelected' && c !== 'svg-edit-selected')
             .join(' ').trim();
         if (cleanedClass) attrMap.set('class', cleanedClass);
         else attrMap.delete('class');

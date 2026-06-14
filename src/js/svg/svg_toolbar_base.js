@@ -269,8 +269,13 @@ class SVGToolbarBase {
         // 位置をデフォルトへ
         if (this.config.position) {
             toolbar.style.top = this.config.position.top || '';
-            toolbar.style.left = this.config.position.left || '';
-            toolbar.style.right = 'auto'; // 絶対配置を保証
+            if (this.config.position.right) {
+                toolbar.style.right = this.config.position.right;
+                toolbar.style.left = 'auto';
+            } else {
+                toolbar.style.left = this.config.position.left || '';
+                toolbar.style.right = 'auto'; // 絶対配置を保証
+            }
             toolbar.style.transform = 'none';
         }
 
@@ -304,6 +309,7 @@ class SVGToolbarBase {
         if (config.position) {
             if (config.position.top) toolbar.style.top = config.position.top;
             if (config.position.left) toolbar.style.left = config.position.left;
+            if (config.position.right) toolbar.style.right = config.position.right;
         }
 
         // 1. ドラッグハンドルを追加

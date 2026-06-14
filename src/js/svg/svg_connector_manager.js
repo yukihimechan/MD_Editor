@@ -920,8 +920,8 @@ const SVGConnectorManager = {
         const t = (fx * ey - fy * ex) / denom; // レイ上のパラメータ
         const u = (fx * dy - fy * dx) / denom; // セグメント上のパラメータ
 
-        // t >= 0（レイの正方向）かつ 0 <= u <= 1（セグメント上）
-        if (t >= 0 && u >= -1e-10 && u <= 1 + 1e-10) {
+        // t >= 0（レイの正方向。浮動小数点誤差を許容）かつ 0 <= u <= 1（セグメント上）
+        if (t >= -1e-10 && u >= -1e-10 && u <= 1 + 1e-10) {
             return {
                 x: origin.x + t * dx,
                 y: origin.y + t * dy

@@ -726,9 +726,10 @@ const MermaidInteraction = (() => {
             { open: '(', close: ')' },      // ID(label)     丸角
         ];
 
+        const nodeIdBoundaryRegex = new RegExp('(?<!\\w)' + escapeRegex(nodeId) + '(?!\\w)');
         for (let i = startIdx + 1; i < endIdx; i++) {
             const line = lines[i];
-            if (!line.includes(nodeId)) continue;
+            if (!nodeIdBoundaryRegex.test(line)) continue;
 
             for (const { open, close } of bracketPairs) {
                 const searchStr = nodeId + open;

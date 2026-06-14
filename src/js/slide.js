@@ -586,7 +586,7 @@ const SlideManager = {
             if (!this.isActive) return;
 
             // スライド操作に関連するキーのリスト
-            const isSlideKey = ['Escape', 'ArrowRight', 'Space', 'Enter', 'ArrowLeft', 'Backspace'].includes(e.code);
+            const isSlideKey = ['Escape', 'ArrowRight', 'Space', 'Enter', 'ArrowLeft', 'Backspace', 'ArrowUp', 'ArrowDown'].includes(e.code);
             
             if (isSlideKey) {
                 e.preventDefault();
@@ -597,11 +597,13 @@ const SlideManager = {
                         this.closeSlideshow();
                         return;
                     case 'ArrowRight':
+                    case 'ArrowDown':
                     case 'Space':
                     case 'Enter':
                         this.nextSlide();
                         break;
                     case 'ArrowLeft':
+                    case 'ArrowUp':
                     case 'Backspace':
                         this.prevSlide();
                         break;

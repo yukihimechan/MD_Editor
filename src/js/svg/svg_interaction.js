@@ -68,6 +68,17 @@ function scheduleSelectionUIUpdate(silent = false) {
             window.SVGTextAlignmentToolbar.updateFromSelection();
         }
 
+        // 4. アニメーション関連ツールバーの更新
+        if (window.animationTransformToolbar && typeof window.animationTransformToolbar.updateValuesFromSelected === 'function') {
+            window.animationTransformToolbar.updateValuesFromSelected();
+        }
+        if (window.animationTimingToolbar && typeof window.animationTimingToolbar.updateValuesFromSelected === 'function') {
+            window.animationTimingToolbar.updateValuesFromSelected();
+        }
+        if (window.animationPathToolbar && typeof window.animationPathToolbar.updateValuesFromSelected === 'function') {
+            window.animationPathToolbar.updateValuesFromSelected();
+        }
+
         // 3. ハイライトとSVG要素リストの同期
         if (typeof window.updateSVGSourceHighlight === 'function') {
             window.updateSVGSourceHighlight();
@@ -86,6 +97,14 @@ function makeInteractive(el) {
     if (!el || !el.node) return;
     const tagName = el.node.tagName.toLowerCase();
     if (['tspan', 'textpath'].includes(tagName)) return;
+
+    // [NEW] アニメーション用の中間ラッパーグループはインタラクティブ化しない
+    if (tagName === 'g') {
+        const classes = el.attr('class') || '';
+        if (classes.includes('anim-wrapper-') || classes.includes('anim-motion-shift')) {
+            return;
+        }
+    }
 
     // [NEW] すでに親・先祖要素がインタラクティブ化されている場合は、重複処理や表示バグを防ぐためにスキップ
     let parentNode = el.node.parentNode;
@@ -237,6 +256,14 @@ function selectElement(el, isMulti, silent = false, force = false) {
                     el = SVG(parentText);
                 }
             }
+            // [NEW] アニメーションラッパーが誤って選択対象として渡された場合、自動的にその内部にある実体図形要素を選択するようにデリゲート
+            const classes = node.getAttribute('class') || '';
+            if (classes.includes('anim-wrapper-') || classes.includes('anim-motion-shift')) {
+                const realEl = node.querySelector('rect, circle, path, ellipse, image, text, polyline, polygon');
+                if (realEl) {
+                    el = SVG(realEl);
+                }
+            }
         }
     }
 
@@ -291,6 +318,10 @@ function selectElement(el, isMulti, silent = false, force = false) {
         window.currentEditingSVG.selectedElements.add(el);
     }
     // ▲▲▲ ここまで ▲▲▲
+    // [NEW] 選択状態を示すクラスを付加してCSSで検知できるようにする
+    if (el.node && el.node.classList) {
+        el.node.classList.add('svg-edit-selected');
+    }
     // [NEW] Delegate Selection UI to SvgShape instance
     let shape = el.remember('_shapeInstance');
     if (!shape && typeof wrapShape === 'function') {
@@ -549,6 +580,14 @@ function deselectElement(el, silent = false) {
         if (el.node && el.node._transformObserver) {
             el.node._transformObserver.disconnect();
             el.node._transformObserver = null;
+        }
+
+        // [NEW] 選択状態を示すクラスを解除する
+        if (existingWrapper.node && existingWrapper.node.classList) {
+            existingWrapper.node.classList.remove('svg-edit-selected');
+        }
+        if (el.node && el.node.classList) {
+            el.node.classList.remove('svg-edit-selected');
         }
 
         window.currentEditingSVG.selectedElements.delete(existingWrapper);

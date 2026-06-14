@@ -492,6 +492,15 @@ const ImageResizeHandler = (() => {
         document.addEventListener('mouseup', onUp);
     }
 
+    // 属性エスケープ用ヘルパー
+    function _escapeAttr(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;')
+                  .replace(/"/g, '&quot;')
+                  .replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;');
+    }
+
     // =============================================
     // Markdown ソースを更新する
     // =============================================
@@ -502,7 +511,7 @@ const ImageResizeHandler = (() => {
 
         // <img> タグの組み立て
         const styleAttr   = newMarginLeft > 0 ? ` style="margin-left:${Math.round(newMarginLeft)}px"` : '';
-        const newImgTag   = `<img src="${_origSrc}" width="${Math.round(newWidth)}"${styleAttr} alt="${_origAlt}">`;
+        const newImgTag   = `<img src="${_escapeAttr(_origSrc)}" width="${Math.round(newWidth)}"${styleAttr} alt="${_escapeAttr(_origAlt)}">`;
 
         const decodedSrc  = (() => { try { return decodeURIComponent(_origSrc); } catch { return _origSrc; } })();
 

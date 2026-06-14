@@ -785,6 +785,32 @@ function startSVGEdit(container, svgIndex) {
         });
     }
 
+    const getRightPos = (idx) => ({ top: (20 + idx * 30) + 'px', right: '-45px' });
+
+    // [NEW] Animation Transform Toolbar
+    if (typeof createAnimationTransformToolbar !== 'undefined') {
+        window.animationTransformToolbar = createAnimationTransformToolbar(container, {
+            position: getRightPos(0),
+            borderColor: '#FF5722'
+        });
+    }
+
+    // [NEW] Animation Timing Toolbar
+    if (typeof createAnimationTimingToolbar !== 'undefined') {
+        window.animationTimingToolbar = createAnimationTimingToolbar(container, {
+            position: getRightPos(1),
+            borderColor: '#FF5722'
+        });
+    }
+
+    // [NEW] Animation Path Toolbar
+    if (typeof createAnimationPathToolbar !== 'undefined') {
+        window.animationPathToolbar = createAnimationPathToolbar(container, {
+            position: getRightPos(2),
+            borderColor: '#FF5722'
+        });
+    }
+
     // [NEW] Listen for global transformations to update toolbar
     draw.on('dragmove.global resize.global rotate.global', () => {
         if (typeof updateTransformToolbarValues === 'function') updateTransformToolbarValues();
@@ -1354,6 +1380,11 @@ function startSVGEdit(container, svgIndex) {
     // [NEW] Initialize Zoom and CSS Variables (RESTORED STATE)
     current.setZoom(current.zoom || 100);
 
+    // [NEW] エディタ起動時にSMILアニメーションを自動再生する
+    if (typeof window.startAllSvgAnimations === 'function') {
+        window.startAllSvgAnimations(draw.node);
+    }
+
     // [NEW] 初期化完了後に初期化フラグを解除（非同期でMutationObserverのバーストを避けるため遅延）
     setTimeout(() => {
         if (window.currentEditingSVG === current) {
@@ -1426,6 +1457,20 @@ function stopSVGEdit(skipRender = false) {
         window.airbrushToolbar = null;
     }
 
+    // [NEW] Animation Toolbars 破棄
+    if (window.animationTransformToolbar) {
+        window.animationTransformToolbar.destroy();
+        window.animationTransformToolbar = null;
+    }
+    if (window.animationTimingToolbar) {
+        window.animationTimingToolbar.destroy();
+        window.animationTimingToolbar = null;
+    }
+    if (window.animationPathToolbar) {
+        window.animationPathToolbar.destroy();
+        window.animationPathToolbar = null;
+    }
+
     // [NEW] Remove grid lines before sync/cleanup
     if (draw) {
         draw.find('.svg-grid-lines, .svg-grid-line, .svg-grid-pattern, .svg-grid-rect').remove();
@@ -1472,6 +1517,19 @@ function stopSVGEdit(skipRender = false) {
                 this.off();
             } catch (e) { }
         });
+        // [FIX] エディタ終了時に中身を空にすると、非同期のプレビュー再描画が完了する前に
+        // 再び編集に入った場合に図形が消失するバグが発生するため、innerHTMLを空にするのは廃止します。
+        // 代わりに、同一ID要素との衝突（SMILの参照バグ）を防ぐため、古いDOM要素のID属性をすべて消去します。
+        draw.find('*').each(function () {
+            try {
+                if (this.node && this.node.hasAttribute('id')) {
+                    this.node.removeAttribute('id');
+                }
+            } catch (e) { }
+        });
+        if (draw.node) {
+            draw.node.removeAttribute('id');
+        }
     }
 
     try {
@@ -1581,8 +1639,8 @@ function stopSVGEdit(skipRender = false) {
     // [FIX] 再入防止フラグをリセット（stopSVGEditが単独で呼ばれた場合にも対応）
     window._svgEditorStarting = false;
 
-    if (!skipRender && typeof render === 'function') {
-        render();
+    if (!skipRender && typeof window.render === 'function') {
+        window.render(true);
     }
 
     // [NEW] 完了時にプレビュー側のスクロール位置に合わせてエディタを同期する

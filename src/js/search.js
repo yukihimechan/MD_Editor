@@ -100,6 +100,25 @@ function bindSearchDialogEvents() {
                 }
             };
         }
+
+        // 検索オプション（チェックボックス）の変更イベントバインド
+        const optionChecks = [
+            DOM.searchRegexCheck,
+            DOM.searchCaseCheck,
+            DOM.searchTargetAll,
+            DOM.searchTargetHeadings,
+            DOM.searchTargetLinks,
+            DOM.searchTargetCodeBlocks,
+            DOM.searchTargetTables,
+            DOM.searchTargetOther
+        ];
+        optionChecks.forEach(check => {
+            if (check) {
+                check.onchange = () => {
+                    performSearch();
+                };
+            }
+        });
     }
 }
 
@@ -249,6 +268,16 @@ function performSearch(isUpdate = false) {
     AppState.searchState.useRegex = DOM.searchRegexCheck.checked;
     AppState.searchState.matchCase = DOM.searchCaseCheck.checked;
 
+    // UIターゲットの状態をAppStateに同期
+    if (AppState.searchState.targets) {
+        AppState.searchState.targets.all = DOM.searchTargetAll ? DOM.searchTargetAll.checked : true;
+        AppState.searchState.targets.headings = DOM.searchTargetHeadings ? DOM.searchTargetHeadings.checked : true;
+        AppState.searchState.targets.links = DOM.searchTargetLinks ? DOM.searchTargetLinks.checked : true;
+        AppState.searchState.targets.codeBlocks = DOM.searchTargetCodeBlocks ? DOM.searchTargetCodeBlocks.checked : true;
+        AppState.searchState.targets.tables = DOM.searchTargetTables ? DOM.searchTargetTables.checked : true;
+        AppState.searchState.targets.other = DOM.searchTargetOther ? DOM.searchTargetOther.checked : true;
+    }
+
     saveSearchHistory();
 
     let pattern;
@@ -284,10 +313,25 @@ function performSearch(isUpdate = false) {
             const matchText = match[0];
 
             let type = 'other';
-            if (inCodeBlock) type = 'codeBlock';
-            else if (line.trim().startsWith('#')) type = 'heading';
-            else if (line.includes('![') || line.includes('](')) type = 'link';
-            else if (line.trim().startsWith('|')) type = 'table';
+            if (inCodeBlock) {
+                type = 'codeBlock';
+            } else {
+                // インラインコード判定：マッチ箇所の前後でバッククォートの数が奇数かを確認
+                const leftText = line.substring(0, column);
+                const rightText = line.substring(column + matchText.length);
+                const leftQuotes = (leftText.match(/`/g) || []).length;
+                const rightQuotes = (rightText.match(/`/g) || []).length;
+
+                if (leftQuotes % 2 === 1 && rightQuotes % 2 === 1) {
+                    type = 'codeBlock';
+                } else if (line.trim().startsWith('#')) {
+                    type = 'heading';
+                } else if (line.includes('![') || line.includes('](')) {
+                    type = 'link';
+                } else if (line.trim().startsWith('|')) {
+                    type = 'table';
+                }
+            }
 
             const targets = AppState.searchState.targets;
             const typeMap = { 'heading': 'headings', 'link': 'links', 'codeBlock': 'codeBlocks', 'table': 'tables', 'other': 'other' };
@@ -326,11 +370,26 @@ function performSearch(isUpdate = false) {
 }
 
 function findNext() {
-
-
-    // [NEW] Check if query changed
+    // 検索語またはオプションに変更がある場合は再検索を実行
     const currentInput = DOM.searchInput ? DOM.searchInput.value : "";
-    if (currentInput !== AppState.searchState.query) {
+    const currentRegex = DOM.searchRegexCheck ? DOM.searchRegexCheck.checked : false;
+    const currentCase = DOM.searchCaseCheck ? DOM.searchCaseCheck.checked : false;
+    const currentAll = DOM.searchTargetAll ? DOM.searchTargetAll.checked : true;
+    const currentHeadings = DOM.searchTargetHeadings ? DOM.searchTargetHeadings.checked : true;
+    const currentLinks = DOM.searchTargetLinks ? DOM.searchTargetLinks.checked : true;
+    const currentCode = DOM.searchTargetCodeBlocks ? DOM.searchTargetCodeBlocks.checked : true;
+    const currentTables = DOM.searchTargetTables ? DOM.searchTargetTables.checked : true;
+    const currentOther = DOM.searchTargetOther ? DOM.searchTargetOther.checked : true;
+
+    if (currentInput !== AppState.searchState.query ||
+        currentRegex !== AppState.searchState.useRegex ||
+        currentCase !== AppState.searchState.matchCase ||
+        currentAll !== AppState.searchState.targets.all ||
+        currentHeadings !== AppState.searchState.targets.headings ||
+        currentLinks !== AppState.searchState.targets.links ||
+        currentCode !== AppState.searchState.targets.codeBlocks ||
+        currentTables !== AppState.searchState.targets.tables ||
+        currentOther !== AppState.searchState.targets.other) {
         performSearch();
         return;
     }
@@ -354,9 +413,26 @@ function findNext() {
 }
 
 function findPrevious() {
-    // [NEW] Check if query changed
+    // 検索語またはオプションに変更がある場合は再検索を実行
     const currentInput = DOM.searchInput ? DOM.searchInput.value : "";
-    if (currentInput !== AppState.searchState.query) {
+    const currentRegex = DOM.searchRegexCheck ? DOM.searchRegexCheck.checked : false;
+    const currentCase = DOM.searchCaseCheck ? DOM.searchCaseCheck.checked : false;
+    const currentAll = DOM.searchTargetAll ? DOM.searchTargetAll.checked : true;
+    const currentHeadings = DOM.searchTargetHeadings ? DOM.searchTargetHeadings.checked : true;
+    const currentLinks = DOM.searchTargetLinks ? DOM.searchTargetLinks.checked : true;
+    const currentCode = DOM.searchTargetCodeBlocks ? DOM.searchTargetCodeBlocks.checked : true;
+    const currentTables = DOM.searchTargetTables ? DOM.searchTargetTables.checked : true;
+    const currentOther = DOM.searchTargetOther ? DOM.searchTargetOther.checked : true;
+
+    if (currentInput !== AppState.searchState.query ||
+        currentRegex !== AppState.searchState.useRegex ||
+        currentCase !== AppState.searchState.matchCase ||
+        currentAll !== AppState.searchState.targets.all ||
+        currentHeadings !== AppState.searchState.targets.headings ||
+        currentLinks !== AppState.searchState.targets.links ||
+        currentCode !== AppState.searchState.targets.codeBlocks ||
+        currentTables !== AppState.searchState.targets.tables ||
+        currentOther !== AppState.searchState.targets.other) {
         performSearch();
         return;
     }
@@ -681,6 +757,12 @@ function replaceOne() {
 }
 
 function replaceAll() {
+    // 置換前に、もし現在のクエリと入力内容が食い違っているか、matchesが空なら検索を実行する
+    const currentInput = DOM.searchInput ? DOM.searchInput.value : "";
+    if (currentInput && (currentInput !== AppState.searchState.query || AppState.searchState.matches.length === 0)) {
+        performSearch();
+    }
+
     const matches = AppState.searchState.matches;
     if (matches.length === 0) return;
     const replaceWith = DOM.replaceInput.value;

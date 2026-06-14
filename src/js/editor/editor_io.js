@@ -471,8 +471,8 @@ async function saveFileAs() {
  * @returns {{ svgText: string, hasExtraContent: boolean, totalBlocks: number } | null}
  */
 function extractSvgContent(text, targetIndex = 0) {
-    // matchAll で全ての ```svg ... ``` ブロックを取得
-    const matches = [...text.matchAll(/```svg\s*\n([\s\S]*?)\n```/g)];
+    // matchAll で全ての ```svg または ~~~svg ブロックを取得
+    const matches = [...text.matchAll(/(?:```|~~~)svg\s*\n([\s\S]*?)\n(?:```|~~~)/g)];
     if (matches.length === 0) return null;
 
     // 対象インデックスが範囲外の場合は最初のブロックを使用

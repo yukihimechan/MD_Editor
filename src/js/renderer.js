@@ -5,6 +5,32 @@
 // --- Global Markdown Instance ---
 let md = null;
 
+// --- Shared IntersectionObserver for Prism Highlight ---
+let _prismHighlightObserver = null;
+
+function getPrismObserver() {
+    if (!_prismHighlightObserver && window.IntersectionObserver) {
+        _prismHighlightObserver = new IntersectionObserver((entries, obs) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const code = entry.target.querySelector('code[class*="language-"]');
+                    if (code) {
+                        try { Prism.highlightElement(code); } catch (e) {}
+                    }
+                    obs.unobserve(entry.target);
+                }
+            });
+        }, { rootMargin: '300px' });
+    }
+    return _prismHighlightObserver;
+}
+
+function resetPrismObserver() {
+    if (_prismHighlightObserver) {
+        _prismHighlightObserver.disconnect();
+    }
+}
+
 // [NEW] Disable Prism auto-highlighting to prevent it from scanning the editor area
 if (typeof Prism !== 'undefined') {
     Prism.manual = true;
@@ -215,7 +241,9 @@ function restoreSvgCamelCaseTags(html) {
         'femergenode': 'feMergeNode',
         'lineargradient': 'linearGradient',
         'radialgradient': 'radialGradient',
-        'textpath': 'textPath'
+        'textpath': 'textPath',
+        'animatemotion': 'animateMotion',
+        'animatetransform': 'animateTransform'
     };
     let res = html;
     for (const [lower, camel] of Object.entries(replacements)) {
@@ -232,7 +260,7 @@ function fixAllInlineSvgCamelCase(root) {
     svgs.forEach(svg => {
         if (svg.getAttribute('data-svg-camel-fixed') === 'true') {
             // すでに data-svg-camel-fixed="true" が付着して保存されている場合でも、実際には小文字タグが残っているなら修復を試みる
-            const hasLowercase = svg.querySelector('clippath, fegaussianblur, feoffset, fedropshadow, feblend, fecolormatrix, feflood, femerge, femergenode, lineargradient, radialgradient, textpath');
+            const hasLowercase = svg.querySelector('clippath, fegaussianblur, feoffset, fedropshadow, feblend, fecolormatrix, feflood, femerge, femergenode, lineargradient, radialgradient, textpath, animatemotion, animatetransform');
             if (!hasLowercase) return;
         }
         
@@ -330,6 +358,9 @@ async function render(force = false) {
                 const previousText = _lastRenderedText;
                 _lastRenderedText = text;
                 AppState.text = text;
+
+                // 既存のPrismオブザーバーをリセットしてメモリリークを防ぐ
+                resetPrismObserver();
 
                 // アノテーションアンカーの行番号を差分で更新（DOM描画の前に実行）
                 if (typeof AnnotationLayer !== 'undefined' && typeof AnnotationLayer.trackContentChange === 'function') {
@@ -563,8 +594,8 @@ async function render(force = false) {
                                     });
 
                                     const purifyConfigFast = {
-                                        ADD_TAGS: ['style', 'input', 'label', 'li', 'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'defs', 'use', 'text', 'tspan', 'textPath', 'math', 'annotation', 'semantics', 'mrow', 'msub', 'msup', 'msubsup', 'mover', 'munder', 'munderover', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'mtext', 'mi', 'mo', 'mn', 'mspace', 'ms', 'mglyph', 'mpadded', 'mphantom', 'menclose', 'mtable', 'mtr', 'mtd', 'maligngroup', 'malignmark', 'maction', 'marker', 'connector-data', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur', 'feOffset', 'feDropShadow', 'feBlend', 'feColorMatrix', 'feFlood', 'feMerge', 'feMergeNode'],
-                                        ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'data-line', 'data-line-end', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-original-text', 'data-block-hash', 'vector-effect', 'clip-path', 'clip-rule', 'fill-rule', 'offset', 'stop-color', 'stop-opacity', 'filter', 'gradientUnits', 'stdDeviation', 'in', 'result'],
+                                        ADD_TAGS: ['style', 'input', 'label', 'li', 'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'defs', 'use', 'text', 'tspan', 'textPath', 'math', 'annotation', 'semantics', 'mrow', 'msub', 'msup', 'msubsup', 'mover', 'munder', 'munderover', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'mtext', 'mi', 'mo', 'mn', 'mspace', 'ms', 'mglyph', 'mpadded', 'mphantom', 'menclose', 'mtable', 'mtr', 'mtd', 'maligngroup', 'malignmark', 'maction', 'marker', 'connector-data', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur', 'feOffset', 'feDropShadow', 'feBlend', 'feColorMatrix', 'feFlood', 'feMerge', 'feMergeNode', 'animateMotion', 'mpath'],
+                                        ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'data-line', 'data-line-end', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-original-text', 'data-block-hash', 'vector-effect', 'clip-path', 'clip-rule', 'fill-rule', 'offset', 'stop-color', 'stop-opacity', 'filter', 'gradientUnits', 'stdDeviation', 'in', 'result', 'dur', 'repeatCount', 'rotate'],
                                         FORBID_TAGS: ['iframe', 'object', 'embed', 'base'],
                                         IN_PLACE: true,
                                         ADD_DATA_URI_TAGS: ['img']
@@ -674,6 +705,13 @@ async function render(force = false) {
                         // アノテーションのアンカーをレンダリング直後に更新
                         if (typeof AnnotationLayer !== 'undefined' && typeof AnnotationLayer.updateAnchors === 'function') AnnotationLayer.updateAnchors();
                         
+                        // SVGアニメーションの再開
+                        if (typeof window.startAllSvgAnimations === 'function') {
+                            setTimeout(() => {
+                                window.startAllSvgAnimations(DOM.preview);
+                            }, 100);
+                        }
+                        
                         const postTime = performance.now() - postStart;
                         console.log(`[Perf][Renderer] FastPath requestAnimationFrame listeners took ${postTime.toFixed(1)}ms (restoreFocus=${(_postB_2 - _postB_1).toFixed(1)}ms)`);
                         
@@ -729,8 +767,8 @@ async function render(force = false) {
                 const currentBlockHashes = new Set();
                 
                 const purifyConfig = {
-                    ADD_TAGS: ['style', 'input', 'label', 'li', 'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'defs', 'use', 'text', 'tspan', 'textPath', 'math', 'annotation', 'semantics', 'mrow', 'msub', 'msup', 'msubsup', 'mover', 'munder', 'munderover', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'mtext', 'mi', 'mo', 'mn', 'mspace', 'ms', 'mglyph', 'mpadded', 'mphantom', 'menclose', 'mtable', 'mtr', 'mtd', 'maligngroup', 'malignmark', 'maction', 'marker', 'connector-data', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur', 'feOffset', 'feDropShadow', 'feBlend', 'feColorMatrix', 'feFlood', 'feMerge', 'feMergeNode'],
-                    ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'data-line', 'data-line-end', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-placeholder-id', 'data-original-text', 'data-block-hash', 'vector-effect', 'clip-path', 'clip-rule', 'fill-rule', 'offset', 'stop-color', 'stop-opacity', 'filter', 'gradientUnits', 'stdDeviation', 'in', 'result'],
+                    ADD_TAGS: ['style', 'input', 'label', 'li', 'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'defs', 'use', 'text', 'tspan', 'textPath', 'math', 'annotation', 'semantics', 'mrow', 'msub', 'msup', 'msubsup', 'mover', 'munder', 'munderover', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'mtext', 'mi', 'mo', 'mn', 'mspace', 'ms', 'mglyph', 'mpadded', 'mphantom', 'menclose', 'mtable', 'mtr', 'mtd', 'maligngroup', 'malignmark', 'maction', 'marker', 'connector-data', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur', 'feOffset', 'feDropShadow', 'feBlend', 'feColorMatrix', 'feFlood', 'feMerge', 'feMergeNode', 'animateMotion', 'mpath'],
+                    ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'data-line', 'data-line-end', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-placeholder-id', 'data-original-text', 'data-block-hash', 'vector-effect', 'clip-path', 'clip-rule', 'fill-rule', 'offset', 'stop-color', 'stop-opacity', 'filter', 'gradientUnits', 'stdDeviation', 'in', 'result', 'dur', 'repeatCount', 'rotate'],
                     FORBID_TAGS: ['iframe', 'object', 'embed', 'base'],
                     IN_PLACE: true,
                     ADD_DATA_URI_TAGS: ['img']
@@ -1147,6 +1185,13 @@ async function render(force = false) {
                 if (typeof updateScrollMap === 'function') setTimeout(() => updateScrollMap(), 50);
                 // アノテーションのアンカーをレンダリング直後に更新（遅延なし）
                 if (typeof AnnotationLayer !== 'undefined' && typeof AnnotationLayer.updateAnchors === 'function') AnnotationLayer.updateAnchors();
+                
+                // SVGアニメーションの再開
+                if (typeof window.startAllSvgAnimations === 'function') {
+                    setTimeout(() => {
+                        window.startAllSvgAnimations(DOM.preview);
+                    }, 100);
+                }
                 if (typeof updateOutline === 'function') setTimeout(() => updateOutline(), 100);
                 if (typeof buildSvgList === 'function') setTimeout(() => buildSvgList(), 150);
                 if (typeof updateWordCount === 'function') updateWordCount();
@@ -1319,6 +1364,9 @@ function processHeadings(root) {
 function processListItems(root) {
     const listItems = root.querySelectorAll('li');
     listItems.forEach(li => {
+        // 既にラップ済みの場合はスキップ
+        if (li.querySelector(':scope > .li-text-wrapper')) return;
+
         let shouldWrap = false;
         const toWrap = [];
         for (let i = 0; i < li.childNodes.length; i++) {
@@ -1506,16 +1554,9 @@ function processCodeBlocks(root) {
                 }
 
                 // ▼▼▼ 変更: IntersectionObserverを使った遅延ハイライトに変更 ▼▼▼
-                if (window.IntersectionObserver) {
-                    const observer = new IntersectionObserver((entries, obs) => {
-                        entries.forEach(entry => {
-                            if (entry.isIntersecting) {
-                                try { Prism.highlightElement(code); } catch(e){}
-                                obs.unobserve(entry.target); // 一度色付けしたら監視解除
-                            }
-                        });
-                    }, { rootMargin: '300px' }); // 画面に入る300px手前で処理
-                    observer.observe(wrapper);
+                const obs = getPrismObserver();
+                if (obs) {
+                    obs.observe(wrapper);
                 } else {
                     // 非対応ブラウザ用のフォールバック
                     Prism.highlightElement(code);
@@ -1831,8 +1872,8 @@ function processSVGBlocks(root) {
                 if (parsedSvg) {
                     DOMPurify.sanitize(parsedSvg, {
                         USE_PROFILES: { svg: true, svgFilters: true },
-                        ADD_TAGS: ['use', 'defs', 'g', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'text', 'tspan', 'textPath', 'style', 'connector-data', 'image', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur', 'feOffset', 'feDropShadow', 'feBlend', 'feColorMatrix', 'feFlood', 'feMerge', 'feMergeNode'],
-                        ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'xmlns:xlink', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration', 'letter-spacing', 'line-height', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'preserveAspectRatio', 'clip-path', 'clip-rule', 'fill-rule', 'offset', 'stop-color', 'stop-opacity', 'filter', 'gradientUnits', 'data-line', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-original-text', 'vector-effect'],
+                        ADD_TAGS: ['use', 'defs', 'g', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'text', 'tspan', 'textPath', 'style', 'connector-data', 'image', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur', 'feOffset', 'feDropShadow', 'feBlend', 'feColorMatrix', 'feFlood', 'feMerge', 'feMergeNode', 'animateMotion', 'mpath'],
+                        ADD_ATTR: ['rel', 'target', 'class', 'style', 'checked', 'type', 'start', 'viewBox', 'xmlns', 'xmlns:xlink', 'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'x', 'y', 'width', 'height', 'points', 'transform', 'data-original-src', 'data-original-href', 'id', 'opacity', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration', 'letter-spacing', 'line-height', 'text-anchor', 'dominant-baseline', 'href', 'xlink:href', 'preserveAspectRatio', 'clip-path', 'clip-rule', 'fill-rule', 'offset', 'stop-color', 'stop-opacity', 'filter', 'gradientUnits', 'data-line', 'display', 'encoding', 'accent', 'fence', 'separator', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'form', 'lspace', 'rspace', 'columnspan', 'rowspan', 'columnalign', 'rowalign', 'framespacing', 'columnlines', 'rowlines', 'frame', 'equalcolumns', 'equalrows', 'displaystyle', 'side', 'minlabelspacing', 'alignmentscope', 'alttext', 'overflow', 'scriptlevel', 'scriptsizemultiplier', 'scriptminize', 'dir', 'decimalpoint', 'columnspacing', 'rowspacing', 'data-tool-id', 'data-radius', 'data-spikes', 'data-sides', 'data-arrow-start', 'data-arrow-end', 'data-arrow-size', 'data-is-canvas', 'data-is-proxy', 'data-no-connector', 'data-original-id', 'data-connections', 'marker-start', 'marker-end', 'marker-mid', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y', 'data-internal', 'data-paper-zoom', 'data-paper-offx', 'data-paper-offy', 'data-poly-points', 'data-bez-points', 'data-text-highlight', 'data-align-h', 'data-align-v', 'data-writing-mode', 'data-line-spacing', 'data-original-text', 'vector-effect', 'dur', 'repeatCount', 'rotate'],
                         FORBID_TAGS: ['iframe', 'object', 'embed', 'base'],
                         IN_PLACE: true,
                         ADD_DATA_URI_TAGS: ['img', 'image']
@@ -3316,3 +3357,25 @@ setTimeout(() => {
         ro.observe(previewEl);
     }
 }, 1000);
+
+// [NEW] 動的に挿入されたSVG SMILアニメーションを強制再開するヘルパー
+function startAllSvgAnimations(container) {
+    if (!container) return;
+    container.querySelectorAll('svg').forEach(svg => {
+        try {
+            let hasAnimation = false;
+            svg.querySelectorAll('animateMotion, animate, animateTransform').forEach(anim => {
+                hasAnimation = true;
+                if (typeof anim.beginElement === 'function') {
+                    anim.beginElement();
+                }
+            });
+            if (hasAnimation && typeof svg.setCurrentTime === 'function') {
+                svg.setCurrentTime(0);
+            }
+        } catch (e) {
+            console.warn('[Renderer] Failed to start SVG animation:', e);
+        }
+    });
+}
+window.startAllSvgAnimations = startAllSvgAnimations;

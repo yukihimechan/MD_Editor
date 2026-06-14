@@ -1695,6 +1695,12 @@ class StandardShape extends SvgShape {
                         const s = item.remember('_shapeInstance');
                         if (s) {
                             s._isDragging = false;
+                            
+                            // アニメーション基準点のドラッグ追従
+                            if (state.latestDx !== undefined && state.latestDy !== undefined) {
+                                SvgAnimationManager.updateTransformOriginOnElementChange(item, state.latestDx, state.latestDy, 1, 1);
+                            }
+
                             // [NEW] 移動確定時に座標変位行列を幾何属性（x, y 等）に焼き込む
                             if (typeof s.bakeTransformation === 'function') {
                                 s.bakeTransformation(true);
@@ -1817,6 +1823,13 @@ class StandardShape extends SvgShape {
 
         // console.log('[RESIZE START] Detail:', e.detail);
         const el = this.el;
+
+        // リサイズ前のローカルBBoxをキャッシュ（アニメーション基準点の追従用）
+        try {
+            this._preResizeLocalBBox = el.bbox();
+        } catch (err) {
+            this._preResizeLocalBBox = null;
+        }
         const parent = el.parent() || el.root();
 
         // [V20] Strict cleanup of any stale state before starting
@@ -1996,6 +2009,23 @@ class StandardShape extends SvgShape {
         // [FIX] ベイク処理の前にリサイズ中フラグを降ろすことで、
         // ベイク内の syncStrokeTextScale() や自動折り返し処理がスキップされずに動作するようにする
         this._isResizing = false;
+
+        // アニメーション基準点の追従再計算
+        if (this._preResizeLocalBBox) {
+            try {
+                const oldBox = this._preResizeLocalBBox;
+                const newBox = this.el.bbox();
+                const sx = oldBox.width > 0 ? newBox.width / oldBox.width : 1;
+                const sy = oldBox.height > 0 ? newBox.height / oldBox.height : 1;
+                const dx = newBox.x - oldBox.x * sx;
+                const dy = newBox.y - oldBox.y * sy;
+                
+                SvgAnimationManager.updateTransformOriginOnElementChange(this.el, dx, dy, sx, sy);
+            } catch (err) {
+                console.warn('[AnimationOrigin] Failed to update transform origin on resize:', err);
+            }
+            this._preResizeLocalBBox = null;
+        }
 
         try {
             // Bake transformation into geometry attributes
@@ -2888,6 +2918,7 @@ class StandardShape extends SvgShape {
 
         textEl.clear();
         textEl.attr('pointer-events', 'none'); // [NEW] text要素自体の pointer-events を none に設定
+        const baselineOffset = (baseline === 'central') ? appliedFontSize * 0.35 : 0;
         textEl.text(add => {
             lines.forEach((line, i) => {
                 const safeLine = line === '' ? '\u200B' : line;
@@ -2895,8 +2926,10 @@ class StandardShape extends SvgShape {
                 tspan.node.removeAttribute('dy'); // 確実に削除
                 tspan.attr({
                     'x': curX,
-                    // ▼ 相対の dy ではなく、絶対座標の y で指定する
-                    'y': (parseFloat(textEl.attr('y')) || 0) + (i * appliedFontSize * spacingVal),
+                    // ▼ 相対の dy ではなく、絶対座標の y で指定する。ベースライン補正も加算する
+                    'y': (parseFloat(textEl.attr('y')) || 0) 
+                         + baselineOffset 
+                         + (i * appliedFontSize * spacingVal),
                     'text-anchor': anchor,
                     'dominant-baseline': baseline,
                     'pointer-events': 'none' // [NEW] 各 tspan の pointer-events も none に設定

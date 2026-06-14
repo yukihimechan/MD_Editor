@@ -105,6 +105,13 @@ window.AnnotationLayer = (function () {
             _scheduleAnchorUpdate();
         }, true);
 
+        window.addEventListener('blur', () => {
+            if (_svgEl && _svgEl.style.pointerEvents === 'none') {
+                _svgEl.style.pointerEvents = '';
+                _isDrawing = false;
+            }
+        });
+
         // [追加] ユーザー要望: 注釈オフ時にクリックがプレビューへ素通りしているか確認するデバッグ用ログ
         document.addEventListener('click', (e) => {
             if (!_isActive) {
@@ -165,8 +172,11 @@ window.AnnotationLayer = (function () {
 
         // 幅は #preview 自身の幅 (offsetWidth) を使用する
         // これにより left オフセットと合わせても右側にはみ出さず、スクロールバーが発生しない
-        const w = previewEl.offsetWidth;
+        const w = previewEl.offsetWidth || previewPane.clientWidth || 820;
         const h = previewEl.scrollHeight || previewPane.clientHeight;
+
+        if (w <= 0 || h <= 0) return;
+
         _svgEl.setAttribute('width',   w);
         _svgEl.setAttribute('height',  h);
         _svgEl.setAttribute('viewBox', `0 0 ${w} ${h}`);
@@ -423,7 +433,13 @@ window.AnnotationLayer = (function () {
     function _onMouseUp(e) {
         if (_currentTool === 'select') return;
 
-        if (!_isDrawing) return;
+        if (!_isDrawing) {
+            // 描画中でなくても、pointerEvents が none であれば復帰する
+            if (_svgEl && _svgEl.style.pointerEvents === 'none') {
+                _svgEl.style.pointerEvents = '';
+            }
+            return;
+        }
         _isDrawing = false;
         _svgRectCache = null; // キャッシュ解放
 
