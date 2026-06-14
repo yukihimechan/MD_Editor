@@ -527,6 +527,7 @@ const ImageResizeHandler = (() => {
         while ((match = htmlPattern.exec(fullText)) !== null) {
             const src = match[1];
             if (src === _origSrc || src === decodedSrc) {
+                if (matched) break; // 最初のマッチのみ処理（重複適用を防止）
                 const srcStartOffset = match[0].indexOf(src);
                 const srcEndOffset = srcStartOffset + src.length;
                 

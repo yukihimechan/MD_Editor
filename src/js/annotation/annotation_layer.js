@@ -109,6 +109,7 @@ window.AnnotationLayer = (function () {
             if (_svgEl && _svgEl.style.pointerEvents === 'none') {
                 _svgEl.style.pointerEvents = '';
                 _isDrawing = false;
+                clearTimeout(_pointerEventsTimer);
             }
         });
 
@@ -193,6 +194,7 @@ window.AnnotationLayer = (function () {
     let _freehandPoints = [];
     let _history    = []; // undo 用
     let _markerStartNode = null;
+    let _pointerEventsTimer = null;
 
     let _bubbleObserver = null;
 
@@ -315,6 +317,15 @@ window.AnnotationLayer = (function () {
             if (_currentTool === 'marker') {
                 // 【追加】描画中のみ pointerEvents を none にする
                 _svgEl.style.pointerEvents = 'none'; 
+                // 安全策: 一定時間後に自動復帰するタイマーを設定
+                clearTimeout(_pointerEventsTimer);
+                _pointerEventsTimer = setTimeout(() => {
+                    if (_svgEl && _svgEl.style.pointerEvents === 'none') {
+                        _svgEl.style.pointerEvents = '';
+                        _isDrawing = false;
+                        console.warn('[AnnotationLayer] pointerEvents自動復帰（タイムアウト）');
+                    }
+                }, 10000);
                 let range = null;
                 if (document.caretRangeFromPoint) {
                     range = document.caretRangeFromPoint(e.clientX, e.clientY);
@@ -395,9 +406,6 @@ window.AnnotationLayer = (function () {
             if (_activeShape.previewLine) {
                 _activeShape.previewLine.plot(_startPt.x, _startPt.y, pt.x, pt.y);
             }
-            
-            // 【追加】ユーザーから要望のあったドラッグ時のログ出力
-            console.log(`[AnnotationLayer] マーカー描画中 (プレビュー) | x:${e.clientX}, y:${e.clientY}`);
         } else if (_currentTool === 'freehand') {
             _freehandPoints.push([pt.x, pt.y]);
             _activeShape.plot(_freehandPoints);
@@ -533,6 +541,7 @@ window.AnnotationLayer = (function () {
             _activeShape    = null;
             _freehandPoints = [];
             _markerStartNode = null;
+            clearTimeout(_pointerEventsTimer); // タイマーをクリア
             _svgEl.style.pointerEvents = ''; // 確実にここで元に戻す
 
             // 描画後は自動的に選択ツールに戻る
@@ -592,13 +601,13 @@ window.AnnotationLayer = (function () {
 
         if (tx === undefined || isNaN(tx) || ty === undefined || isNaN(ty)) {
             if (side === 'bottom') {
-                tx = pos + tailW / 2 - 5; ty = h + 15;
+                tx = Math.max(0, pos + tailW / 2 - 5); ty = h + 15;
             } else if (side === 'top') {
-                tx = pos + tailW / 2 - 5; ty = -15;
+                tx = Math.max(0, pos + tailW / 2 - 5); ty = -15;
             } else if (side === 'left') {
-                tx = -15; ty = pos + tailW / 2 - 5;
+                tx = -15; ty = Math.max(0, pos + tailW / 2 - 5);
             } else if (side === 'right') {
-                tx = w + 15; ty = pos + tailW / 2 - 5;
+                tx = w + 15; ty = Math.max(0, pos + tailW / 2 - 5);
             }
         }
 
@@ -789,6 +798,13 @@ window.AnnotationLayer = (function () {
             const shapeEl = _draw.findOne(`#${escaped}`);
             if (!shapeEl) return;
 
+            if (anchor._needsReanchor) {
+                delete anchor._needsReanchor;
+                _attachNearestAnchor(shapeEl);
+                const updated = _anchorMap.get(shapeId);
+                if (updated) anchor = updated;
+            }
+
             let paraEl = null;
             
             // 1. syncId による確実な要素特定を優先
@@ -891,7 +907,15 @@ window.AnnotationLayer = (function () {
         }
 
         // bboxはtransformを考慮しないローカル座標なので、transformを加算して画面座標を得る
-        const bbox = shapeEl.bbox();
+        let bbox;
+        try {
+            bbox = shapeEl.bbox();
+        } catch (e) {
+            console.warn('[AnnotationLayer] bbox取得失敗:', shapeId, e);
+            return;
+        }
+        if (!bbox || (bbox.width === 0 && bbox.height === 0)) return;
+
         const currentTransform = shapeEl.node.getAttribute('transform') || '';
         const { tx, ty } = getTranslate(currentTransform);
 
@@ -979,7 +1003,7 @@ window.AnnotationLayer = (function () {
                         const newLen = (window.editorInstance && window.editorInstance.state) 
                                        ? window.editorInstance.state.doc.length 
                                        : currentText.length - match[0].length;
-                        console.log(`[AnnotationLayer] Moving ANNOTATION_DATA to true end. match.index: ${match.index}, match[0].length: ${match[0].length}, newLen(true docLength): ${newLen}`);
+                        console.log('[AnnotationLayer] 削除後の正確なdocLength:', newLen);
                         window.updateEditorRange(newLen, newLen, newBlock);
                     }
                 } else {
@@ -1245,7 +1269,14 @@ window.AnnotationLayer = (function () {
 
                 const imported = document.importNode(child, true);
                 _svgEl.appendChild(imported);
-                const wrapped = SVG(imported);
+                let wrapped;
+                try {
+                    wrapped = SVG(imported);
+                } catch (e) {
+                    console.warn('[AnnotationLayer] SVGノードのラップに失敗:', e);
+                    imported.remove();
+                    return;
+                }
                 _history.push(wrapped);
 
                 // 吹き出しのステータスアイコンを復元
@@ -1305,6 +1336,7 @@ window.AnnotationLayer = (function () {
                     anchor.sourceLine += delta;
                 } else if (anchor.sourceLine >= startLine) {
                     anchor.sourceLine = startLine;
+                    anchor._needsReanchor = true; // 次回 updateAllAnchors で再アンカーを実行
                 }
             });
         }

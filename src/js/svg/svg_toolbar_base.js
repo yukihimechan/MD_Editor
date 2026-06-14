@@ -221,8 +221,15 @@ class SVGToolbarBase {
         localStorage.removeItem(storageKeyPrefix + '-is-pinned');
 
         toolbar.style.width = '';
-        toolbar.style.flexDirection = 'row';
-        toolbar.classList.remove('is-swapped');
+        
+        const defaultSwapped = this.config.isSwapped === true;
+        if (defaultSwapped) {
+            toolbar.style.flexDirection = 'row-reverse';
+            toolbar.classList.add('is-swapped');
+        } else {
+            toolbar.style.flexDirection = 'row';
+            toolbar.classList.remove('is-swapped');
+        }
         toolbar.classList.remove('is-pinned');
     }
 
@@ -240,7 +247,12 @@ class SVGToolbarBase {
         }
 
         // 2. 左右入替・幅の復元
-        const isSwapped = localStorage.getItem(prefix + '-is-swapped') === 'true';
+        let isSwapped = localStorage.getItem(prefix + '-is-swapped');
+        if (isSwapped === null) {
+            isSwapped = this.config.isSwapped === true;
+        } else {
+            isSwapped = isSwapped === 'true';
+        }
         const width = localStorage.getItem(prefix + '-width');
 
         if (isSwapped) {

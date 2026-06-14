@@ -1902,6 +1902,27 @@ function handleContextMenu(e, container, svgIndex) {
             if (window.currentEditingSVG.pathOpToolbar && typeof window.currentEditingSVG.pathOpToolbar.resetPosition === 'function') {
                 window.currentEditingSVG.pathOpToolbar.resetPosition();
             }
+            if (window.cssToolbar && typeof window.cssToolbar.resetPosition === 'function') {
+                window.cssToolbar.resetPosition();
+            }
+            if (window.airbrushToolbar && typeof window.airbrushToolbar.resetPosition === 'function') {
+                window.airbrushToolbar.resetPosition();
+            }
+            if (window.gradientToolbar && typeof window.gradientToolbar.resetPosition === 'function') {
+                window.gradientToolbar.resetPosition();
+            }
+            if (window.shadowToolbar && typeof window.shadowToolbar.resetPosition === 'function') {
+                window.shadowToolbar.resetPosition();
+            }
+            if (window.animationTransformToolbar && typeof window.animationTransformToolbar.resetPosition === 'function') {
+                window.animationTransformToolbar.resetPosition();
+            }
+            if (window.animationTimingToolbar && typeof window.animationTimingToolbar.resetPosition === 'function') {
+                window.animationTimingToolbar.resetPosition();
+            }
+            if (window.animationPathToolbar && typeof window.animationPathToolbar.resetPosition === 'function') {
+                window.animationPathToolbar.resetPosition();
+            }
         },
         group: typeof groupSelectedElements === 'function' ? groupSelectedElements : null,
         ungroup: typeof ungroupSelectedElements === 'function' ? ungroupSelectedElements : null,

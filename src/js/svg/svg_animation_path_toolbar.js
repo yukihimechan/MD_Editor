@@ -9,7 +9,8 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
             id: options.id || 'svg-animation-path-toolbar',
             container: container,
             borderColor: options.borderColor || '#FF5722',
-            position: options.position || { top: '100px', right: '-45px' }
+            position: options.position || { top: '100px', right: '-45px' },
+            isSwapped: true
         });
         this.onValueChange = options.onValueChange || (() => { });
         this.inputs = {};

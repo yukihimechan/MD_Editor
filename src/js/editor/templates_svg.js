@@ -6,7 +6,7 @@ const SVG_TEMPLATES = {
         {
             id: 'svg-empty',
             title: '新規作成',
-            content: '```svg\n<svg width="820" height="350" viewBox="0 0 820 350" xmlns="http://www.w3.org/2000/svg">\n  </svg>\n```\n'
+            content: '```svg\n<svg width="820" height="520" viewBox="0 0 820 520" xmlns="http://www.w3.org/2000/svg">\n  </svg>\n```\n'
         },
         {
             id: 'svg-system-arch',
@@ -38,7 +38,7 @@ const SVG_TEMPLATES = {
         {
             id: 'svg-system-arch',
             title: 'System Architecture',
-            content: '```svg\n<svg width="820" height="450" viewBox="0 0 820 450" xmlns="http://www.w3.org/2000/svg">\n  <rect x="10" y="10" width="800" height="430" fill="#f9f9f9" stroke="#ccc" stroke-width="2" rx="10"/>\n  <text x="410" y="40" font-family="Arial" font-size="20" text-anchor="middle" font-weight="bold">System Architecture</text>\n  <!-- Client -->\n  <rect x="50" y="150" width="120" height="60" fill="#e1f5fe" stroke="#01579b" rx="5"/>\n  <text x="110" y="185" font-family="Arial" font-size="14" text-anchor="middle">Client</text>\n  <!-- Server -->\n  <rect x="350" y="150" width="120" height="60" fill="#fff3e0" stroke="#ff6f00" rx="5"/>\n  <text x="410" y="185" font-family="Arial" font-size="14" text-anchor="middle">Web Server</text>\n  <!-- Database -->\n  <rect x="650" y="150" width="120" height="60" fill="#e8f5e9" stroke="#1b5e20" rx="5"/>\n  <text x="710" y="185" font-family="Arial" font-size="14" text-anchor="middle">Database</text>\n  <!-- Arrows -->\n  <line x1="170" y1="180" x2="350" y2="180" stroke="#333" stroke-width="2" marker-end="url(#arrow)"/>\n  <line x1="470" y1="180" x2="650" y2="180" stroke="#333" stroke-width="2" marker-end="url(#arrow)"/>\n  <defs>\n    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">\n      <path d="M0,0 L10,5 L0,10 Z" fill="#333" />\n    </marker>\n  </defs>\n</svg>\n```\n'
+            content: '```svg\n<svg width="820" height="520" viewBox="0 0 820 520" xmlns="http://www.w3.org/2000/svg">\n  <rect x="10" y="10" width="800" height="430" fill="#f9f9f9" stroke="#ccc" stroke-width="2" rx="10"/>\n  <text x="410" y="40" font-family="Arial" font-size="20" text-anchor="middle" font-weight="bold">System Architecture</text>\n  <!-- Client -->\n  <rect x="50" y="150" width="120" height="60" fill="#e1f5fe" stroke="#01579b" rx="5"/>\n  <text x="110" y="185" font-family="Arial" font-size="14" text-anchor="middle">Client</text>\n  <!-- Server -->\n  <rect x="350" y="150" width="120" height="60" fill="#fff3e0" stroke="#ff6f00" rx="5"/>\n  <text x="410" y="185" font-family="Arial" font-size="14" text-anchor="middle">Web Server</text>\n  <!-- Database -->\n  <rect x="650" y="150" width="120" height="60" fill="#e8f5e9" stroke="#1b5e20" rx="5"/>\n  <text x="710" y="185" font-family="Arial" font-size="14" text-anchor="middle">Database</text>\n  <!-- Arrows -->\n  <line x1="170" y1="180" x2="350" y2="180" stroke="#333" stroke-width="2" marker-end="url(#arrow)"/>\n  <line x1="470" y1="180" x2="650" y2="180" stroke="#333" stroke-width="2" marker-end="url(#arrow)"/>\n  <defs>\n    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">\n      <path d="M0,0 L10,5 L0,10 Z" fill="#333" />\n    </marker>\n  </defs>\n</svg>\n```\n'
         },
         {
             id: 'svg-server-arch',
