@@ -172,3 +172,15 @@ svg.svg-editable {
 .svg-grid-lines {
     pointer-events: none !important;
 }
+
+/* パス選択モード中の path 要素のホバーハイライト */
+svg.selecting-motion-path path:not(.svg-internal-element) {
+    cursor: cell !important;
+    pointer-events: stroke !important; /* 線の部分のみに確実に反応させる */
+}
+svg.selecting-motion-path path:not(.svg-internal-element):hover {
+    stroke: #FF5722 !important; /* サンセットオレンジ（テーマカラー） */
+    stroke-width: 5px !important; /* ホバー時に線を太くして視認性を高める */
+    transition: stroke-width 0.1s ease, stroke 0.1s ease;
+}
+
