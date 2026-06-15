@@ -1,6 +1,6 @@
 /**
  * SVG Toolbar - 12種類のツールを提供するツールバー
- * 依孁E svg.js, svg.shapes.js
+ * 依存: svg.js, svg.shapes.js
  */
 
 /**
@@ -500,9 +500,85 @@ class LineTool extends BaseTool {
             this.activeElement.plot(`M ${this.startPoint.x} ${this.startPoint.y} L ${endX} ${this.startPoint.y}`);
             this.activeElement.attr('data-poly-points', `${this.startPoint.x},${this.startPoint.y} ${endX},${this.startPoint.y}`);
         }
-        // [NEW] ブリッジ処理: 他の線との交差点にベジェ曲線で飛び越え弧を挿入
-        this.applyLineBridge();
         this.finalize();
+    }
+
+    _applyAutoRoute(route) {
+        if (!this.activeElement || route.length <= 2) return;
+
+        // 頂点データを data-poly-points 形式に変換
+        const pointsStr = route
+            .map((p, i) => (i === 0 ? 'M' : '') + p.x + ',' + p.y)
+            .join(' ');
+        this.activeElement.node.setAttribute('data-poly-points', pointsStr);
+
+        // bezData を初期化（全頂点を直線として設定）
+        const bezData = route.map(() => ({ type: 0 }));
+        this.activeElement.node.setAttribute('data-bez-points', JSON.stringify(bezData));
+
+        // パスの d 属性を再生成
+        if (typeof SvgPolylineHandler !== 'undefined') {
+            const handler = new SvgPolylineHandler(null, null);
+            handler.activeNode = this.activeElement.node;
+            handler.generatePath(this.activeElement.node);
+        }
+    }
+
+    finalize() {
+        if (this.activeElement && window.SVGAutoRouter && window.SVGToolbar && window.SVGToolbar.autoRouteEnabled) {
+            const node = this.activeElement.node;
+            const pts = node.getAttribute('data-poly-points');
+            if (pts) {
+                const coords = pts.split(/\s+/).filter(s => s);
+                if (coords.length >= 2) {
+                    const startCoord = coords[0].replace('M', '').split(',');
+                    const endCoord = coords[coords.length - 1].split(',');
+                    const startPtLocal = { x: parseFloat(startCoord[0]), y: parseFloat(startCoord[1]) };
+                    const endPtLocal   = { x: parseFloat(endCoord[0]),   y: parseFloat(endCoord[1]) };
+
+                    // ローカル座標からワールド座標への変換行列を取得
+                    const rootNode = this.draw.node;
+                    const mLine = rootNode.getScreenCTM().inverse().multiply(node.getScreenCTM());
+
+                    const startPtWorld = new SVG.Point(startPtLocal.x, startPtLocal.y).transform(mLine);
+                    const endPtWorld = new SVG.Point(endPtLocal.x, endPtLocal.y).transform(mLine);
+
+                    // 接続先の図形および線自身を障害物から除外
+                    const excludeEls = [this.activeElement];
+                    const connData = node.getAttribute('data-connections');
+                    if (connData) {
+                        try {
+                            JSON.parse(connData).forEach(c => {
+                                const target = this.draw.findOne('#' + c.targetId);
+                                if (target) excludeEls.push(target);
+                            });
+                        } catch (e) { }
+                    }
+
+                    console.log(`[LineTool] finalize: startPtWorld=(${startPtWorld.x}, ${startPtWorld.y}), endPtWorld=(${endPtWorld.x}, ${endPtWorld.y})`);
+                    const routeWorld = SVGAutoRouter.routeAsPolyline(
+                        { x: startPtWorld.x, y: startPtWorld.y },
+                        { x: endPtWorld.x, y: endPtWorld.y },
+                        this.draw,
+                        excludeEls
+                    );
+                    console.log(`[LineTool] routeWorld: count=${routeWorld.length}`, routeWorld);
+
+                    if (routeWorld.length > 2) {
+                        const mInv = mLine.inverse();
+                        const routeLocal = routeWorld.map(p => {
+                            const lp = new SVG.Point(p.x, p.y).transform(mInv);
+                            return { x: lp.x, y: lp.y };
+                        });
+                        this._applyAutoRoute(routeLocal);
+                    }
+                }
+            }
+        }
+
+        // 交差ブリッジを適用
+        this.applyLineBridge();
+        super.finalize();
     }
 }
 

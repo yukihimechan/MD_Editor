@@ -648,10 +648,10 @@ function startSVGEdit(container, svgIndex) {
     const baseX = current.baseX;
     const baseY = current.baseY;
 
-    console.log(`[CanvasBorder] Using base size: ${baseWidth}x${baseHeight} at (${baseX}, ${baseY})`);
-    console.log(`[CanvasBorder Debug] SVG Attributes - width:${svgElement.getAttribute('width')}, height:${svgElement.getAttribute('height')}`);
-    console.log(`[CanvasBorder Debug] SVG ViewBox - x:${vbBase.x}, y:${vbBase.y}, w:${vbBase.width}, h:${vbBase.height}`);
-    console.log(`[CanvasBorder Debug] Initial data-paper-y: ${svgElement.getAttribute('data-paper-y')}`);
+    console.debug(`[CanvasBorder] Using base size: ${baseWidth}x${baseHeight} at (${baseX}, ${baseY})`);
+    console.debug(`[CanvasBorder Debug] SVG Attributes - width:${svgElement.getAttribute('width')}, height:${svgElement.getAttribute('height')}`);
+    console.debug(`[CanvasBorder Debug] SVG ViewBox - x:${vbBase.x}, y:${vbBase.y}, w:${vbBase.width}, h:${vbBase.height}`);
+    console.debug(`[CanvasBorder Debug] Initial data-paper-y: ${svgElement.getAttribute('data-paper-y')}`);
 
     // [NEW] キャンバス境界枠 (青色実線)
     const canvasBorder = draw.rect(baseWidth, baseHeight)
@@ -1451,6 +1451,11 @@ function stopSVGEdit(skipRender = false) {
         window.gradientToolbar.destroy();
         window.gradientToolbar = null;
     }
+    // [NEW] Shadow Toolbar 破棄
+    if (window.shadowToolbar) {
+        window.shadowToolbar.destroy();
+        window.shadowToolbar = null;
+    }
     // [NEW] Airbrush Toolbar 破棄
     if (window.airbrushToolbar) {
         window.airbrushToolbar.destroy();
@@ -1628,13 +1633,13 @@ function stopSVGEdit(skipRender = false) {
         window.removeEventListener('mouseup', window.currentEditingSVG._panMouseupHandler);
     }
 
-    window.currentEditingSVG = null;
-
     // [NEW] Global events cleanup
     if (container._panningBound) {
         window.removeEventListener('mousemove', container._panningBound);
         delete container._panningBound;
     }
+
+    window.currentEditingSVG = null;
 
     // [FIX] 再入防止フラグをリセット（stopSVGEditが単独で呼ばれた場合にも対応）
     window._svgEditorStarting = false;

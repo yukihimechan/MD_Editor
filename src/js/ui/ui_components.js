@@ -507,12 +507,12 @@ function findHeadingIndexByLine(targetLine) {
         if (!inCodeBlock && /^#{1,6}\s/.test(line.text)) {
             headingsCount++;
             lastFoundHeadingIndex = headingsCount;
-            console.log(`[OutlineDebug] Found heading at line ${i}: "${line.text.substring(0, 50)}", Index: ${headingsCount}`);
+            console.debug(`[OutlineDebug] Found heading at line ${i}: "${line.text.substring(0, 50)}", Index: ${headingsCount}`);
         }
     }
 
 
-    console.log(`[OutlineDebug] findHeadingIndexByLine(${targetLine}) returning: ${lastFoundHeadingIndex}`);
+    console.debug(`[OutlineDebug] findHeadingIndexByLine(${targetLine}) returning: ${lastFoundHeadingIndex}`);
     // Returns the index of the *last* heading encountered before or at targetLine.
     // If no headings found yet, returns -1.
     return lastFoundHeadingIndex;
@@ -638,6 +638,7 @@ function updateUndoRedoButtonState(canUndo, canRedo) {
  */
 function updateStatusBar(info) {
     if (!DOM.previewStatusBar) return;
+    if (!info) return;
 
     // テーブルセルが複数選択中の場合は上書きしない
     if (window.TableEditor && window.TableEditor.selectedCells && window.TableEditor.selectedCells.length > 1) {

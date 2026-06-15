@@ -113,7 +113,7 @@ function makeInteractive(el) {
     while (parentNode && parentNode !== svgElement && parentNode !== drawNode) {
         if (parentNode.nodeType === 1) {
             if (parentNode.instance && parentNode.instance.remember('_shapeInstance')) {
-                console.log(`[makeInteractive] Skipping element #${el.id()} because its ancestor #${parentNode.id || parentNode.tagName} is already interactive.`);
+                console.debug(`[makeInteractive] Skipping element #${el.id()} because its ancestor #${parentNode.id || parentNode.tagName} is already interactive.`);
                 return;
             }
         }
@@ -226,12 +226,12 @@ function selectElement(el, isMulti, silent = false, force = false) {
     }
     try {
         const elId = el && el.id ? (typeof el.id === 'function' ? el.id() : el.id) : (el && el.node ? el.node.getAttribute('id') : 'unknown');
-        console.log(`[selectElement] Called for ID: ${elId}, isMulti: ${isMulti}, force: ${force}, currentCount: ${window.currentEditingSVG.selectedElements.size}`);
+        console.debug(`[selectElement] Called for ID: ${elId}, isMulti: ${isMulti}, force: ${force}, currentCount: ${window.currentEditingSVG.selectedElements.size}`);
     } catch(err) {}
 
     // [FIX] CSS 編集モード中は、プレビュー以外の要素を選択させない
     if (window.currentEditingSVG._inCSSEditMode) {
-        console.log(`[selectElement] BLOCKED: In CSS Edit Mode.`);
+        console.debug(`[selectElement] BLOCKED: In CSS Edit Mode.`);
         return;
     }
 
@@ -544,7 +544,7 @@ function deselectElement(el, silent = false) {
     if (!window.currentEditingSVG) return;
     try {
         const elId = el && el.id ? (typeof el.id === 'function' ? el.id() : el.id) : (el && el.node ? el.node.getAttribute('id') : 'unknown');
-        console.log(`[deselectElement] Called for ID: ${elId}, currentCount: ${window.currentEditingSVG.selectedElements.size}`);
+        console.debug(`[deselectElement] Called for ID: ${elId}, currentCount: ${window.currentEditingSVG.selectedElements.size}`);
     } catch(err) {}
 
     // [FIX] wrapperオブジェクトの参照不一致を防ぐため、DOMノード基準で解除対象を探す
@@ -604,7 +604,7 @@ window.deselectElement = deselectElement;
 function deselectAll(silent = false) {
     if (!window.currentEditingSVG) return;
     try {
-        console.log(`[deselectAll] Called. CurrentCount: ${window.currentEditingSVG.selectedElements.size}. Stack:`, new Error().stack);
+        console.debug(`[deselectAll] Called. CurrentCount: ${window.currentEditingSVG.selectedElements.size}. Stack:`, new Error().stack);
     } catch(err) {}
 
     if (window.currentEditingSVG._inGradientEditMode) {
@@ -613,7 +613,7 @@ function deselectAll(silent = false) {
 
     // [FIX] CSS 編集モード中は、選択を一斉解除させない（プレビュー選択を維持するため）
     if (window.currentEditingSVG._inCSSEditMode) {
-        console.log(`[deselectAll] BLOCKED: In CSS Edit Mode.`);
+        console.debug(`[deselectAll] BLOCKED: In CSS Edit Mode.`);
         return;
     }
 

@@ -156,6 +156,25 @@ class SVGLineToolbar extends SVGToolbarBase {
             joinContainer.appendChild(btn);
         });
         contentArea.appendChild(joinContainer);
+
+        contentArea.appendChild(this.createSeparator());
+
+        // 自動迂回 (Auto Route)
+        this.autoRouteBtn = this.createIconBtn('図形を自動で迂回', `
+        <path d="M4 17 L10 11 L14 15 L20 9" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M16 9 H20 V13" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M4 7 L8 7 C11 7, 13 17, 16 17 L20 17" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2" fill="none" opacity="0.6"/>`,
+        () => {
+            const enabled = !(window.SVGToolbar && window.SVGToolbar.autoRouteEnabled);
+            if (window.SVGToolbar) {
+                window.SVGToolbar.autoRouteEnabled = enabled;
+            }
+            if (this.autoRouteBtn) {
+                this.autoRouteBtn.classList.toggle('active', enabled);
+            }
+            console.log(`[AutoRoute] ${enabled ? 'ON' : 'OFF'}`);
+        });
+        contentArea.appendChild(this.autoRouteBtn);
     }
 
     createSeparator() {
@@ -297,6 +316,11 @@ class SVGLineToolbar extends SVGToolbarBase {
             Object.keys(this.joinButtons).forEach(k => {
                 this.joinButtons[k].classList.toggle('active', k === join);
             });
+        }
+
+        if (this.autoRouteBtn) {
+            const enabled = !!(window.SVGToolbar && window.SVGToolbar.autoRouteEnabled);
+            this.autoRouteBtn.classList.toggle('active', enabled);
         }
     }
 

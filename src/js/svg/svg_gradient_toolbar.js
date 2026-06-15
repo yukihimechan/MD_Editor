@@ -155,7 +155,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
         if (!window.currentEditingSVG) return;
         const selected = Array.from(window.currentEditingSVG.selectedElements || []);
         if (selected.length === 0 && !this.isEditing) {
-            console.log('[SVGGradientToolbar] 編集対象の図形が選択されていません。');
+            console.debug('[SVGGradientToolbar] 編集対象の図形が選択されていません。');
             return;
         }
 
@@ -823,7 +823,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
 
     // メタデータパスの変更を、実際の描画パスおよびキャンバス上のハンドルに反映
     syncColorToPathAndHandle(pathId, color) {
-        console.log('[SVGGradientToolbar] syncColorToPathAndHandle starting. color:', color, 'pathId:', pathId);
+        console.debug('[SVGGradientToolbar] syncColorToPathAndHandle starting. color:', color, 'pathId:', pathId);
         if (!this.targetGroup) return;
 
         // 最新のDOMツリーから要素を再取得する（非同期レンダリングによる参照Stale化対策）
@@ -837,7 +837,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
         if (!metaGroup) return;
 
         const index = metaGroup.children().findIndex(child => child.id() === pathId);
-        console.log('[SVGGradientToolbar] indexOf currentPathEl:', index);
+        console.debug('[SVGGradientToolbar] indexOf currentPathEl:', index);
         if (index === -1) return;
 
         // 1. 描画用パスの更新
@@ -849,7 +849,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
                 const renderPath = paths[index + 1]; // 0番目は背景
                 if (renderPath) {
                     renderPath.attr('stroke', color);
-                    console.log('[SVGGradientToolbar] stroke attribute successfully updated to:', color);
+                    console.debug('[SVGGradientToolbar] stroke attribute successfully updated to:', color);
                 }
             }
         }

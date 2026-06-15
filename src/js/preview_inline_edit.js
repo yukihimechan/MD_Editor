@@ -154,35 +154,35 @@ const PreviewInlineEdit = {
 
         // [NEW] ダブルクリックによるセル単体インライン編集開始
         preview.addEventListener('dblclick', (e) => {
-            console.log('[dblclick] 検知 target:', e.target);
+            console.debug('[dblclick] 検知 target:', e.target);
 
             // 表エディタが起動中の場合はセル単体編集をスキップ
             if (typeof TableEditor !== 'undefined' && TableEditor.activeTable) {
-                console.log('[dblclick] 表エディタ起動中 → スキップ');
+                console.debug('[dblclick] 表エディタ起動中 → スキップ');
                 return;
             }
 
             const cell = e.target.closest('td, th');
             if (!cell) {
-                console.log('[dblclick] セルが見つからない target=', e.target);
+                console.debug('[dblclick] セルが見つからない target=', e.target);
                 return;
             }
             const table = cell.closest('table');
             if (!table) {
-                console.log('[dblclick] tableが見つからない');
+                console.debug('[dblclick] tableが見つからない');
                 return;
             }
 
-            console.log('[dblclick] focusedElement:', this.focusedElement, '/ table:', table, '/ 一致?', this.focusedElement === table);
+            console.debug('[dblclick] focusedElement:', this.focusedElement, '/ table:', table, '/ 一致?', this.focusedElement === table);
 
             // 表フォーカス済みかつセルが選択済みの場合のみ編集開始
             // （表未フォーカス状態でのダブルクリックは表フォーカスのみ行い編集は開始しない）
             if (this.focusedElement === table && typeof TableEditor !== 'undefined') {
-                console.log('[dblclick] → TableEditor.startCellEdit() 呼び出し cell:', cell);
+                console.debug('[dblclick] → TableEditor.startCellEdit() 呼び出し cell:', cell);
                 e.preventDefault();
                 TableEditor.startCellEdit(cell, e.clientX, e.clientY);
             } else {
-                console.log('[dblclick] → 表がフォーカス未済のため編集開始しない');
+                console.debug('[dblclick] → 表がフォーカス未済のため編集開始しない');
             }
         });
 

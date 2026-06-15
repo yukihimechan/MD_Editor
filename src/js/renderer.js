@@ -97,7 +97,8 @@ function setupMarkdownIt() {
             'fence',
             'code_block',
             'math_block',
-            'math_block_eqno'
+            'math_block_eqno',
+            'hr'
         ];
 
         blockTypes.forEach(type => {
@@ -105,7 +106,7 @@ function setupMarkdownIt() {
             const original = md.renderer.rules[type];
             md.renderer.rules[type] = (tokens, idx, options, env, slf) => {
                 if (type === 'fence' || type === 'code_block') {
-                    console.log(`[MarkdownIt][Debug] rules[${type}] called. Has map:`, !!tokens[idx].map, tokens[idx].map);
+                    console.debug(`[MarkdownIt][Debug] rules[${type}] called. Has map:`, !!tokens[idx].map, tokens[idx].map);
                 }
                 if (tokens[idx].map) {
                     const startLine = tokens[idx].map[0] + 1;
@@ -116,7 +117,7 @@ function setupMarkdownIt() {
                 if (original) {
                     let html = original(tokens, idx, options, env, slf);
                     if (type === 'fence' || type === 'code_block') {
-                        console.log(`[MarkdownIt][Debug] original html:`, html);
+                        console.debug(`[MarkdownIt][Debug] original html:`, html);
                     }
                     // texmath rules as well as fence and code_block do not respect tokens[idx].attrs, so we manually inject data-line
                     if ((type === 'math_block' || type === 'math_block_eqno' || type === 'fence' || type === 'code_block') && tokens[idx].map) {
@@ -124,7 +125,7 @@ function setupMarkdownIt() {
                         const endLine = tokens[idx].map[1];
                         if (type === 'fence' || type === 'code_block') {
                             html = html.replace(/<pre\b/i, `<pre data-line="${startLine}" data-line-end="${endLine}"`);
-                            console.log(`[MarkdownIt][Debug] replaced html:`, html);
+                            console.debug(`[MarkdownIt][Debug] replaced html:`, html);
                         } else {
                             html = html.replace(/^\s*<([a-zA-Z0-9]+)/, `<$1 data-line="${startLine}" data-line-end="${endLine}"`);
                         }

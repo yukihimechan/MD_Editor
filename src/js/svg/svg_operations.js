@@ -627,6 +627,7 @@ async function pasteElements(container, nativeText = null) {
 window.pasteElements = pasteElements;
 
 function deleteSelectedElements() {
+    if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
     window.currentEditingSVG.selectedElements.forEach(el => {
         // キャンバス自体のプロキシおよびロックされた要素は削除しない
         if (!el.hasClass('svg-canvas-proxy') && el.attr('data-locked') !== 'true') {

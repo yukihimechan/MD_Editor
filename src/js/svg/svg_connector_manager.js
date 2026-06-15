@@ -345,11 +345,11 @@ const SVGConnectorManager = {
         });
 
         if (nearest) {
-            console.log(`[SVG Connector] Found nearest: ${nearest.id} point[${nearest.index}]`);
+            console.debug(`[SVG Connector] Found nearest: ${nearest.id} point[${nearest.index}]`);
             // Diagnostic: What is this element?
             const el = document.getElementById(nearest.id);
             if (el) {
-                console.log(`[SVG Connector DEBUG] Nearest Element Details: tag=${el.tagName}, class=${el.getAttribute('class')}, parent=${el.parentNode ? el.parentNode.tagName + '#' + el.parentNode.id : 'null'}`);
+                console.debug(`[SVG Connector DEBUG] Nearest Element Details: tag=${el.tagName}, class=${el.getAttribute('class')}, parent=${el.parentNode ? el.parentNode.tagName + '#' + el.parentNode.id : 'null'}`);
             }
         }
         return nearest;
@@ -400,7 +400,7 @@ const SVGConnectorManager = {
             }
         }
 
-        console.log(`[SVG Connector] Connect request: ${line.id()} (${endType}) -> ${targetId}[${pointIndex}]`);
+        console.debug(`[SVG Connector] Connect request: ${line.id()} (${endType}) -> ${targetId}[${pointIndex}]`);
 
         // 既存の同じ端点の接続を書き換え
         connectData = connectData.filter(c => c.endType !== endType);
@@ -430,7 +430,7 @@ const SVGConnectorManager = {
             connectData = connectData.filter(c => c.endType !== endType);
 
             if (connectData.length !== originalLen) {
-                console.log(`[SVG Connector] Disconnected ${line.id()} (${endType})`);
+                console.debug(`[SVG Connector] Disconnected ${line.id()} (${endType})`);
                 if (connectData.length > 0) {
                     line.attr('data-connections', JSON.stringify(connectData));
                 } else {
@@ -484,7 +484,7 @@ const SVGConnectorManager = {
         // [NEW] Debug Log for Verification
         const hasM = pts.some(p => p[2]);
         if (pts.length > 0) {
-            console.log(`[SVG Connector] getPolyPoints for ${el.id()}: Parsed ${pts.length} points (M-flag: ${hasM})`);
+            console.debug(`[SVG Connector] getPolyPoints for ${el.id()}: Parsed ${pts.length} points (M-flag: ${hasM})`);
         }
 
         // [FIX] For lines/arrows, ensure we have AT LEAST 2 points so that
@@ -592,9 +592,9 @@ const SVGConnectorManager = {
                                 return;
                             }
 
-                            console.log(`[SVG Connector Debug] Syncing ${line.id()}(${conn.endType}) -> target(${conn.targetId})@idx(${conn.pointIndex})`);
-                            console.log(`      Target(World): (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
-                            console.log(`      Local Move: (${oldX.toFixed(1)}, ${oldY.toFixed(1)}) -> (${localPt.x.toFixed(1)}, ${localPt.y.toFixed(1)})`);
+                            console.debug(`[SVG Connector Debug] Syncing ${line.id()}(${conn.endType}) -> target(${conn.targetId})@idx(${conn.pointIndex})`);
+                            console.debug(`      Target(World): (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+                            console.debug(`      Local Move: (${oldX.toFixed(1)}, ${oldY.toFixed(1)}) -> (${localPt.x.toFixed(1)}, ${localPt.y.toFixed(1)})`);
 
                             // 頂点の移動差分を計算（ベジェハンドルの並行移動用）
                             const dx = localPt.x - oldX;
@@ -618,6 +618,74 @@ const SVGConnectorManager = {
             });
 
             if (changed) {
+                // 自動迂回（AutoRoute）の適用を試みる
+                const toolId = line.attr('data-tool-id');
+                const isAutoRouteEnabled = window.SVGAutoRouter && window.SVGToolbar && window.SVGToolbar.autoRouteEnabled && (toolId === 'line' || toolId === 'arrow');
+
+                if (isAutoRouteEnabled) {
+                    let startWorldPt = null;
+                    let endWorldPt = null;
+
+                    // 接続先情報から最新の接続点のワールド座標を取得
+                    connectData.forEach(conn => {
+                        const target = draw.findOne('#' + conn.targetId);
+                        if (target) {
+                            const targetPoints = this.getConnectorPoints(target);
+                            const p = targetPoints[conn.pointIndex];
+                            if (p) {
+                                if (conn.endType === 'start') {
+                                    startWorldPt = { x: p.x, y: p.y };
+                                } else {
+                                    endWorldPt = { x: p.x, y: p.y };
+                                }
+                            }
+                        }
+                    });
+
+                    // 接続されていない端点は現在の localPt からワールド座標に変換して取得
+                    const rootNode = draw.node;
+                    const mLine = rootNode.getScreenCTM().inverse().multiply(line.node.getScreenCTM());
+
+                    if (!startWorldPt && points.length > 0) {
+                        const localStart = new SVG.Point(points[0][0], points[0][1]).transform(mLine);
+                        startWorldPt = { x: localStart.x, y: localStart.y };
+                    }
+                    if (!endWorldPt && points.length > 0) {
+                        const localEnd = new SVG.Point(points[points.length - 1][0], points[points.length - 1][1]).transform(mLine);
+                        endWorldPt = { x: localEnd.x, y: localEnd.y };
+                    }
+
+                    if (startWorldPt && endWorldPt) {
+                        const excludeEls = [line];
+                        connectData.forEach(conn => {
+                            const target = draw.findOne('#' + conn.targetId);
+                            if (target) excludeEls.push(target);
+                        });
+
+                        const routeWorld = window.SVGAutoRouter.routeAsPolyline(startWorldPt, endWorldPt, draw, excludeEls);
+                        if (routeWorld.length > 2) {
+                            const mInv = mLine.inverse();
+                            const localRoute = routeWorld.map(p => {
+                                const lp = new SVG.Point(p.x, p.y).transform(mInv);
+                                return [lp.x, lp.y];
+                            });
+
+                            const pointsStr = localRoute.map((p, i) => (i === 0 ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
+                            line.attr('data-poly-points', pointsStr);
+
+                            if (isPath) {
+                                const newBezData = localRoute.map(() => ({ type: 0 }));
+                                line.attr('data-bez-points', JSON.stringify(newBezData));
+                                this.generatePath(line, localRoute, newBezData);
+                            } else if (line.type === 'polyline') {
+                                line.attr('points', pointsStr);
+                            }
+                            return true;
+                        }
+                    }
+                }
+
+                // 自動迂回が適用されない、または直線で良い場合は通常の追従処理を行う
                 const pointsStr = points.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
                 line.attr('data-poly-points', pointsStr);
 
@@ -693,7 +761,7 @@ const SVGConnectorManager = {
         });
 
         if (updatedLinesCount > 0) {
-            console.log(`[SVG Connector] Successfully updated ${updatedLinesCount} line points connected to moved element(s)`);
+            console.debug(`[SVG Connector] Successfully updated ${updatedLinesCount} line points connected to moved element(s)`);
         }
     },
 

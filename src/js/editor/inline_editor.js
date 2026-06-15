@@ -370,6 +370,15 @@ const InlineCodeEditor = {
             console.error('[InlineEditor] saveAndExit direct replacement failed:', e);
         }
 
+        // DOM の確実なクリーンアップと表示の復元
+        const pre = this.activeWrapper.querySelector('pre');
+        if (pre) pre.style.display = '';
+        const buttons = this.activeWrapper.querySelectorAll('button, .language-label');
+        buttons.forEach(b => b.style.display = '');
+
+        const container = this.activeWrapper.querySelector('.inline-editor-container');
+        if (container) container.remove();
+
         // クリーンアップ
         this.activeEditorView.destroy();
         this.activeEditorView = null;

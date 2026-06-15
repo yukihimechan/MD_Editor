@@ -156,7 +156,7 @@ const SVGPathOps = {
      * Attempts to load a font from the Local Font API cache populated by the Font Toolbar.
      */
     async _loadFromLocalFontAPI(fontFamilyStr, textToCheck) {
-        console.log(`[Outline] _loadFromLocalFontAPI called with: '${fontFamilyStr}', textToCheck length: ${textToCheck ? textToCheck.length : 0}`);
+        console.debug(`[Outline] _loadFromLocalFontAPI called with: '${fontFamilyStr}', textToCheck length: ${textToCheck ? textToCheck.length : 0}`);
 
         if (!window._localFontDataMap) {
             console.warn(`[Outline] window._localFontDataMap is missing. Attempting JIT local font sync...`);
@@ -175,7 +175,7 @@ const SVGPathOps = {
                             window._localFontDataMap.set(family, font);
                         }
                     });
-                    console.log(`[Outline] JIT sync completed successfully. Cached ${window._localFontDataMap.size} fonts.`);
+                    console.debug(`[Outline] JIT sync completed successfully. Cached ${window._localFontDataMap.size} fonts.`);
                 } catch (e) {
                     console.error(`[Outline] JIT Local font access failed (permission denied or user activation missing?):`, e);
                     return null;
@@ -185,7 +185,7 @@ const SVGPathOps = {
             }
         }
 
-        console.log(`[Outline] Map active. Cached names size: ${window._localFontDataMap.size}`);
+        console.debug(`[Outline] Map active. Cached names size: ${window._localFontDataMap.size}`);
 
         const fontNames = fontFamilyStr.split(',').map(f => f.replace(/['"]/g, '').trim().toLowerCase());
 
@@ -193,11 +193,11 @@ const SVGPathOps = {
         const fallbackFonts = ['biz udgothic', 'biz udmincho', 'meiryo', 'yu gothic', 'hiragino sans', 'hiragino kaku gothic pron', 'ms pgothic', 'segoe ui', 'arial unicode ms', 'arial'];
         const allFontsToCheck = [...fontNames, ...fallbackFonts];
 
-        console.log(`[Outline] Checking sequence: `, allFontsToCheck);
+        console.debug(`[Outline] Checking sequence: `, allFontsToCheck);
 
         for (const fontName of allFontsToCheck) {
             if (window._localFontDataMap.has(fontName)) {
-                console.log(`[Outline] Found physical font: ${fontName}. Initiating parse...`);
+                console.debug(`[Outline] Found physical font: ${fontName}. Initiating parse...`);
                 try {
                     const fontData = window._localFontDataMap.get(fontName);
                     const blob = await fontData.blob();
@@ -207,7 +207,7 @@ const SVGPathOps = {
                     const view = new DataView(parseBuffer);
                     const tag = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
                     if (tag === 'ttcf') {
-                        console.log(`[Outline] TTC file detected for ${fontName}. Extracting first TTF...`);
+                        console.debug(`[Outline] TTC file detected for ${fontName}. Extracting first TTF...`);
                         const offset0 = view.getUint32(12);
                         const numTables = view.getUint16(offset0 + 4);
                         let newSize = 12 + 16 * numTables;
@@ -246,7 +246,7 @@ const SVGPathOps = {
 
                     const font = opentype.parse(parseBuffer);
 
-                    console.log(`[Outline] Opentype parsed ${fontName} successfully. Validating glyphs...`);
+                    console.debug(`[Outline] Opentype parsed ${fontName} successfully. Validating glyphs...`);
 
                     // [NEW] Check if the font actually supports the characters and doesn't output missing tofu squares (.notdef)
                     let missingCount = 0;
@@ -275,7 +275,7 @@ const SVGPathOps = {
                         }
                     }
 
-                    console.log(`[Outline] ACCEPTED! Font ${fontName} passes metrics (${missingCount}/${validLength} missing). Extracting Outlines...`);
+                    console.debug(`[Outline] ACCEPTED! Font ${fontName} passes metrics (${missingCount}/${validLength} missing). Extracting Outlines...`);
                     return font;
                 } catch (e) {
                     console.warn(`[Outline] Failed to parse local font ${fontName} (File might be an unsupported TTC collection):`, e);
@@ -294,7 +294,7 @@ const SVGPathOps = {
      */
     async convertToOutline(elements) {
         if (!elements || elements.length === 0) return;
-        console.log(`[Outline] Processing ${elements.length} top-level elements.`);
+        console.debug(`[Outline] Processing ${elements.length} top-level elements.`);
 
         const results = [];
         const draw = elements[0].root();
@@ -321,7 +321,7 @@ const SVGPathOps = {
                 }
             };
             collect(topEl);
-            console.log(`[Outline] Found ${targets.length} renderable targets in ${topEl.id()}. Types:`, targets.map(t => t.type));
+            console.debug(`[Outline] Found ${targets.length} renderable targets in ${topEl.id()}. Types:`, targets.map(t => t.type));
 
             let convertedCount = 0;
             for (const el of targets) {
@@ -557,18 +557,18 @@ const SVGPathOps = {
         if (results.length > 0 && window.selectElement) {
             window.selectElement(results[results.length - 1]);
         }
-        console.log(`[Outline] Finalized: Converted ${results.length} total elements to paths.`);
+        console.debug(`[Outline] Finalized: Converted ${results.length} total elements to paths.`);
     },
 
     combine(elements) {
-        console.log("[Combine] Called with", elements ? elements.length : 0, "elements.");
+        console.debug("[Combine] Called with", elements ? elements.length : 0, "elements.");
         if (!elements || elements.length < 2) return;
 
         // 画像分岐：<image>要素が含まれる場合はクリッピングモード
         const images = elements.filter(el => el.type === 'image');
         const vectors = elements.filter(el => el.type !== 'image');
         if (images.length > 0 && vectors.length > 0) {
-            console.log("[Combine] Image+Vector mode. Applying clipPath.");
+            console.debug("[Combine] Image+Vector mode. Applying clipPath.");
             const clipPathD = vectors.length === 1
                 ? this._getPathDataInParentSpace(vectors[0])
                 : this._performBoolean(vectors, 'union');
@@ -606,14 +606,14 @@ const SVGPathOps = {
     },
 
     subtract(elements) {
-        console.log("[Subtract] Called with", elements ? elements.length : 0, "elements.");
+        console.debug("[Subtract] Called with", elements ? elements.length : 0, "elements.");
         if (!elements || elements.length < 2) return;
 
         // 画像分岐：<image>要素が含まれる場合は逆クリッピングモード
         const images = elements.filter(el => el.type === 'image');
         const vectors = elements.filter(el => el.type !== 'image');
         if (images.length > 0 && vectors.length > 0) {
-            console.log("[Subtract] Image+Vector mode. Applying inverse clipPath.");
+            console.debug("[Subtract] Image+Vector mode. Applying inverse clipPath.");
             images.forEach(img => {
                 const clipPathD = this._computeSubtractFromRect(img, vectors);
                 if (clipPathD) this._applyClipPathToImage(img, clipPathD);
@@ -649,14 +649,14 @@ const SVGPathOps = {
     },
 
     intersect(elements) {
-        console.log("[Intersect] Called with", elements ? elements.length : 0, "elements.");
+        console.debug("[Intersect] Called with", elements ? elements.length : 0, "elements.");
         if (!elements || elements.length < 2) return;
 
         // 画像分岐：<image>要素が含まれる場合はクリッピングモード
         const images = elements.filter(el => el.type === 'image');
         const vectors = elements.filter(el => el.type !== 'image');
         if (images.length > 0 && vectors.length > 0) {
-            console.log("[Intersect] Image+Vector mode. Applying clipPath.");
+            console.debug("[Intersect] Image+Vector mode. Applying clipPath.");
             const clipPathD = vectors.length === 1
                 ? this._getPathDataInParentSpace(vectors[0])
                 : this._performBoolean(vectors, 'union');
@@ -694,7 +694,7 @@ const SVGPathOps = {
     },
 
     exclude(elements) {
-        console.log("[Exclude] Called with", elements ? elements.length : 0, "elements.");
+        console.debug("[Exclude] Called with", elements ? elements.length : 0, "elements.");
         if (!elements || elements.length < 2) return;
 
         // 画像分岐：画像要素が含まれる場合は非対応
@@ -731,7 +731,7 @@ const SVGPathOps = {
     },
 
     divide(elements) {
-        console.log("[Divide] Called with", elements ? elements.length : 0, "elements.");
+        console.debug("[Divide] Called with", elements ? elements.length : 0, "elements.");
         if (!elements || elements.length < 2) return;
 
         // 画像分岐：<image>要素が含まれる場合は非対応を通知
@@ -833,7 +833,7 @@ const SVGPathOps = {
 
         // <image> に clip-path 属性を適用
         imageEl.attr('clip-path', `url(#${clipId})`);
-        console.log(`[ClipPath] Applied clip-path='url(#${clipId})' to image. Path length: ${clipPathD.length}`);
+        console.debug(`[ClipPath] Applied clip-path='url(#${clipId})' to image. Path length: ${clipPathD.length}`);
     },
 
     /**
@@ -887,7 +887,7 @@ const SVGPathOps = {
                 console.warn('[ClipPath] imgEl.ctm() failed, using identity:', e);
                 imgRelMatrix = new SVG.Matrix();
             }
-            console.log(`[ClipPath] imgLocalD=${imgLocalD}, relMat e=${imgRelMatrix.e.toFixed(2)},f=${imgRelMatrix.f.toFixed(2)}`);
+            console.debug(`[ClipPath] imgLocalD=${imgLocalD}, relMat e=${imgRelMatrix.e.toFixed(2)},f=${imgRelMatrix.f.toFixed(2)}`);
 
             const imgItem = paper.project.importSVG(`<path d="${imgLocalD}" />`);
             if (!imgItem) { paper.project.clear(); return ''; }
@@ -910,7 +910,7 @@ const SVGPathOps = {
                     console.warn('[ClipPath] vector ctm failed, using identity:', e);
                     vRelMatrix = new SVG.Matrix();
                 }
-                console.log(`[ClipPath] vec(${el.type}) relMat e=${vRelMatrix.e.toFixed(2)},f=${vRelMatrix.f.toFixed(2)}`);
+                console.debug(`[ClipPath] vec(${el.type}) relMat e=${vRelMatrix.e.toFixed(2)},f=${vRelMatrix.f.toFixed(2)}`);
 
                 const d = this.convertToPathData(el, vRelMatrix); // 累積変換行列を適用した座標
                 if (!d) continue;
@@ -927,7 +927,7 @@ const SVGPathOps = {
 
             const finalD = result ? (result.pathData || '') : '';
             paper.project.clear();
-            console.log(`[ClipPath] _computeSubtractFromRect result path length: ${finalD.length}`);
+            console.debug(`[ClipPath] _computeSubtractFromRect result path length: ${finalD.length}`);
             return finalD;
         } catch (e) {
             console.error('[ClipPath] _computeSubtractFromRect failed:', e);
@@ -957,13 +957,13 @@ const SVGPathOps = {
             // convertToPathData に変換行列を渡し、SVG.js 側で SVGユーザー座標に変換・切り出す
             const d = this.convertToPathData(el, elMat);
             if (!d) { paper.project.clear(); return ''; }
-            console.log(`[ClipPath] _getPathDataInParentSpace type=${el.type} d-start=${d.substring(0,60)}`);
+            console.debug(`[ClipPath] _getPathDataInParentSpace type=${el.type} d-start=${d.substring(0,60)}`);
             // Paper.js に identity でインポート (座標は変換済み)
             const item = paper.project.importSVG(`<path d="${d}" />`);
             if (!item) { paper.project.clear(); return ''; }
             const result = item.pathData || '';
             paper.project.clear();
-            console.log(`[ClipPath] _getPathDataInParentSpace: path length=${result.length}`);
+            console.debug(`[ClipPath] _getPathDataInParentSpace: path length=${result.length}`);
             return result;
         } catch (e) {
             console.error('[ClipPath] _getPathDataInParentSpace failed:', e);
@@ -1089,7 +1089,7 @@ const SVGPathOps = {
         // [NEW] Cleanup project AFTER getting result
         try { paper.project.clear(); } catch (ex) { }
 
-        console.log(`[Boolean] Paper.js ${op} completed. Result path length: ${finalD.length}`);
+        console.debug(`[Boolean] Paper.js ${op} completed. Result path length: ${finalD.length}`);
         return finalD;
     },
 
@@ -1270,7 +1270,7 @@ const SVGPathOps = {
         paperPaths.forEach(p => { if (p && p.remove) p.remove(); });
         try { paper.project.clear(); } catch (ex) { }
 
-        console.log(`[Boolean Divide] Paper.js completed. Produced ${resultInfo.length} paths.`);
+        console.debug(`[Boolean Divide] Paper.js completed. Produced ${resultInfo.length} paths.`);
         return resultInfo;
     },
 
@@ -1281,7 +1281,7 @@ const SVGPathOps = {
             canvas.width = 10000; canvas.height = 10000;
             paper.setup(canvas);
             this._paperInitialized = true;
-            console.log("[Boolean] Paper.js initialized (headless).");
+            console.debug("[Boolean] Paper.js initialized (headless).");
         } else {
             // Reset project state for clean operation
             paper.project.clear();
@@ -1580,7 +1580,7 @@ const SVGPathOps = {
         // [NEW] Final sub-path cleanup
         this._cleanupLastSubPath(points, bezData, startX, startY);
 
-        console.log(`[VertexExtract] Extracted ${points.length} points.`);
+        console.debug(`[VertexExtract] Extracted ${points.length} points.`);
         return { points, bezData };
     },
 

@@ -224,8 +224,8 @@ const TableEditor = {
      * @param {number|null} clientY  - クリック位置 Y（カーソル設定用）
      */
     startCellEdit(cell, clientX = null, clientY = null) {
-        console.log('[startCellEdit] 開始:', cell, 'clientX:', clientX, 'clientY:', clientY);
-        console.trace('[startCellEdit] 呼び出しスタック');
+        console.debug('[startCellEdit] 開始:', cell, 'clientX:', clientX, 'clientY:', clientY);
+        console.debug('[startCellEdit] 呼び出しスタック');
 
         // キーボードナビゲーションの未発火 setTimeout をキャンセルする（手動操作による編集開始などで旧ナビが割り込むのを防ぐ）
         if (this._pendingNavTimeout !== undefined && this._pendingNavTimeout !== null) {
@@ -267,7 +267,7 @@ const TableEditor = {
         origClone.querySelectorAll('button').forEach(b => b.remove());
         this._cellOriginalText = origClone.innerText;
         this.editingCellElement = cell;
-        console.log('[startCellEdit] _cellOriginalText:', JSON.stringify(this._cellOriginalText));
+        console.debug('[startCellEdit] _cellOriginalText:', JSON.stringify(this._cellOriginalText));
 
         // セル選択状態のスタイルを解除して編集中スタイルを適用
         cell.classList.remove('table-cell-focused');
@@ -276,7 +276,7 @@ const TableEditor = {
 
         // セル内の button 要素を編集対象外にしてカーソルの侵入を射止する
         const btns = cell.querySelectorAll('button');
-        console.log('[startCellEdit] cell内のbutton数:', btns.length, btns);
+        console.debug('[startCellEdit] cell内のbutton数:', btns.length, btns);
         btns.forEach(btn => {
             btn.contentEditable = 'false';
             btn.style.pointerEvents = 'none';
@@ -285,7 +285,7 @@ const TableEditor = {
 
         // セルを contentEditable にする
         cell.contentEditable = 'true';
-        console.log('[startCellEdit] cell.contentEditable設定完了. innerHTML:', cell.innerHTML);
+        console.debug('[startCellEdit] cell.contentEditable設定完了. innerHTML:', cell.innerHTML);
 
         // イベントリスナーをバインドして登録
         this._boundCellKeydown = this._handleCellKeydown.bind(this);
@@ -303,7 +303,7 @@ const TableEditor = {
         setTimeout(() => {
             // 編集対象セルが変わっていたらスキップ（他のセルに切り替わった場合やキャンセル後）
             if (!this.editingCellElement || this.editingCellElement !== cell) {
-                console.log('[startCellEdit:setTimeout] 編集対象セルが変わったため中断');
+                console.debug('[startCellEdit:setTimeout] 編集対象セルが変わったため中断');
                 return;
             }
 
@@ -319,7 +319,7 @@ const TableEditor = {
 
             // 先にフォーカスを確保する（これにより基本的な入力は受け付けられる）
             cell.focus();
-            console.log('[startCellEdit:setTimeout] cell.focus()完了. document.activeElement:', document.activeElement);
+            console.debug('[startCellEdit:setTimeout] cell.focus()完了. document.activeElement:', document.activeElement);
 
             // クリック位置にカーソルを設定する（マウスクリック起動時）
             if (clientX !== null && clientY !== null) {
@@ -334,22 +334,22 @@ const TableEditor = {
                         range.collapse(true);
                     }
                 }
-                console.log('[startCellEdit:setTimeout] caretRangeFromPoint結果:', range);
+                console.debug('[startCellEdit:setTimeout] caretRangeFromPoint結果:', range);
                 if (range) {
                     // カーソルがボタン要素の内部に入っていないか確認する
                     const container = range.startContainer;
                     const insideBtn = container.nodeType === Node.ELEMENT_NODE
                         ? container.closest('button')
                         : (container.parentNode && container.parentNode.closest('button'));
-                    console.log('[startCellEdit:setTimeout] range.startContainer:', container, '/ insideBtn:', insideBtn);
+                    console.debug('[startCellEdit:setTimeout] range.startContainer:', container, '/ insideBtn:', insideBtn);
                     if (!insideBtn) {
                         // ボタン外のみ Range を適用する（ボタン内の場合は focus() のみ）
                         const sel = window.getSelection();
                         sel.removeAllRanges();
                         sel.addRange(range);
-                        console.log('[startCellEdit:setTimeout] Range適用完了');
+                        console.debug('[startCellEdit:setTimeout] Range適用完了');
                     } else {
-                        console.log('[startCellEdit:setTimeout] button内のため Range 不適用, focus()のみ');
+                        console.debug('[startCellEdit:setTimeout] button内のため Range 不適用, focus()のみ');
                     }
                     return;
                 }
@@ -363,7 +363,7 @@ const TableEditor = {
             );
             let lastText = null;
             while (walker.nextNode()) lastText = walker.currentNode;
-            console.log('[startCellEdit:setTimeout] Tab移動用 lastTextノード:', lastText);
+            console.debug('[startCellEdit:setTimeout] Tab移動用 lastTextノード:', lastText);
 
             if (lastText) {
                 // テキストノードが見つかった場合はその末尾にカーソルを移動
@@ -373,9 +373,9 @@ const TableEditor = {
                 r.collapse(true);
                 sel.removeAllRanges();
                 sel.addRange(r);
-                console.log('[startCellEdit:setTimeout] テキスト末尾にカーソル設定完了');
+                console.debug('[startCellEdit:setTimeout] テキスト末尾にカーソル設定完了');
             } else {
-                console.log('[startCellEdit:setTimeout] テキストノードなし（空セル）: cell.focus()のみで入力待機');
+                console.debug('[startCellEdit:setTimeout] テキストノードなし（空セル）: cell.focus()のみで入力待機');
             }
         }, 0);
     },
