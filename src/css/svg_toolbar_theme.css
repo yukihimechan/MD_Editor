@@ -217,4 +217,24 @@ svg.selecting-motion-path path:not(.svg-internal-element):hover {
     display: inline-flex !important;
     align-items: center !important;
 }
+
+/* ===== コンテナ機能 ===== */
+
+/* コンテナのグロー表示（ドラッグ中のドロップ候補ハイライト） */
+.container-glow .container-bg {
+    filter: drop-shadow(0 0 6px rgba(0, 120, 212, 0.6));
+    transition: filter 0.15s ease, fill 0.15s ease, stroke-width 0.15s ease;
+}
+
+/* コンテナ背景のポインターイベント */
+.container-bg {
+    pointer-events: all;
+    cursor: move;
+}
+
+/* コンテナラベル */
+.container-label {
+    pointer-events: none;
+    user-select: none;
+}
 
