@@ -12,6 +12,10 @@
         // すでにインスタンスがあればそのまま返す (再 adopt を防ぐ)
         if (node.instance) return node.instance;
 
+        // text要素自体の x, y 属性を退避
+        const textX = node.getAttribute('x');
+        const textY = node.getAttribute('y');
+
         // tspan データの退避
         const tspanData = [];
         node.querySelectorAll('tspan').forEach((tspan, index) => {
@@ -44,6 +48,10 @@
                     tspan.attr(attrs);
                 });
             });
+
+            // 退避した text 要素自体の x, y 属性を復元
+            if (textX !== null) el.attr('x', textX);
+            if (textY !== null) el.attr('y', textY);
         }
         return el;
     }
@@ -1390,6 +1398,11 @@ function startSVGEdit(container, svgIndex) {
         if (window.currentEditingSVG === current) {
             current._initializing = false;
             // console.log('[startSVGEdit] _initializing flag cleared');
+
+            // [NEW] コンテナの親子関係をDOM属性から復元
+            if (window.SVGContainerManager && draw) {
+                window.SVGContainerManager.restoreContainersFromDOM(draw);
+            }
         }
     }, 300);
 

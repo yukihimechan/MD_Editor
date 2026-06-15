@@ -864,6 +864,73 @@ class FreehandTool extends BaseTool {
     }
 }
 
+/**
+ * [NEW] ContainerTool - コンテナ（入れ物図形）の配置
+ */
+class ContainerTool extends BaseTool {
+    getCursor() { return 'crosshair'; }
+    mousedown(e, pt) {
+        pt = SVGUtils.snapPointToGridIfAlt ? SVGUtils.snapPointToGridIfAlt(pt, e) : pt;
+        this.startPoint = pt;
+        this.isDragging = false;
+
+        // 仮の矩形を表示（ドラッグ中のプレビュー用）
+        this.activeElement = this.draw.rect(0, 0)
+            .move(pt.x, pt.y)
+            .fill('rgba(230,243,255,0.3)')
+            .stroke({ color: '#0078d4', width: 1.5, dasharray: '6,3' })
+            .attr('rx', 8);
+    }
+    mousemove(e, pt) {
+        if (!this.activeElement) return;
+        const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
+        if (dist > 3) this.isDragging = true;
+        if (!this.isDragging) return;
+
+        const x = Math.min(pt.x, this.startPoint.x);
+        const y = Math.min(pt.y, this.startPoint.y);
+        const w = Math.abs(pt.x - this.startPoint.x);
+        const h = Math.abs(pt.y - this.startPoint.y);
+        this.activeElement.move(x, y).size(w, h);
+    }
+    mouseup(e, pt) {
+        if (!this.activeElement) return;
+
+        // 仮の矩形を除去
+        this.activeElement.remove();
+        this.activeElement = null;
+
+        // サイズを決定
+        let x, y, w, h;
+        if (this.isDragging) {
+            x = Math.min(pt.x, this.startPoint.x);
+            y = Math.min(pt.y, this.startPoint.y);
+            w = Math.max(80, Math.abs(pt.x - this.startPoint.x));
+            h = Math.max(60, Math.abs(pt.y - this.startPoint.y));
+        } else {
+            // クリックのみの場合はデフォルトサイズ
+            const defaults = this.toolbar.defaultSizes['container'] || { w: 200, h: 150 };
+            x = this.startPoint.x - defaults.w / 2;
+            y = this.startPoint.y - defaults.h / 2;
+            w = defaults.w;
+            h = defaults.h;
+        }
+
+        // SVGContainerManager を使ってコンテナを生成
+        if (window.SVGContainerManager) {
+            const containerGroup = window.SVGContainerManager.createContainer(this.draw, x, y, w, h);
+            if (containerGroup) {
+                if (window.makeInteractive) window.makeInteractive(containerGroup);
+                if (window.selectElement) window.selectElement(containerGroup);
+                if (window.syncChanges) window.syncChanges();
+            }
+        }
+
+        // 選択ツールに戻す
+        this.toolbar.setTool('select');
+    }
+}
+
 class BubbleTool extends BaseTool {
     mousedown(e, pt) {
         pt = SVGUtils.snapPointToGridIfAlt ? SVGUtils.snapPointToGridIfAlt(pt, e) : pt;
@@ -1345,7 +1412,8 @@ class SVGMainToolbar extends SVGToolbarBase {
             'polyline_arrow': { stroke: '#000000', 'stroke-width': 1 },
             'freehand': { stroke: '#000000', 'stroke-width': 1 },
             'bubble': { fill: 'none', stroke: '#000000', 'stroke-width': 1 },
-            'text': { fill: '#000000', fontSize: 20 }
+            'text': { fill: '#000000', fontSize: 20 },
+            'container': { fill: 'rgba(230,243,255,0.3)', stroke: '#0078d4', 'stroke-width': 1.5 }
         };
 
         this.defaultSizes = {
@@ -1359,7 +1427,8 @@ class SVGMainToolbar extends SVGToolbarBase {
             'line': { w: 100, h: 0 },
             'arrow': { w: 100, h: 0 },
             'polyline_arrow': { w: 100, h: 0 },
-            'bubble': { w: 120, h: 80 }
+            'bubble': { w: 120, h: 80 },
+            'container': { w: 200, h: 150 }
         };
 
         this.toolDefaultsKey = 'mdEditor_svgToolDefaults';
@@ -1380,7 +1449,8 @@ class SVGMainToolbar extends SVGToolbarBase {
             { id: 'polyline_arrow', label: '折れ線矢印', icon: ToolIcons.polyline_arrow },
             { id: 'freehand', label: '自由描画', icon: '<svg viewBox="0 0 24 24"><path d="M3 21c3-3 6-3 9 0s6 3 9 0" fill="none" stroke="currentColor" stroke-width="2"/></svg>' },
             { id: 'bubble', label: '吹出し', icon: '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10z" fill="none" stroke="currentColor" stroke-width="2"/></svg>' },
-            { id: 'text', label: 'テキスト', icon: '<svg viewBox="0 0 24 24"><path d="M5 4v3h5.5l.25 13h3.5l.25-13H20V4z" fill="currentColor"/></svg>' }
+            { id: 'text', label: 'テキスト', icon: '<svg viewBox="0 0 24 24"><path d="M5 4v3h5.5l.25 13h3.5l.25-13H20V4z" fill="currentColor"/></svg>' },
+            { id: 'container', label: 'コンテナ', icon: '<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4,2"/><rect x="6" y="9" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1"/><rect x="13" y="9" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1"/></svg>' }
         ];
     }
 
@@ -1500,7 +1570,8 @@ class SVGMainToolbar extends SVGToolbarBase {
             'freehand': new FreehandTool(this),
             'bubble': new BubbleTool(this),
             'text': new TextTool(this),
-            'gradient_add': new GradientTool(this)
+            'gradient_add': new GradientTool(this),
+            'container': new ContainerTool(this)
         };
 
         this.activeToolInstance = this.toolMap['select'];

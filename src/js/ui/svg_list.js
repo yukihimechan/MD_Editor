@@ -78,7 +78,8 @@ function isSvgElementSkipped(d) {
         'radius-handle', 'radius-handle-group',
         'polyline-handle-group', 'bubble-handle-group',
         'svg-select-rect', 'select-point-handle', 'select-handler',
-        'svg-control-marker', 'svg-connector-overlay'
+        'svg-control-marker', 'svg-connector-overlay',
+        'container-glow'
     ];
     if (skipClasses.some(cls => d.hasClass(cls))) return true;
 
@@ -144,6 +145,7 @@ window.buildSvgList = function () {
 
         let iconHref = '#sym-shape';
         if (type === 'svg') iconHref = '#sym-image';
+        else if (type === 'g' && details.getAttr && details.getAttr('data-container') === 'true') iconHref = '#sym-group'; // コンテナ
         else if (type === 'g') iconHref = '#sym-group';
         else if (type === 'image') iconHref = '#sym-image';
 

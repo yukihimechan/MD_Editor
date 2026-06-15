@@ -637,6 +637,11 @@ function deleteSelectedElements() {
                 shape.destroy();
             }
 
+            // [NEW] コンテナ削除時に子要素の参照をクリーンアップ
+            if (window.SVGContainerManager && el.attr('data-container') === 'true') {
+                window.SVGContainerManager.onContainerRemoved(el);
+            }
+
             el.remove();
         }
     });

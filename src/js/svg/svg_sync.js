@@ -378,7 +378,8 @@ const IGNORE_CLASSES = new Set([
     'bubble-handle-group', 'svg-snap-guides', 'svg-control-marker', 
     'svg-canvas-border', 'svg-ruler', 'svg-select-handle', 'svg_select_handle',
     'svg_select_shape', 'rotation-handle', 'svg_select_handle_rot',
-    'svg-grad-control-ui', 'svg-grad-control-handle'
+    'svg-grad-control-ui', 'svg-grad-control-handle',
+    'container-glow'
 ]);
 
 function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {

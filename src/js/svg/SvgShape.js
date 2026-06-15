@@ -41,8 +41,8 @@ class SvgShape {
         const self = this;
         // console.log(`[SvgShape] Initializing ${this.el.type}#${this.el.id()}`);
 
-        // [NEW] テキスト付き図形 (shape-text-group) の場合、bbox/rbox/getBBox を背景図形基準にオーバーライドする
-        if (this.el.type === 'g' && this.el.attr('data-tool-id') === 'shape-text-group') {
+        // [NEW] テキスト付き図形 (shape-text-group) またはコンテナ (container) の場合、bbox/rbox/getBBox を背景図形基準にオーバーライドする
+        if (this.el.type === 'g' && (this.el.attr('data-tool-id') === 'shape-text-group' || this.el.attr('data-tool-id') === 'container')) {
             const origBBox = this.el.bbox;
             const origRBox = this.el.rbox;
             const origGetBBox = this.el.node.getBBox;
@@ -1172,6 +1172,7 @@ class StandardShape extends SvgShape {
             let startDragY = 0;
             let isSnapCacheBuilt = false;
             let snapTargetsCache = null; // [PERF] スナップ探索のキャッシュ
+            let latestPt = null; // ドラッグ中の最新座標を記録
 
             // [PERF] スナップキャッシュの構築を遅延評価（ドラッグ中、実際に必要になった時だけ実行）
             el.node._buildSnapCache = () => {
@@ -1276,6 +1277,11 @@ class StandardShape extends SvgShape {
                     // 【Phase 3】 GPUレイヤーのアクティブ化
                     if (item.node) item.node.style.willChange = 'transform';
                 });
+
+                // [NEW] コンテナのドラッグ開始時に子要素の初期位置を記録
+                if (window.SVGContainerManager) {
+                    window.SVGContainerManager.onDragStart(el);
+                }
 
                 const isCtrl = (window.currentEditingSVG && window.currentEditingSVG.isCtrlPressed) || ev.ctrlKey;
                 selectionStates.clear();
@@ -1491,6 +1497,8 @@ class StandardShape extends SvgShape {
                 if (!isActuallyMoving) { dx = 0; dy = 0; } 
                 else if (shape) shape._isActuallyMoved = true;
 
+                latestPt = p; // ドラッグ中の最新座標を記録
+
                 const isShift = (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed) || event.shiftKey;
                 const isSnapEnabled = typeof window.SVGUtils !== 'undefined' ? window.SVGUtils.isSnapEnabled(event) : ((window.currentEditingSVG && window.currentEditingSVG.isAltPressed) || event.altKey);
 
@@ -1621,6 +1629,11 @@ class StandardShape extends SvgShape {
                     }
                 });
 
+                // [NEW] コンテナ移動中の子要素追従 & ドロップ候補のグロー表示
+                if (window.SVGContainerManager) {
+                    window.SVGContainerManager.onDragMove(el, dx, dy, p);
+                }
+
                 // [PERF] 複数図形移動時のUI更新・コネクタ更新を1つの requestAnimationFrame でバッチ化し、激重処理を間引く
                 if (!el.node._uiUpdateScheduled) {
                     el.node._uiUpdateScheduled = true;
@@ -1720,6 +1733,11 @@ class StandardShape extends SvgShape {
                     }
                 });
 
+                // [NEW] ドラッグ終了時のコンテナ所属判定と自動リサイズ
+                if (window.SVGContainerManager) {
+                    window.SVGContainerManager.handleDragEnd(el, latestPt);
+                }
+
                 if (shape && shape._isActuallyMoved) syncChanges(true, null, true);
                 selectionStates.clear();
 
@@ -1736,6 +1754,13 @@ class StandardShape extends SvgShape {
      * For groups, calculates the union of visible children.
      */
     getCleanBBox() {
+        if (this.el.type === 'g' && (this.el.attr('data-tool-id') === 'container' || this.el.attr('data-container') === 'true')) {
+            const bg = this.el.findOne('.container-bg');
+            if (bg) {
+                return bg.bbox().transform(bg.matrix());
+            }
+        }
+
         if (this.el.type === 'g' && this.el.attr('data-has-gradient') === 'true') {
             const stroke = this.el.findOne('.svg-gradient-stroke');
             if (stroke) {
@@ -3013,6 +3038,70 @@ class StandardShape extends SvgShape {
                     }
                 });
                 return successAll;
+            } else if (el.attr('data-tool-id') === 'container' || el.attr('data-container') === 'true') {
+                // [NEW] コンテナグループ: matrix のスケールと平行移動を正確に焼き込む
+                const bg = el.findOne('.container-bg');
+                let shiftX = matrix.e;
+                let shiftY = matrix.f;
+
+                if (bg) {
+                    const cx = parseFloat(bg.attr('x')) || 0;
+                    const cy = parseFloat(bg.attr('y')) || 0;
+                    const w = parseFloat(bg.attr('width')) || 0;
+                    const h = parseFloat(bg.attr('height')) || 0;
+
+                    const newX = matrix.a * cx + matrix.e;
+                    const newY = matrix.d * cy + matrix.f;
+                    const newW = w * Math.abs(matrix.a);
+                    const newH = h * Math.abs(matrix.d);
+
+                    bg.attr({ x: newX, y: newY, width: newW, height: newH });
+                    
+                    shiftX = newX - cx;
+                    shiftY = newY - cy;
+                }
+
+                el.children().forEach(child => {
+                    // グロー要素とすでに処理した背景矩形はスキップ
+                    if (child.hasClass('container-glow') || child.hasClass('container-bg')) return;
+
+                    if (child.type === 'rect') {
+                        // ヒットエリア等: スケールと平行移動を適用
+                        const cx = parseFloat(child.attr('x')) || 0;
+                        const cy = parseFloat(child.attr('y')) || 0;
+                        const w = parseFloat(child.attr('width')) || 0;
+                        const h = parseFloat(child.attr('height')) || 0;
+                        
+                        const newX = matrix.a * cx + matrix.e;
+                        const newY = matrix.d * cy + matrix.f;
+                        const newW = w * Math.abs(matrix.a);
+                        const newH = h * Math.abs(matrix.d);
+                        
+                        child.attr({ x: newX, y: newY, width: newW, height: newH });
+                    } else if (child.type === 'text') {
+                        // ラベルテキスト: 背景矩形の左上角から絶対座標を設定し累積ズレを防止
+                        if (bg) {
+                            const newX = parseFloat(bg.attr('x')) || 0;
+                            const newY = parseFloat(bg.attr('y')) || 0;
+                            const targetX = newX + 6;
+                            const targetY = newY + 4;
+                            
+                            child.attr({ x: targetX, y: targetY });
+                            child.children().forEach(tspan => {
+                                if (tspan.type === 'tspan') {
+                                    // tspan の x, y も明示的に設定し、dy属性を除去してズレを防止
+                                    tspan.attr('x', targetX);
+                                    tspan.attr('y', targetY);
+                                    tspan.node.removeAttribute('dy');
+                                }
+                            });
+                        }
+                        child.node.removeAttribute('transform');
+                    }
+                });
+                // bake後にbboxキャッシュをクリア
+                clearBoxCache(el);
+                return true;
             } else {
                 // 【図形崩れ防止】汎用グループは子要素をBakeせず、グループのtransform属性を維持する
                 console.log(`[SVG BAKE] Skipping bake for generic group ${el.id()} to prevent distortion.`);
