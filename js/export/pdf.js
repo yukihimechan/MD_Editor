@@ -1,0 +1,472 @@
+/**
+ * PDF Export and Print operations
+ */
+
+let abortPDFExport = false;
+
+// Attach cancel event listener if button exists
+document.addEventListener('DOMContentLoaded', () => {
+    const btnCancel = document.getElementById('btn-cancel-pdf');
+    if (btnCancel) {
+        btnCancel.addEventListener('click', () => {
+            abortPDFExport = true;
+            btnCancel.textContent = "キャンセル中...";
+            btnCancel.disabled = true;
+        });
+    }
+});
+
+async function exportPDF() {
+    // Always use image-based export
+    await exportPDFAsImage();
+}
+
+// [FIX] Removed duplicate openPrintDialog()
+// The advanced, slide-aware version of openPrintDialog is already defined in editor_commands.js.
+// Since pdf.js is loaded after editor_commands.js, this duplicate was overwriting the advanced logic,
+// breaking the Slide PDF printing feature.
+
+// Original: High-quality image-based PDF export
+async function exportPDFAsImage(orientation = 'portrait') {
+    // Reset cancellation flag
+    abortPDFExport = false;
+
+    // Determine filename early
+    let pdfFilename = 'document.pdf';
+    if (typeof AppState !== 'undefined' && AppState.fileHandle) {
+        const mdName = AppState.fileHandle.name;
+        pdfFilename = mdName.replace(/\.(md|markdown|txt)$/i, '') + '.pdf';
+    }
+
+    // Ask for save location first (to avoid user gesture timeout during rendering)
+    let saveHandle = null;
+    if (typeof window.showSaveFilePicker === 'function') {
+        try {
+            saveHandle = await window.showSaveFilePicker({
+                suggestedName: pdfFilename,
+                types: [{ description: 'PDF Document', accept: { 'application/pdf': ['.pdf'] } }],
+            });
+        } catch (e) {
+            if (e.name === 'AbortError') return; // User cancelled
+            console.warn('File picker failed, falling back to download:', e);
+        }
+    }
+
+    // Show progress dialog
+    if (DOM.dialogProgress) {
+        DOM.pdfProgressBar.style.width = '0%';
+        DOM.pdfProgressText.textContent = '0%';
+        DOM.btnCancelPDF.disabled = false;
+        DOM.btnCancelPDF.textContent = "キャンセル";
+        DOM.dialogProgress.showModal();
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); // [NEW] 確実な描画猶予
+        await new Promise(resolve => setTimeout(resolve, 50));
+    } else {
+        if (typeof showToast === 'function') showToast(t('toast.pdfGenerating'), "info");
+    }
+
+    // 1. Prepare UI for capture
+    // Store current scroll positions (Preview Area & Window)
+    const originalScrollTop = DOM.preview.scrollTop;
+    const originalWindowX = window.scrollX;
+    const originalWindowY = window.scrollY;
+
+    // Reset scroll to top explicitly (Both element and window)
+    DOM.preview.scrollTop = 0;
+    window.scrollTo(0, 0);
+
+    // Add printing class to disable sticky headers via CSS
+    // 並行処理の競合を防ぐため、参照カウント方式で制御する。
+    if (typeof window.enterPrintingMode === 'function') {
+        window.enterPrintingMode('pdf', false);
+    } else {
+        document.body.classList.add('printing-mode');
+    }
+
+    // Apply page break classes before HR if enabled to hide them via CSS
+    if (AppState.config.pageBreakOnHr) {
+        const hrElements = DOM.preview.querySelectorAll('hr');
+        hrElements.forEach(hr => {
+            hr.classList.add('page-break-before');
+        });
+    }
+
+    // [FIX] Manually force inline styles to ensure sticky is removed
+    // html2canvas might ignore CSS overrides for sticky elements, so we set inline styles directly.
+    const stickyElements = DOM.preview.querySelectorAll('th, thead');
+    stickyElements.forEach(el => {
+        el.dataset.originalPosition = el.style.position;
+        el.dataset.originalTop = el.style.top;
+        el.style.setProperty('position', 'static', 'important');
+        el.style.setProperty('top', 'auto', 'important');
+    });
+
+    // Wait a moment for reflow (Increased to 500ms to ensure layout update)
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    let status = "Initializing"; // Track status for debugging
+
+    try {
+        // Ensure jsPDF is available
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: orientation });
+
+        // --- Smart Page Splitting Logic ---
+        const pdfWidth = doc.internal.pageSize.getWidth();   // 595.28 pt
+        const pdfHeight = doc.internal.pageSize.getHeight(); // 841.89 pt
+
+        // Get margins from config (convert mm to pt: 1mm = 2.83465pt)
+        const margins = AppState.config.pdfMargins || { top: 10, bottom: 10, left: 10, right: 10 };
+        const marginTop = margins.top * 2.83465;
+        const marginBottom = margins.bottom * 2.83465;
+        const marginLeft = margins.left * 2.83465;
+        const marginRight = margins.right * 2.83465;
+
+        const contentWidthPt = pdfWidth - marginLeft - marginRight;
+        const contentHeightPt = pdfHeight - marginTop - marginBottom;
+
+        // Calculate scale factor to fit DOM width to PDF content width
+        const element = DOM.preview;
+        const elementWidthPx = AppState.config.previewWidth || element.offsetWidth || 820;
+        // Scale: How many pt per 1 px
+        const scalePxToPt = contentWidthPt / elementWidthPx;
+
+        // Calculate available height in PX (DOM coordinates)
+        const pageHeightPx = contentHeightPt / scalePxToPt;
+
+        console.log(`Starting PDF export. Total Height: ${element.scrollHeight}px, pdfWidth: ${pdfWidth}, pdfHeight: ${pdfHeight}, pageHeightPx: ${pageHeightPx}`);
+
+        // [CRITICAL] クローン前にライブDOMで各要素の高さを計測し、属性として記録。
+        // これによりPageSplitter側で計測不能（0pxなど）になるのを防ぐ。
+        element.querySelectorAll('*').forEach(el => {
+            const h = el.offsetHeight || el.scrollHeight;
+            const w = el.offsetWidth || el.scrollWidth;
+            if (h > 0) el.setAttribute('data-original-height', h);
+            if (w > 0) el.setAttribute('data-original-width', w);
+        });
+
+        // PageSplitterを使ってプレビュー全体をページごとのDOMに分割
+        // ※ PageSplitterは内部で要素の移動（破壊的変更）を行うため、必ずプレビューの複製を渡す
+        status = "Splitting pages...";
+        const clonedPreview = element.cloneNode(true);
+
+        // [NEW] PDF出力に含めないプレースホルダー（ダミーブロック）を削除
+        clonedPreview.querySelectorAll('.dummy-tail-block').forEach(el => el.remove());
+
+        // 改ページ表示用の一時的な線を削除
+        clonedPreview.querySelectorAll('.preview-page-break-line').forEach(el => el.remove());
+
+        // テーブル編集用などの一時的なUI要素・ドラッグハンドルを削除
+        clonedPreview.querySelectorAll('.drag-handle, .dummy-height-block, .table-row-resizer, .table-col-resizer, .column-resize-handle, .row-resize-handle').forEach(el => el.remove());
+
+        // [NEW] PDF出力に含めない選択枠・選択ハイライトクラスを除去（ルート要素と子孫要素の両方）
+        const selectClasses = ['preview-focused', 'preview-selected-element', 'preview-focused-parent'];
+        if (selectClasses.some(cls => clonedPreview.classList.contains(cls))) {
+            clonedPreview.classList.remove(...selectClasses);
+        }
+        clonedPreview.querySelectorAll('.preview-focused, .preview-selected-element, .preview-focused-parent').forEach(el => {
+            el.classList.remove(...selectClasses);
+        });
+
+        // [NEW] 内部用データ属性 (data-paper-*) を削除して出力をクリーンにする
+        const paperAttributes = ['data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y'];
+        clonedPreview.querySelectorAll('svg').forEach(svg => {
+            paperAttributes.forEach(attr => svg.removeAttribute(attr));
+        });
+
+        // [FIX] html2canvasはSVGのoverflow:visibleコンテンツ（SVG境界外の要素）を
+        // キャプチャできないため、Mermaid SVGをPNG画像に事前変換して置換するが、
+        // PageSplitterの分割計算時には、通常表示側（getPageBreakTopPositions）と全く同一のダミー画像（空のインラインSVG）を使用して
+        // 計算を行い、分割完了後に元のPNG画像を復元します。
+        status = "Converting SVGs to PNG...";
+        const svgsInClone = Array.from(clonedPreview.querySelectorAll('svg'));
+        for (const svg of svgsInClone) {
+            const origWidth = svg.getAttribute('width');
+            const viewBox = svg.getAttribute('viewBox');
+            // 数値px指定のwidth属性 かつ viewBox を持つSVG（Mermaid生成）のみ対象
+            if (!origWidth || origWidth.endsWith('%') || !viewBox) continue;
+            const vbParts = viewBox.trim().split(/[\s,]+/).map(parseFloat);
+            if (vbParts.length < 4 || isNaN(vbParts[2]) || isNaN(vbParts[3]) || vbParts[2] <= 0) continue;
+
+            const vbW = vbParts[2];
+            const vbH = vbParts[3];
+            const aspectRatio = vbH / vbW;
+
+            // SVGの自然な幅（プレビューで実際に表示されている幅）を使用する。
+            // 常に elementWidthPx に引き伸ばすとプレビューより大きくなり余白がなくなるため、
+            // naturalWidth を上限として使う。
+            const naturalWidth = Math.min(parseFloat(origWidth) || elementWidthPx, elementWidthPx);
+            let targetW = Math.round(naturalWidth);
+            const targetH = Math.round(targetW * aspectRatio);
+
+            try {
+                // SVGをシリアライズしてData URLに変換
+                // width/heightを目標サイズに設定してから変換（正しいスケールで描画するため）
+                const svgClone = svg.cloneNode(true);
+                svgClone.setAttribute('width', targetW);
+                svgClone.setAttribute('height', targetH);
+                if (!svgClone.getAttribute('xmlns')) {
+                    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                }
+                const svgStr = new XMLSerializer().serializeToString(svgClone);
+                const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+
+                // CanvasにSVGを描画してPNGとして取得
+                const cvs = document.createElement('canvas');
+                cvs.width = targetW * 2;  // Retina対応（2倍解像度）
+                cvs.height = targetH * 2;
+                const ctx = cvs.getContext('2d');
+                ctx.scale(2, 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, targetW, targetH);
+
+                await new Promise((resolve) => {
+                    const tempImg = new Image();
+                    const timer = setTimeout(() => {
+                        console.warn('[PDF Fix] SVG→PNG変換タイムアウト (2秒超過、スキップ)');
+                        resolve();
+                    }, 2000);
+                    tempImg.onload = () => {
+                        clearTimeout(timer);
+                        ctx.drawImage(tempImg, 0, 0, targetW, targetH);
+                        resolve();
+                    };
+                    tempImg.onerror = (e) => {
+                        clearTimeout(timer);
+                        console.warn('[PDF Fix] SVG→PNG変換失敗（フォールバック: SVGのまま）', e);
+                        resolve(); // 失敗してもスキップして続行
+                    };
+                    tempImg.src = svgDataUrl;
+                });
+
+                // 本物のPNG画像
+                const pngDataUrl = cvs.toDataURL('image/png');
+
+                // ダミー画像（空のインラインSVG）を作成して置換（getPageBreakTopPositions と完全に一致）
+                const dummyImg = document.createElement('img');
+                dummyImg.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"/>';
+                dummyImg.style.width = targetW + 'px';
+                dummyImg.style.height = targetH + 'px';
+                dummyImg.style.display = 'block';
+                dummyImg.style.margin = '0 auto';
+                
+                // 退避
+                dummyImg.setAttribute('data-real-png-src', pngDataUrl);
+
+                // 元のSVGの属性（id, class, style等）をコピー。
+                // SVG固有の属性やサイズ計算に影響する属性は除外する。
+                const excludeAttrs = ['width', 'height', 'viewBox', 'xmlns', 'xmlns:xlink', 'version', 'style', 'src'];
+                for (const attr of svg.attributes) {
+                    if (!excludeAttrs.includes(attr.name) && !attr.name.startsWith('xmlns:')) {
+                        dummyImg.setAttribute(attr.name, attr.value);
+                    }
+                }
+                
+                // SVGのtransformスタイルを引き継ぐ（PDF出力時のスケール維持用）
+                if (svg.style.transform) {
+                    dummyImg.style.transform = svg.style.transform;
+                }
+
+                svg.parentNode.replaceChild(dummyImg, svg);
+
+                // 親ラッパー(svg-view-wrapper)のdata-computed-heightを更新する
+                const svgParent = dummyImg.parentElement;
+                if (svgParent) {
+                    if (svgParent.hasAttribute('data-computed-height')) {
+                        svgParent.setAttribute('data-computed-height', String(targetH));
+                    }
+                    if (svgParent.hasAttribute('data-original-height')) {
+                        svgParent.setAttribute('data-original-height', String(targetH));
+                    }
+                    // 親の親（code-block-wrapper等）にも同じ属性があれば更新
+                    const grandParent = svgParent.parentElement;
+                    if (grandParent && grandParent.hasAttribute('data-computed-height')) {
+                        grandParent.setAttribute('data-computed-height', String(targetH));
+                    }
+                }
+            } catch (e) {
+                console.warn('[PDF Fix] SVG変換中にエラー（スキップ）:', e);
+            }
+        }
+
+        // [FIX] Mermaid編集ボタンなど印刷不要なUI要素を非表示にする
+        clonedPreview.querySelectorAll('.btn-save-mermaid, .btn-expand-mermaid, .code-edit-btn, .mermaid-edit-overlay').forEach(el => {
+            el.style.display = 'none';
+        });
+        // [FIX] content-visibility: auto はパフォーマンス最適化のために
+        // ビューポート外の要素の高さを contain-intrinsic-size（デフォルト400px）で代替するが、
+        // PDF出力の計測コンテナ（visibility:hidden）内ではSVGの実際の高さが反映されず、
+        // PageSplitterが常に400pxの高さで計算してしまいページ分割が正しく行われない。
+        // クローン内では content-visibility を無効化して正確な高さ計測を保証する。
+        clonedPreview.querySelectorAll('.svg-view-wrapper').forEach(el => {
+            el.style.contentVisibility = 'visible';
+            el.style.containIntrinsicSize = 'none';
+        });
+
+        const pages = await PageSplitter.splitToPages(clonedPreview, pageHeightPx, elementWidthPx);
+
+        // 分割完了後、ダミー画像を本物のPNG画像に戻す
+        pages.forEach(page => {
+            page.querySelectorAll('img[data-real-png-src]').forEach(img => {
+                const realSrc = img.getAttribute('data-real-png-src');
+                if (realSrc) {
+                    img.src = realSrc;
+                    img.removeAttribute('data-real-png-src');
+                }
+            });
+        });
+
+        // 分割されたページを描画するための専用の一時コンテナを作成
+        const renderContainer = document.createElement('div');
+        renderContainer.className = element.className;
+        Object.assign(renderContainer.style, {
+            position: 'absolute',
+            top: '-9999px',
+            left: '0',
+            width: `${elementWidthPx}px`, // 元の幅と同じにする
+            backgroundColor: '#ffffff',
+            // #preview の CSS (padding: 20px 40px) がクラス経由で引き継がれると
+            // 有効キャプチャ幅が狭まり、図の左右が切れて見えるため 0 でリセットする
+            padding: '0',
+            margin: '0',
+            maxWidth: 'none',
+        });
+        document.body.appendChild(renderContainer);
+
+        try {
+            for (let i = 0; i < pages.length; i++) {
+                status = `Processing page ${i + 1}/${pages.length}`;
+
+                // Check cancellation
+                if (abortPDFExport) {
+                    status = "Cancelled by user";
+                    throw new Error("PDF export cancelled by user");
+                }
+
+                const pageNode = pages[i];
+                renderContainer.innerHTML = ''; // クリア
+                renderContainer.appendChild(pageNode);
+
+                // Update Progress (DOM描画待ちを兼ねる)
+                if (DOM.dialogProgress) {
+                    const progress = Math.min(99, Math.round(((i + 1) / pages.length) * 100));
+                    DOM.pdfProgressBar.style.width = `${progress}%`;
+                    DOM.pdfProgressText.textContent = `${progress}%`;
+                    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); // [NEW] 確実な描画猶予
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+
+                // Capture this segment (pageNode)
+                status = `Capturing canvas for page ${i + 1}`;
+                const canvas = await html2canvas(renderContainer, {
+                    scale: 2, // 高解像度
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                    windowWidth: elementWidthPx,
+                });
+
+                // [FIX] 空のキャンバス（高さ0または幅0）が生成された場合のクラッシュを防止
+                if (canvas.width === 0 || canvas.height === 0) {
+                    console.warn(`[PDF Fix] Skipped empty canvas for page ${i + 1}`);
+                    continue;
+                }
+                const imgData = canvas.toDataURL('image/jpeg', 0.8);
+
+                // 画像の高さはキャンバスの比率から計算
+                const imgH = (canvas.height / canvas.width) * contentWidthPt;
+
+                // Add to PDF
+                status = `Adding page ${i + 1} to PDF`;
+                if (i > 0) doc.addPage();
+                doc.addImage(imgData, 'JPEG', marginLeft, marginTop, contentWidthPt, imgH);
+
+                // Footer (Page Number)
+                if (AppState.config.pdfFooter) {
+                    const pageNum = doc.internal.getNumberOfPages();
+                    doc.setFontSize(10);
+                    doc.setTextColor(100);
+                    doc.text(`${pageNum}`, pdfWidth - marginRight, pdfHeight - (marginBottom / 2), { align: 'right' });
+                }
+            }
+        } finally {
+            // 一時コンテナを破棄
+            if (renderContainer.parentNode) {
+                document.body.removeChild(renderContainer);
+            }
+        }
+
+        // Finalize Progress
+        if (DOM.dialogProgress) {
+            DOM.pdfProgressBar.style.width = '100%';
+            DOM.pdfProgressText.textContent = '100%';
+        }
+
+        status = "Saving PDF file";
+
+        // Save PDF
+        if (saveHandle) {
+            status = "Writing file to disk";
+            const pdfData = doc.output('arraybuffer');
+            const writable = await saveHandle.createWritable();
+            await writable.write(pdfData);
+            await writable.close();
+            if (typeof showToast === 'function') showToast("PDFを保存しました");
+        } else {
+            status = "Downloading PDF file";
+            doc.save(pdfFilename);
+            if (typeof showToast === 'function') showToast(t('toast.pdfCreated'));
+        }
+    } catch (e) {
+        console.error("PDF Export Error:", e);
+        console.error("Final Status:", typeof status !== 'undefined' ? status : "Unknown");
+
+        if (e.message === "PDF export cancelled by user") {
+            if (typeof showToast === 'function') showToast(t('toast.pdfCancelled'), "warning");
+        } else {
+            const statusMsg = typeof status !== 'undefined' ? status : "Unknown Ref";
+            if (typeof showToast === 'function') showToast(t('error.pdfExportStatusFailed').replace('${statusMsg}', statusMsg), "error");
+            alert(t('alert.pdfExportError').replace('${statusMsg}', statusMsg).replace('${e.message}', e.message));
+        }
+    } finally {
+        // Restore UI state
+        if (typeof window.leavePrintingMode === 'function') {
+            window.leavePrintingMode('pdf', false);
+        } else {
+            document.body.classList.remove('printing-mode');
+        }
+
+        // [FIX] Restore inline styles
+        stickyElements.forEach(el => {
+            if (el.dataset.originalPosition) {
+                el.style.position = el.dataset.originalPosition;
+            } else {
+                el.style.removeProperty('position');
+            }
+
+            if (el.dataset.originalTop) {
+                el.style.top = el.dataset.originalTop;
+            } else {
+                el.style.removeProperty('top');
+            }
+            delete el.dataset.originalPosition;
+            delete el.dataset.originalTop;
+        });
+
+        // Restore scroll positions
+        DOM.preview.scrollTop = originalScrollTop;
+        window.scrollTo(originalWindowX, originalWindowY);
+
+        // Remove page break classes
+        if (AppState.config.pageBreakOnHr) {
+            const hrElements = DOM.preview.querySelectorAll('hr');
+            hrElements.forEach(hr => {
+                hr.classList.remove('page-break-before');
+            });
+        }
+
+        // Close progress dialog
+        if (DOM.dialogProgress) {
+            DOM.dialogProgress.close();
+        }
+    }
+}
