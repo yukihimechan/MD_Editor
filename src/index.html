@@ -225,14 +225,14 @@
 
         <!-- 左寄せのボタン群 -->
         <nav aria-label="Editor toolbar">
-            <button id="btn-file-menu" title="ファイルメニュー">
+            <button id="btn-file-menu" data-i18n="toolbar.fileTitle" data-i18n-attr="title" title="ファイルメニュー">
                 <svg class="icon" width="18" height="18">
                     <use href="#icon-menu" />
                 </svg>
                 <span class="btn-label" data-i18n="toolbar.file">ファイル</span>
             </button>
 
-            <button id="btn-search" title="検索・置換 (Ctrl+F)">
+            <button id="btn-search" data-i18n="toolbar.searchTitle" data-i18n-attr="title" title="検索・置換 (Ctrl+F)">
                 <svg class="icon" width="18" height="18">
                     <use href="#icon-search" />
                 </svg>
@@ -241,13 +241,13 @@
 
             <div style="width: 1px; height: 24px; background: #ddd; margin: 0 4px;"></div>
 
-            <button id="btn-undo" title="元に戻す (Ctrl+Z)" disabled>
+            <button id="btn-undo" data-i18n="toolbar.undoTitle" data-i18n-attr="title" title="元に戻す (Ctrl+Z)" disabled>
                 <svg class="icon" width="18" height="18">
                     <use href="#icon-undo" />
                 </svg>
             </button>
 
-            <button id="btn-redo" title="やり直し (Ctrl+Y)" disabled>
+            <button id="btn-redo" data-i18n="toolbar.redoTitle" data-i18n-attr="title" title="やり直し (Ctrl+Y)" disabled>
                 <svg class="icon" width="18" height="18">
                     <use href="#icon-redo" />
                 </svg>
@@ -255,21 +255,21 @@
 
             <div style="width: 1px; height: 24px; background: #ddd; margin: 0 4px;"></div>
 
-            <button id="btn-outline" title="アウトライン・レイヤー切替">
+            <button id="btn-outline" data-i18n="toolbar.outlineTitle" data-i18n-attr="title" title="アウトライン・レイヤー切替">
                 <svg class="icon" width="18" height="18">
                     <use href="#icon-outline" />
                 </svg>
                 <span class="btn-label" data-i18n="toolbar.outline">アウトライン</span>
             </button>
 
-            <button id="btn-toggle-view" title="表示モード切替">
+            <button id="btn-toggle-view" data-i18n="toolbar.viewToggleTitle" data-i18n-attr="title" title="表示モード切替">
                 <svg class="icon" width="18" height="18">
                     <use href="#icon-view-split" />
                 </svg>
                 <span class="btn-label" id="view-label" data-i18n="toolbar.viewToggle">表示切替</span>
             </button>
 
-            <button id="btn-slide-menu" title="スライド (F10)">
+            <button id="btn-slide-menu" data-i18n="toolbar.slideTitle" data-i18n-attr="title" title="スライド (F10)">
                 <svg class="icon" width="18" height="18">
                     <use href="#icon-slide" />
                 </svg>
@@ -278,23 +278,23 @@
 
             <div style="width: 1px; height: 24px; background: #ddd; margin: 0 4px;"></div>
 
-            <button id="btn-annotation" title="アノテーション（注釈描画）">
+            <button id="btn-annotation" data-i18n="toolbar.annotationTitle" data-i18n-attr="title" title="アノテーション（注釈描画）">
                 <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 20h9"/>
                     <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
                 </svg>
-                <span class="btn-label">注釈</span>
+                <span class="btn-label" data-i18n="toolbar.annotation">注釈</span>
             </button>
 
             <!-- [NEW] 共同編集ボタン -->
-            <button id="btn-collab" title="共同編集">
+            <button id="btn-collab" data-i18n="toolbar.collabTitle" data-i18n-attr="title" title="共同編集">
                 <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
                     <circle cx="9" cy="7" r="4"/>
                     <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
                     <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                 </svg>
-                <span class="btn-label">共同編集</span>
+                <span class="btn-label" data-i18n="toolbar.collab">共同編集</span>
             </button>
 
             <!-- [NEW] 接続中ユーザーバッジエリア -->
@@ -340,27 +340,27 @@
         <div class="outline-header">
             <h3 data-i18n="svgList.title">SVG要素</h3>
             <div class="svg-list-toolbar">
-                <button id="svg-list-copy" title="コピー" class="svg-list-tool-btn">
+                <button id="svg-list-copy" data-i18n="svgList.copyTitle" data-i18n-attr="title" title="コピー" class="svg-list-tool-btn">
                     <svg width="14" height="14">
                         <use href="#sym-copy" />
                     </svg>
                 </button>
-                <button id="svg-list-paste" title="貼り付け" class="svg-list-tool-btn">
+                <button id="svg-list-paste" data-i18n="svgList.pasteTitle" data-i18n-attr="title" title="貼り付け" class="svg-list-tool-btn">
                     <svg width="14" height="14">
                         <use href="#sym-paste" />
                     </svg>
                 </button>
-                <button id="svg-list-delete" title="削除" class="svg-list-tool-btn">
+                <button id="svg-list-delete" data-i18n="svgList.deleteTitle" data-i18n-attr="title" title="削除" class="svg-list-tool-btn">
                     <svg width="14" height="14">
                         <use href="#sym-delete" />
                     </svg>
                 </button>
-                <button id="svg-list-group" title="グループ化" class="svg-list-tool-btn">
+                <button id="svg-list-group" data-i18n="svgList.groupTitle" data-i18n-attr="title" title="グループ化" class="svg-list-tool-btn">
                     <svg width="14" height="14">
                         <use href="#sym-group-cmd" />
                     </svg>
                 </button>
-                <button id="svg-list-ungroup" title="グループ解除" class="svg-list-tool-btn">
+                <button id="svg-list-ungroup" data-i18n="svgList.ungroupTitle" data-i18n-attr="title" title="グループ解除" class="svg-list-tool-btn">
                     <svg width="14" height="14">
                         <use href="#sym-ungroup-cmd" />
                     </svg>
@@ -376,10 +376,10 @@
     <!-- Comment Panel (Initially Hidden, Right side) -->
     <aside id="comment-panel" class="outline-panel comment-panel">
         <div class="outline-header">
-            <h3>💬 コメント一覧</h3>
+            <h3 data-i18n="commentPanel.title">💬 コメント一覧</h3>
             <div class="comment-summary">
-                <span id="comment-unread-count">未読 0件</span>
-                <span id="comment-pending-count">未対応 0件</span>
+                <span id="comment-unread-count" data-i18n="commentPanel.unread">未読 0件</span>
+                <span id="comment-pending-count" data-i18n="commentPanel.pending">未対応 0件</span>
             </div>
         </div>
         <div id="comment-panel-content" class="outline-content">
@@ -395,7 +395,7 @@
             <!-- Editor Highlights Overlay (Optional, might be removed if using CM only) -->
             <!-- <div id="editor-highlights" class="editor-highlights"></div> -->
         </section>
-        <div id="resize-bar" class="resize-bar" title="ドラッグして幅を調整"></div>
+        <div id="resize-bar" class="resize-bar" data-i18n="toolbar.resizeBarTitle" data-i18n-attr="title" title="ドラッグして幅を調整"></div>
         <div id="right-column-container"
             style="display: flex; flex-direction: column; flex: 1; min-width: 0; position: relative;">
             <section id="preview-pane" style="flex: 1; min-height: 0;">
@@ -727,47 +727,47 @@ The above copyright notice and this permission notice shall be included in all c
     <dialog id="dialog-collab">
         <div class="collab-dialog__header">
             <span class="collab-dialog__header-icon">👥</span>
-            <h3 class="collab-dialog__title">共同編集</h3>
+            <h3 class="collab-dialog__title" data-i18n="collab.title">共同編集</h3>
         </div>
         <div class="collab-dialog__body">
             <!-- 接続状態 -->
-            <div id="collab-status" class="collab-status collab-status--disconnected">未接続</div>
+            <div id="collab-status" class="collab-status collab-status--disconnected" data-i18n="collab.statusDisconnected">未接続</div>
 
             <!-- ルーム名 -->
             <div class="collab-field">
-                <label for="collab-room-name">ルーム名 <small style="color:#888;font-weight:400;">（同じ名前を入力した人と接続されます）</small></label>
-                <input type="text" id="collab-room-name" placeholder="例: my-document-2026" autocomplete="off">
+                <label for="collab-room-name"><span data-i18n="collab.roomLabel">ルーム名</span> <small data-i18n="collab.roomNote" style="color:#888;font-weight:400;">（同じ名前を入力した人と接続されます）</small></label>
+                <input type="text" id="collab-room-name" data-i18n="collab.roomPlaceholder" data-i18n-attr="placeholder" placeholder="例: my-document-2026" autocomplete="off">
             </div>
 
             <!-- ユーザー名 -->
             <div class="collab-field">
-                <label for="collab-user-name">表示名</label>
-                <input type="text" id="collab-user-name" placeholder="例: 山田太郎" autocomplete="off">
+                <label for="collab-user-name" data-i18n="collab.nameLabel">表示名</label>
+                <input type="text" id="collab-user-name" data-i18n="collab.namePlaceholder" data-i18n-attr="placeholder" placeholder="例: 山田太郎" autocomplete="off">
             </div>
 
             <!-- カーソルカラー -->
             <div class="collab-field">
-                <label>カーソルの色</label>
+                <label data-i18n="collab.colorLabel">カーソルの色</label>
                 <div class="collab-color-row">
                     <button type="button" id="collab-color-preview" style="background-color: #3498db; width: 30px; height: 30px; border-radius: 4px; border: 1px solid #ccc; cursor: pointer; padding: 0;"></button>
                     <input type="hidden" id="collab-user-color" value="#3498db">
-                    <span style="font-size:13px;color:#666; margin-left:10px;">他の参加者に表示されるカーソルの色です</span>
+                    <span data-i18n="collab.colorNote" style="font-size:13px;color:#666; margin-left:10px;">他の参加者に表示されるカーソルの色です</span>
                 </div>
             </div>
 
             <!-- 接続中ユーザー一覧 -->
             <div class="collab-connected-section">
-                <h4>接続中のユーザー</h4>
+                <h4 data-i18n="collab.connectedUsersTitle">接続中のユーザー</h4>
                 <ul id="collab-connected-users">
-                    <li class="collab-user-item" style="color:#999;">まだ誰も接続していません</li>
+                    <li class="collab-user-item" data-i18n="collab.noUsersConnected" style="color:#999;">まだ誰も接続していません</li>
                 </ul>
             </div>
         </div>
         <div class="collab-dialog__footer">
-            <button id="btn-collab-close">閉じる</button>
-            <button id="btn-collab-share" style="display:none; background-color: #2ecc71; color: white;">現在のテキストを共有</button>
-            <button id="btn-collab-leave" style="display:none;">切断</button>
-            <button id="btn-collab-join">接続</button>
+            <button id="btn-collab-close" data-i18n="collab.btnClose">閉じる</button>
+            <button id="btn-collab-share" data-i18n="collab.btnShare" style="display:none; background-color: #2ecc71; color: white;">現在のテキストを共有</button>
+            <button id="btn-collab-leave" data-i18n="collab.btnDisconnect" style="display:none;">切断</button>
+            <button id="btn-collab-join" data-i18n="collab.btnConnect">接続</button>
         </div>
     </dialog>
 
@@ -775,15 +775,15 @@ The above copyright notice and this permission notice shall be included in all c
     <dialog id="dialog-collab-confirm" style="width: 380px; padding: 20px; border-radius: 8px; border: 1px solid #ccc; box-shadow: 0 4px 12px rgba(0,0,0,0.15); background-color: #fff; font-family: sans-serif;">
         <div class="collab-dialog__header" style="margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
             <span class="collab-dialog__header-icon" style="font-size: 20px;">⚠️</span>
-            <h3 class="collab-dialog__title" style="margin: 0; font-size: 18px; font-weight: bold; color: #333;">同期の確認</h3>
+            <h3 class="collab-dialog__title" data-i18n="collab.confirm.title" style="margin: 0; font-size: 18px; font-weight: bold; color: #333;">同期の確認</h3>
         </div>
-        <div class="collab-dialog__body" style="margin-bottom: 20px; font-size: 14px; line-height: 1.6; color: #555;">
-            ルーム内のテキストと同期しますか？<br>
+        <div class="collab-dialog__body" data-i18n="collab.confirm.syncText" style="margin-bottom: 20px; font-size: 14px; line-height: 1.6; color: #555; white-space: pre-line;">
+            ルーム内のテキストと同期しますか？
             同期すると、現在のローカルテキストは上書きされます。
         </div>
         <div class="collab-dialog__footer" style="text-align: right; gap: 10px; display: flex; justify-content: flex-end;">
-            <button id="btn-collab-confirm-cancel" style="padding: 8px 16px; border: 1px solid #ccc; background: #fff; color: #333; border-radius: 4px; cursor: pointer; font-size: 13px;">キャンセル</button>
-            <button id="btn-collab-confirm-ok" style="padding: 8px 16px; border: none; background: #e74c3c; color: #fff; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold;">同期する</button>
+            <button id="btn-collab-confirm-cancel" data-i18n="dialog.cancel" style="padding: 8px 16px; border: 1px solid #ccc; background: #fff; color: #333; border-radius: 4px; cursor: pointer; font-size: 13px;">キャンセル</button>
+            <button id="btn-collab-confirm-ok" data-i18n="collab.confirm.ok" style="padding: 8px 16px; border: none; background: #e74c3c; color: #fff; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold;">同期する</button>
         </div>
     </dialog>
 
@@ -791,33 +791,33 @@ The above copyright notice and this permission notice shall be included in all c
     <dialog id="dialog-collab-scan" style="width: 420px; padding: 0; border: none; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); background-color: #fff; font-family: sans-serif; overflow: hidden;">
         <div class="collab-dialog__header" style="display: flex; align-items: center; gap: 10px; padding: 18px 20px 14px; background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%); color: #fff;">
             <span class="collab-dialog__header-icon" style="font-size: 22px;">🔍</span>
-            <h3 class="collab-dialog__title" style="margin: 0; font-size: 16px; font-weight: 600;">接続先サーバーの選択</h3>
+            <h3 class="collab-dialog__title" data-i18n="collab.scan.title" style="margin: 0; font-size: 16px; font-weight: 600;">接続先サーバーの選択</h3>
         </div>
         <div class="collab-dialog__body" style="padding: 20px;">
-            <p id="collab-scan-message" style="font-size: 14px; line-height: 1.6; color: #555; margin: 0 0 14px 0;">
+            <p id="collab-scan-message" data-i18n="collab.scan.searching" style="font-size: 14px; line-height: 1.6; color: #555; margin: 0 0 14px 0;">
                 設定されたサーバーに接続できません。ローカルネットワーク上のサーバーを探索しています...
             </p>
             <div id="collab-scan-loader" style="text-align: center; margin: 20px 0;">
                 <span class="collab-scan-spinner"></span>
-                <span style="font-size: 13px; color: #666; margin-left: 8px; vertical-align: middle;">探索中...</span>
+                <span data-i18n="collab.scan.searchingProgress" style="font-size: 13px; color: #666; margin-left: 8px; vertical-align: middle;">探索中...</span>
             </div>
             <ul id="collab-scan-results" style="list-style: none; padding: 0; margin: 0; max-height: 180px; overflow-y: auto; border: 1px solid #eee; border-radius: 8px; display: none;">
                 <!-- 探索結果のサーバー項目がJSで動的に挿入されます -->
             </ul>
         </div>
         <div class="collab-dialog__footer" style="display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid #e0e0e0;">
-            <button id="btn-collab-scan-cancel" style="background: #f5f5f5; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 8px 18px; font-size: 14px; cursor: pointer; transition: background 0.15s;">キャンセル</button>
-            <button id="btn-collab-scan-retry" style="background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 8px 18px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; display: none;">再スキャン</button>
+            <button id="btn-collab-scan-cancel" data-i18n="dialog.cancel" style="background: #f5f5f5; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 8px 18px; font-size: 14px; cursor: pointer; transition: background 0.15s;">キャンセル</button>
+            <button id="btn-collab-scan-retry" data-i18n="collab.btnRetry" style="background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 8px 18px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; display: none;">再スキャン</button>
         </div>
     </dialog>
 
     <dialog id="dialog-dir-access">
-        <h3>対象ファイルのフォルダを選択してください</h3>
+        <h3 data-i18n="dialog.dirAccessTitle">対象ファイルのフォルダを選択してください</h3>
         <div style="line-height: 1.8; margin: 16px 0;">
-            <p style="margin: 8px 0;"><strong>対象ファイル:</strong> <span id="dir-access-filename"
+            <p style="margin: 8px 0;"><strong data-i18n="dialog.dirAccessTarget">対象ファイル:</strong> <span id="dir-access-filename"
                     style="color: #0366d6;"></span></p>
             <p style="margin: 8px 0; color: #666; font-size: 0.95em;">※ <span id="dir-access-filename2"></span>
-                があるフォルダを選択してください</p>
+                <span data-i18n="dialog.dirAccessNote">があるフォルダを選択してください</span></p>
         </div>
         <div style="text-align: right; margin-top: 20px; display: flex; gap: 8px; justify-content: flex-end;">
             <button id="btn-cancel-dir-access" data-i18n="dialog.cancel">キャンセル</button>
@@ -827,7 +827,7 @@ The above copyright notice and this permission notice shall be included in all c
     </dialog>
 
     <dialog id="dialog-progress">
-        <h3>PDFを作成中...</h3>
+        <h3 data-i18n="dialog.progressTitlePdf">PDFを作成中...</h3>
         <div style="margin: 20px 0;">
             <div class="progress-container">
                 <div id="pdf-progress-bar" class="progress-bar"></div>
@@ -840,7 +840,7 @@ The above copyright notice and this permission notice shall be included in all c
     </dialog>
 
     <dialog id="dialog-docx-progress">
-        <h3>DOCX文書を作成中...</h3>
+        <h3 data-i18n="dialog.progressTitleDocx">DOCX文書を作成中...</h3>
         <div style="margin: 20px 0;">
             <div class="progress-container">
                 <div id="docx-progress-bar" class="progress-bar"></div>
@@ -850,12 +850,12 @@ The above copyright notice and this permission notice shall be included in all c
     </dialog>
 
     <dialog id="dialog-standalone-progress">
-        <h3>HTML (エディタ同梱) を作成中...</h3>
+        <h3 data-i18n="dialog.progressTitleStandalone">HTML (エディタ同梱) を作成中...</h3>
         <div style="margin: 20px 0;">
             <div class="progress-container">
                 <div id="standalone-progress-bar" class="progress-bar"></div>
             </div>
-            <p id="standalone-progress-text" style="text-align: center; margin-top: 8px;">準備中...</p>
+            <p id="standalone-progress-text" style="text-align: center; margin-top: 8px;" data-i18n="dialog.progressPreparing">準備中...</p>
         </div>
     </dialog>
 
@@ -869,7 +869,7 @@ The above copyright notice and this permission notice shall be included in all c
             <button class="cfg-tab-btn" data-tab="export" data-i18n="settings.tabExport">エクスポート</button>
             <button class="cfg-tab-btn" data-tab="other" data-i18n="settings.tabOther">その他</button>
             <!-- [NEW] 共同編集タブ -->
-            <button class="cfg-tab-btn" data-tab="collab">👥 共同編集</button>
+            <button class="cfg-tab-btn" data-tab="collab" data-i18n="collab.tabTitle">👥 共同編集</button>
         </div>
 
         <!-- 1. Editor Tab -->
@@ -1186,53 +1186,57 @@ The above copyright notice and this permission notice shall be included in all c
         <!-- [NEW] 共同編集タブ（フェーズ2: 本番シグナリングサーバー設定） -->
         <div id="cfg-tab-collab" class="cfg-tab-content">
             <fieldset style="border: 1px solid #ddd; border-radius: 6px; padding: 12px 16px; margin-bottom: 15px;">
-                <legend style="font-size: 13px; font-weight: 600; color: #555; padding: 0 6px;">シグナリングサーバー</legend>
+                <legend style="font-size: 13px; font-weight: 600; color: #555; padding: 0 6px;" data-i18n="collab.settingsSignalingLegend">シグナリングサーバー</legend>
                 <!-- [FIX 3] デフォルトサーバーの不安定さについての警告 -->
-                <div style="background: #fff8e1; border: 1px solid #ffe082; border-radius: 5px; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; color: #795548;">
+                <div style="background: #fff8e1; border: 1px solid #ffe082; border-radius: 5px; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; color: #795548;" data-i18n="collab.settingsSignalingWarning">
                     ⚠️ <strong>注意:</strong> デフォルトのシグナリングサーバー（wss://signaling.yjs.dev）は開発・テスト用の公開サーバーです。
                     高負荷時に切断・遅延が発生する場合があります。本番利用には自前のサーバーを設定してください。
                 </div>
                 <div style="margin-bottom: 12px;">
                     <label style="display: flex; flex-direction: column; gap: 6px;">
-                        <span style="font-size: 13px;">カスタムシグナリングサーバー URL</span>
+                        <span style="font-size: 13px;" data-i18n="collab.settingsSignalingLabel">カスタムシグナリングサーバー URL</span>
                         <input type="text" id="cfg-collab-signaling-url"
+                            data-i18n-attr="placeholder" data-i18n="collab.settingsSignalingPlaceholder"
                             placeholder="wss://your-signaling-server.com（空欄の場合はデフォルトを使用）"
                             style="width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 13px;">
-                        <small style="color: #888;">本番運用には自前のシグナリングサーバーを推奨します。<br>
+                        <small style="color: #888;" data-i18n="collab.settingsSignalingNote">本番運用には自前のシグナリングサーバーを推奨します。<br>
                             デフォルト: wss://signaling.yjs.dev （公開テストサーバー）</small>
                     </label>
                 </div>
             </fieldset>
             <fieldset style="border: 1px solid #ddd; border-radius: 6px; padding: 12px 16px; margin-bottom: 15px;">
-                <legend style="font-size: 13px; font-weight: 600; color: #555; padding: 0 6px;">TURN サーバー（NAT越え対応）</legend>
+                <legend style="font-size: 13px; font-weight: 600; color: #555; padding: 0 6px;" data-i18n="collab.settingsTurnLegend">TURN サーバー（NAT越え対応）</legend>
                 <div style="margin-bottom: 10px;">
                     <label style="display: flex; flex-direction: column; gap: 6px;">
-                        <span style="font-size: 13px;">TURN サーバー URL</span>
+                        <span style="font-size: 13px;" data-i18n="collab.settingsTurnUrlLabel">TURN サーバー URL</span>
                         <input type="text" id="cfg-collab-turn-url"
+                            data-i18n-attr="placeholder" data-i18n="collab.settingsTurnUrlPlaceholder"
                             placeholder="例: turns:turn.example.com:443"
                             style="width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 13px;">
                     </label>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <label style="display: flex; flex-direction: column; gap: 6px;">
-                        <span style="font-size: 13px;">ユーザー名</span>
+                        <span style="font-size: 13px;" data-i18n="collab.settingsTurnUserLabel">ユーザー名</span>
                         <input type="text" id="cfg-collab-turn-username"
+                            data-i18n-attr="placeholder" data-i18n="collab.settingsTurnUserPlaceholder"
                             placeholder="TURN ユーザー名"
                             style="width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 13px;">
                     </label>
                     <label style="display: flex; flex-direction: column; gap: 6px;">
-                        <span style="font-size: 13px;">パスワード</span>
+                        <span style="font-size: 13px;" data-i18n="collab.settingsTurnPassLabel">パスワード</span>
                         <input type="password" id="cfg-collab-turn-credential"
+                            data-i18n-attr="placeholder" data-i18n="collab.settingsTurnPassPlaceholder"
                             placeholder="TURN パスワード"
                             style="width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 13px;">
                     </label>
                 </div>
-                <small style="color: #888; display: block; margin-top: 8px;">
+                <small style="color: #888; display: block; margin-top: 8px;" data-i18n="collab.settingsTurnNote">
                     企業ネットワーク等でP2P接続できない場合に設定します。<br>
                     Metered.ca / Twilio / Coturn 等のTURNサービスが利用できます。
                 </small>
             </fieldset>
-            <div style="background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #7b5800;">
+            <div style="background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #7b5800;" data-i18n="collab.settingsReadmeNote">
                 ⚠️ 設定の詳細は <code>docs/signaling-server.md</code> を参照してください。
             </div>
         </div>
@@ -1508,6 +1512,8 @@ The above copyright notice and this permission notice shall be included in all c
     <script charset="utf-8" src="js/svg/svg_utils.js"></script>
     <script charset="utf-8" src="js/svg/svg_connector_manager.js"></script>
     <script charset="utf-8" src="js/svg/svg_auto_router.js"></script>
+    <script charset="utf-8" src="js/svg/svg_orthogonal_router.js"></script>
+    <script charset="utf-8" src="js/svg/SvgOrthogonalHandler.js"></script>
     <script charset="utf-8" src="js/svg/SvgControlMarker.js"></script>
     <script charset="utf-8" src="js/svg/SvgShape.js"></script>
     <script charset="utf-8" src="js/svg/SvgRotationHandler.js"></script>
