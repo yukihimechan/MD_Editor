@@ -5,6 +5,7 @@
  */
 
 const ImageResizeHandler = (() => {
+    var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
     // 現在選択中の状態を保持
     let _wrapper   = null;  // .img-resize-wrapper
     let _img       = null;  // 選択中の img 要素
@@ -596,7 +597,7 @@ const ImageResizeHandler = (() => {
 
         if (!matched) {
             console.warn('[ImageResize] Could not find source line for src:', _origSrc);
-            if (typeof showToast === 'function') showToast('ソース行が見つかりませんでした', 'warning');
+            if (typeof showToast === 'function') showToast(t('image.toast.sourceLineNotFound') || 'ソース行が見つかりませんでした', 'warning');
             return;
         }
 

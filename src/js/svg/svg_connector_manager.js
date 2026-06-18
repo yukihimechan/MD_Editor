@@ -162,10 +162,10 @@ const SVGConnectorManager = {
             return false;
         }
 
-        // 6. 線タイプ(line, arrow, polyline_arrow, freehand, airbrush)の除外
+        // 6. 線タイプ(line, arrow, polyline_arrow, freehand, airbrush, orthogonal_line)の除外
         const toolId = el.attr('data-tool-id');
-        if (['line', 'arrow', 'polyline_arrow', 'freehand', 'airbrush'].includes(toolId)) {
-            if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: line/arrow tool type`);
+        if (['line', 'arrow', 'polyline_arrow', 'freehand', 'airbrush', 'orthogonal_line'].includes(toolId)) {
+            if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: line/arrow/orthogonal_line tool type`);
             return false;
         }
 
@@ -256,10 +256,21 @@ const SVGConnectorManager = {
             group = draw.group().addClass('svg-connector-overlay').attr('pointer-events', 'none');
         }
 
-        // 閾値をワールド座標系に換算 (画面上の 80px 程度)
-        const threshold = 80 / (zoom / 100);
-        // スナップ閾値もワールド座標系に換算 (画面上の 20px 程度)
-        const snapThreshold = 20 / (zoom / 100);
+        // 閾値をSVGワールド座標系で計算（画面上のピクセル数に基づく）
+        // getScreenCTM() を使って画面上の1ピクセルがSVGユニット何単位に相当するか計算
+        let svgUnitsPerPixel = 1;
+        try {
+            const ctm = draw.node.getScreenCTM();
+            if (ctm) {
+                const sx = Math.sqrt(ctm.a * ctm.a + ctm.b * ctm.b);
+                if (sx > 0) svgUnitsPerPixel = 1 / sx;
+            }
+        } catch (e) { /* フォールバック */ }
+        
+        // 画面上の 80px をSVGユニットに換算 → 表示閾値
+        const highlightThreshold = 80 * svgUnitsPerPixel;
+        // 画面上の 25px をSVGユニットに換算 → スナップ閾値（赤表示）
+        const snapThreshold = 25 * svgUnitsPerPixel;
 
         // 1. 全てのキャッシュポイントから、最も近いポイントを見つける
         let nearestPt = null;
@@ -281,7 +292,7 @@ const SVGConnectorManager = {
             });
         });
 
-        // 2. 描画処理
+        // 2. 描画処理 — すべてのキャッシュ図形のコネクタを表示（距離に応じて透明度を調整）
         cache.forEach(shape => {
             if (excludeEl) {
                 if (shape.id === excludeEl.id()) return;
@@ -299,34 +310,44 @@ const SVGConnectorManager = {
                 }
             });
 
-            // 最小距離が閾値以下のとき、その図形のすべての接続ポイントを描画
-            if (minDistance <= threshold) {
-                shape.points.forEach(p => {
-                    const isNearest = (nearestPt && nearestPt.id === p.id && nearestPt.index === p.index);
-                    const size = isNearest ? 12 : 8;
-                    const fill = isNearest ? '#ff3b30' : '#0366d6';
-                    const opacity = isNearest ? 1.0 : 0.8;
+            // すべての図形のコネクタポイントを描画（距離に応じて透明度を調整）
+            const isNearby = minDistance <= highlightThreshold;
+            shape.points.forEach(p => {
+                const isNearest = (nearestPt && nearestPt.id === p.id && nearestPt.index === p.index);
+                const size = isNearest ? 12 : 8;
+                const fill = isNearest ? '#ff3b30' : '#0366d6';
+                // 近い図形は不透明、遠い図形は半透明で表示
+                const opacity = isNearest ? 1.0 : (isNearby ? 0.8 : 0.35);
 
-                    const c = group.circle(size)
-                        .center(p.x, p.y)
-                        .fill(fill)
-                        .stroke({ color: '#fff', width: 1.5 })
-                        .opacity(opacity);
+                const c = group.circle(size)
+                    .center(p.x, p.y)
+                    .fill(fill)
+                    .stroke({ color: '#fff', width: 1.5 })
+                    .opacity(opacity);
 
-                    if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-                        window.SVGUtils.updateHandleScaling(c, zoom);
-                    }
-                });
-            }
+                if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+                    window.SVGUtils.updateHandleScaling(c, zoom);
+                }
+            });
         });
     },
 
     /**
      * 最も近いコネクタポイントを検索します。
      */
-    findNearestConnector(draw, pt, threshold = 20, excludeEl = null) {
+    findNearestConnector(draw, pt, threshold = 25, excludeEl = null) {
+        // threshold は画面ピクセル単位 → SVGワールド座標に変換
+        let svgThreshold = threshold;
+        try {
+            const ctm = draw.node.getScreenCTM();
+            if (ctm) {
+                const sx = Math.sqrt(ctm.a * ctm.a + ctm.b * ctm.b);
+                if (sx > 0) svgThreshold = threshold / sx;
+            }
+        } catch (e) { /* フォールバック */ }
+        
         let nearest = null;
-        let minDist = threshold;
+        let minDist = svgThreshold;
 
         // 全ての形状要素から検索
         draw.find('*').each((el) => {
@@ -552,10 +573,98 @@ const SVGConnectorManager = {
 
         try {
             const connectData = JSON.parse(connectDataAttr);
+            const toolId = line.attr('data-tool-id');
+            const draw = line.root();
+
+            if (toolId === 'orthogonal_line') {
+                const pointsStr = line.attr('data-ortho-points') || '';
+                const points = pointsStr.split(/\s+/).filter(s => s).map(pt => {
+                    const parts = pt.split(',');
+                    return { x: parseFloat(parts[0]), y: parseFloat(parts[1]) };
+                });
+                if (points.length < 2) return false;
+
+                let changed = false;
+
+                connectData.forEach(conn => {
+                    const target = draw.findOne('#' + conn.targetId);
+                    if (target) {
+                        const targetPoints = this.getConnectorPoints(target);
+                        const p = targetPoints[conn.pointIndex];
+                        if (p) {
+                            const idx = (conn.endType === 'start') ? 0 : points.length - 1;
+                            const pt = points[idx];
+
+                            // 線のローカル座標系に変換
+                            const rootNode = draw.node;
+                            const mLine = rootNode.getScreenCTM().inverse().multiply(line.node.getScreenCTM());
+                            const mInv = mLine.inverse();
+
+                            const worldPoint = new SVG.Point(p.x, p.y);
+                            const localPt = worldPoint.transform(mInv);
+
+                            if (Math.abs(pt.x - localPt.x) > 0.1 || Math.abs(pt.y - localPt.y) > 0.1) {
+                                if (!isNaN(localPt.x) && !isNaN(localPt.y)) {
+                                    pt.x = localPt.x;
+                                    pt.y = localPt.y;
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                if (changed) {
+                    const excludeEls = [line];
+                    connectData.forEach(conn => {
+                        const target = draw.findOne('#' + conn.targetId);
+                        if (target) excludeEls.push(target);
+                    });
+
+                    const mLine = draw.node.getScreenCTM().inverse().multiply(line.node.getScreenCTM());
+                    const startWorld = new SVG.Point(points[0].x, points[0].y).transform(mLine);
+                    const endWorld = new SVG.Point(points[points.length - 1].x, points[points.length - 1].y).transform(mLine);
+
+                    const obstacles = window.SVGAutoRouter ? window.SVGAutoRouter.collectObstacles(draw, excludeEls) : [];
+                    const routeWorld = window.OrthogonalRouter ? window.OrthogonalRouter.findOrthogonalRoute(
+                        { x: startWorld.x, y: startWorld.y },
+                        { x: endWorld.x, y: endWorld.y },
+                        obstacles
+                    ) : [];
+
+                    if (routeWorld.length >= 2) {
+                        const mInv = mLine.inverse();
+                        const routeLocal = routeWorld.map(p => {
+                            const lp = new SVG.Point(p.x, p.y).transform(mInv);
+                            return { x: lp.x, y: lp.y };
+                        });
+
+                        const cleanPoints = window.OrthogonalRouter ? window.OrthogonalRouter.recalculateRoute(routeLocal) : routeLocal;
+                        const newPointsStr = cleanPoints.map(p => `${p.x},${p.y}`).join(' ');
+                        line.attr('data-ortho-points', newPointsStr);
+
+                        let d = `M ${cleanPoints[0].x} ${cleanPoints[0].y}`;
+                        for (let i = 1; i < cleanPoints.length; i++) {
+                            const prev = cleanPoints[i - 1];
+                            const curr = cleanPoints[i];
+                            if (prev.y === curr.y) {
+                                d += ` H ${curr.x}`;
+                            } else if (prev.x === curr.x) {
+                                d += ` V ${curr.y}`;
+                            } else {
+                                d += ` L ${curr.x} ${curr.y}`;
+                            }
+                        }
+                        line.attr('d', d);
+                        return true;
+                    }
+                }
+                return false;
+            }
+
             const points = this.getPolyPoints(line);
             const bezData = this.getBezData(line);
             let changed = false;
-            const draw = line.root();
             const isPath = (line.type === 'path');
 
             connectData.forEach(conn => {

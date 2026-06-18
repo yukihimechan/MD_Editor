@@ -2,6 +2,7 @@
  * SVG Grid Toolbar
  * Provides UI for configuring grid size and visibility.
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGGridToolbar extends SVGToolbarBase {
     constructor(container, options = {}) {
         super({
@@ -48,7 +49,7 @@ class SVGGridToolbar extends SVGToolbarBase {
         sizeInput.type = 'number';
         sizeInput.value = AppState.config.grid.size || 15;
         sizeInput.style.width = '45px';
-        sizeInput.title = 'グリッドのピクセル数';
+        sizeInput.title = t('svgEditor.grid.sizeTitle') || 'グリッドのピクセル数';
         contentArea.appendChild(sizeInput);
 
         const majorLabel = document.createElement('span');
@@ -63,20 +64,20 @@ class SVGGridToolbar extends SVGToolbarBase {
         majorInput.type = 'number';
         majorInput.value = AppState.config.grid.majorInterval || 5;
         majorInput.style.width = '35px';
-        majorInput.title = '強調線の間隔（本）';
+        majorInput.title = t('svgEditor.grid.majorIntervalTitle') || '強調線の間隔（本）';
         contentArea.appendChild(majorInput);
 
         // Vertical Line Toggle
         const btnV = document.createElement('button');
         btnV.innerHTML = 'V';
-        btnV.title = 'Toggle Vertical Grid Lines';
+        btnV.title = t('svgEditor.grid.toggleV') || 'Toggle Vertical Grid Lines';
         if (AppState.config.grid.showV) btnV.classList.add('active');
         contentArea.appendChild(btnV);
 
         // Horizontal Line Toggle
         const btnH = document.createElement('button');
         btnH.innerHTML = 'H';
-        btnH.title = 'Toggle Horizontal Grid Lines';
+        btnH.title = t('svgEditor.grid.toggleH') || 'Toggle Horizontal Grid Lines';
         if (AppState.config.grid.showH) btnH.classList.add('active');
         contentArea.appendChild(btnH);
 
@@ -86,7 +87,7 @@ class SVGGridToolbar extends SVGToolbarBase {
 
         const zoomOutBtn = document.createElement('button');
         zoomOutBtn.innerHTML = '-';
-        zoomOutBtn.title = 'Zoom Out';
+        zoomOutBtn.title = t('svgEditor.grid.zoomOut') || 'Zoom Out';
         zoomOutBtn.style.fontSize = '14px';
         contentArea.appendChild(zoomOutBtn);
 
@@ -97,13 +98,13 @@ class SVGGridToolbar extends SVGToolbarBase {
 
         const zoomInBtn = document.createElement('button');
         zoomInBtn.innerHTML = '+';
-        zoomInBtn.title = 'Zoom In';
+        zoomInBtn.title = t('svgEditor.grid.zoomIn') || 'Zoom In';
         zoomInBtn.style.fontSize = '14px';
         contentArea.appendChild(zoomInBtn);
 
         const zoomResetBtn = document.createElement('button');
         zoomResetBtn.innerHTML = '1:1';
-        zoomResetBtn.title = 'Reset Zoom (100%)';
+        zoomResetBtn.title = t('svgEditor.grid.zoomReset') || 'Reset Zoom (100%)';
         zoomResetBtn.style.fontSize = '9px';
         contentArea.appendChild(zoomResetBtn);
 

@@ -657,19 +657,56 @@ const SVGUtils = {
      * @param {number} zoom Current zoom level (e.g. 100, 200, 110)
      */
     updateHandleScaling(handle, zoom) {
-        if (!handle) return;
+        if (!handle) return false;
         const node = handle.node || handle;
-        if (!node || typeof node.setAttribute !== 'function') return;
+        if (!node || typeof node.setAttribute !== 'function') return false;
 
         const zoomVal = zoom || (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
-        const s = 100 / zoomVal;
+        let s = 100 / zoomVal;
+        let s_x = s;
+        let s_y = s;
+        let success = false;
+        let ctmData = null;
+
+        try {
+            const parentNode = node.parentNode;
+            if (parentNode && typeof parentNode.getScreenCTM === 'function') {
+                // [FIX] DOMマウント直後等でgetScreenCTMがnullを返すのを防ぐため、強制的にリフローを実行する
+                if (node.ownerSVGElement && typeof node.ownerSVGElement.getBoundingClientRect === 'function') {
+                    node.ownerSVGElement.getBoundingClientRect();
+                } else if (typeof parentNode.getBoundingClientRect === 'function') {
+                    parentNode.getBoundingClientRect();
+                }
+                const pCTM = parentNode.getScreenCTM();
+                if (pCTM) {
+                    const sx = Math.sqrt(pCTM.a * pCTM.a + pCTM.b * pCTM.b);
+                    const sy = Math.sqrt(pCTM.c * pCTM.c + pCTM.d * pCTM.d);
+                    ctmData = { a: pCTM.a, b: pCTM.b, c: pCTM.c, d: pCTM.d, sx, sy };
+                    if (sx > 0 && sy > 0) {
+                        s_x = 1 / sx;
+                        s_y = 1 / sy;
+                        s = s_x;
+                        success = true;
+                    }
+                }
+            }
+        } catch (e) {
+            // 例外時はフォールバック
+        }
+
+        console.log(`[DEBUG updateHandleScaling] Element: ${node.tagName}.${node.className.baseVal || node.className}, success: ${success}, s_x: ${s_x}, s_y: ${s_y}, parentCTM: ${JSON.stringify(ctmData)}`);
+
+        // [FIX] CTMの取得に失敗（success: false）した場合は、既存のtransform属性をクリアしてscale(1 1)にリセットされるのを防ぐため、
+        // 何も変更せずに早期リターン（false）する
+        if (!success) {
+            return false;
+        }
 
         let tx, ty;
         const tagName = node.tagName.toLowerCase();
 
         if (tagName === 'line') {
-            // [NEW] Special handling for lines (don't use transform to avoid moving endpoints)
-            // Instead, adjust stroke properties directly
+            // 折れ線などの線要素に対する特殊処理（端点を移動させないようストローク幅を調整）
             const baseStroke = parseFloat(node.getAttribute('data-base-stroke') || node.getAttribute('stroke-width') || 1);
             if (!node.hasAttribute('data-base-stroke')) {
                 node.setAttribute('data-base-stroke', baseStroke);
@@ -684,7 +721,7 @@ const SVGUtils = {
                 const dashedArray = dash.split(/[\s,]+/).map(v => parseFloat(v) * s);
                 node.setAttribute('stroke-dasharray', dashedArray.join(' '));
             }
-            return;
+            return success;
         }
 
         if (tagName === 'rect') {
@@ -696,28 +733,29 @@ const SVGUtils = {
             tx = parseFloat(node.getAttribute('cx') || 0);
             ty = parseFloat(node.getAttribute('cy') || 0);
         } else {
-            // Fallback for groups or other elements: use BBox center
             try {
                 const bbox = node.getBBox();
                 tx = bbox.x + bbox.width / 2;
                 ty = bbox.y + bbox.height / 2;
             } catch (e) {
-                return;
+                return false;
             }
         }
 
-        // Math: M(p) = s*p + dx. Condition: M(Target) = Target => dx = Target * (1 - s)
-        const dx = tx * (1 - s);
-        const dy = ty * (1 - s);
+        // 変形中心を維持したスケーリングの座標計算
+        const dx = tx * (1 - s_x);
+        const dy = ty * (1 - s_y);
 
-        // Clear CSS transform to avoid conflicts
+        // 干渉を防ぐためCSS変形をクリア
         if (node.style) {
             node.style.transform = '';
             node.style.transformOrigin = '';
         }
 
-        // Apply scale around Target point via coordinate shift
-        node.setAttribute('transform', `translate(${dx} ${dy}) scale(${s})`);
+        const transVal = `translate(${dx} ${dy}) scale(${s_x} ${s_y})`;
+        node.setAttribute('transform', transVal);
+        console.log(`[DEBUG updateHandleScaling] Set transform on ${node.tagName}.${node.className.baseVal || node.className} to: ${transVal}`);
+        return success;
     },
 
     /**

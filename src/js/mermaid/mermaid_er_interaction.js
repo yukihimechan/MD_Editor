@@ -2,6 +2,8 @@
  * MermaidErInteraction - クラス図におけるインタラクション
  */
 
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 window.MermaidErInteraction = {
     
     _escapeRegExp(string) {
@@ -1743,7 +1745,7 @@ window.MermaidErInteraction = {
             }
         })();
 
-        if (typeof showToast === 'function') showToast('削除しました', 'success');
+        if (typeof showToast === 'function') showToast(t('mermaid.deleted') || '削除しました', 'success');
     },
 
     _getRelationFromText(diagramContainer, mId) {
@@ -1835,7 +1837,7 @@ window.MermaidErInteraction = {
         console.log('[_applyRelationChange] 対象ID:', mId);
         const rel = this._getRelationFromText(diagramContainer, mId);
         if (!rel) {
-            if (typeof showToast === 'function') showToast('対象のリレーションが見つかりませんでした。', 'error');
+            if (typeof showToast === 'function') showToast(t('mermaid.relationNotFound') || '対象のリレーションが見つかりませんでした。', 'error');
             return;
         }
 
@@ -1876,7 +1878,7 @@ window.MermaidErInteraction = {
         const mId = Array.from(diagramContainer._selectedRelations)[0];
         const rel = this._getRelationFromText(diagramContainer, mId);
         if (!rel) {
-            if (typeof showToast === 'function') showToast('対象のリレーションが見つかりませんでした。', 'error');
+            if (typeof showToast === 'function') showToast(t('mermaid.relationNotFound') || '対象のリレーションが見つかりませんでした。', 'error');
             return;
         }
 

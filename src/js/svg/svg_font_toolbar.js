@@ -2,6 +2,7 @@
  * SVG Font Toolbar
  * テキスト要素のフォントプロパティ（フォント名、サイズ、スタイル、色等）を調整するツールバー
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGFontToolbar extends SVGToolbarBase {
     constructor(container, draw, options = {}) {
         super({
@@ -23,9 +24,9 @@ class SVGFontToolbar extends SVGToolbarBase {
             { name: 'Times', value: 'Times New Roman, serif' },
             { name: 'Courier', value: 'Courier New, monospace' },
             // [NEW] 日本語フォント
-            { name: 'ゴシック (標準)', value: '"Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif' },
-            { name: '游ゴシック', value: '"Yu Gothic", YuGothic, sans-serif' },
-            { name: '明朝体', value: '"Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif' },
+            { name: t('svgEditor.font.gothic') || 'ゴシック (標準)', value: '"Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif' },
+            { name: t('svgEditor.font.yuGothic') || '游ゴシック', value: '"Yu Gothic", YuGothic, sans-serif' },
+            { name: t('svgEditor.font.mincho') || '明朝体', value: '"Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif' },
             { name: 'Noto Sans JP', value: '"Noto Sans JP", sans-serif' }
         ];
 
@@ -89,7 +90,7 @@ class SVGFontToolbar extends SVGToolbarBase {
 
         const trigger = document.createElement('button');
         trigger.className = 'svg-font-custom-select';
-        trigger.title = 'フォントファミリー';
+        trigger.title = t('svgEditor.font.familyTitle') || 'フォントファミリー';
         trigger.style.cssText = 'width: 100%; box-sizing: border-box; padding: 2px 4px; border: 1px solid var(--svg-toolbar-input-border); background: var(--svg-toolbar-input-bg); color: var(--svg-toolbar-fg); font-size: 11px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; justify-content: space-between; height: 21px; font-family: inherit; margin: 0; outline: none;';
         trigger.innerHTML = '<span class="label" style="overflow: hidden; text-overflow: ellipsis;">Inter</span><span style="font-size: 8px; margin-left: 2px; opacity: 0.7;">▼</span>';
 
@@ -140,7 +141,7 @@ class SVGFontToolbar extends SVGToolbarBase {
         // フォントサイズ
         this.sizeInput = document.createElement('input');
         this.sizeInput.type = 'number';
-        this.sizeInput.title = 'フォントサイズ';
+        this.sizeInput.title = t('svgEditor.font.sizeTitle') || 'フォントサイズ';
         this.sizeInput.min = '1';
         this.sizeInput.style.width = '45px';
         
@@ -168,18 +169,18 @@ class SVGFontToolbar extends SVGToolbarBase {
         contentArea.appendChild(this.createSeparator());
 
         // スタイルボタン
-        this.boldBtn = this.createIconButton('太字', '<path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/>', () => this.toggleStyle('font-weight', 'bold', 'normal', this.boldBtn));
-        this.italicBtn = this.createIconButton('斜体', '<line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/>', () => this.toggleStyle('font-style', 'italic', 'normal', this.italicBtn));
-        this.underlineBtn = this.createIconButton('下線', '<path d="M6 3v7a6 6 0 0 0 12 0V3"/><line x1="4" y1="21" x2="20" y2="21"/>', () => this.toggleDecoration('underline', this.underlineBtn));
-        this.strikeBtn = this.createIconButton('打ち消し線', '<path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/>', () => this.toggleDecoration('line-through', this.strikeBtn));
+        this.boldBtn = this.createIconButton(t('svgEditor.font.bold') || '太字', '<path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/>', () => this.toggleStyle('font-weight', 'bold', 'normal', this.boldBtn));
+        this.italicBtn = this.createIconButton(t('svgEditor.font.italic') || '斜体', '<line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/>', () => this.toggleStyle('font-style', 'italic', 'normal', this.italicBtn));
+        this.underlineBtn = this.createIconButton(t('svgEditor.font.underline') || '下線', '<path d="M6 3v7a6 6 0 0 0 12 0V3"/><line x1="4" y1="21" x2="20" y2="21"/>', () => this.toggleDecoration('underline', this.underlineBtn));
+        this.strikeBtn = this.createIconButton(t('svgEditor.font.strike') || '打ち消し線', '<path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/>', () => this.toggleDecoration('line-through', this.strikeBtn));
 
         [this.boldBtn, this.italicBtn, this.underlineBtn, this.strikeBtn].forEach(btn => contentArea.appendChild(btn));
 
         contentArea.appendChild(this.createSeparator());
 
         // カラートリガー
-        const { container: tcTrigger, anchor: tcAnchor } = this.createColorTrigger('文字色', 'fill');
-        const { container: bgTrigger, anchor: bgAnchor } = this.createColorTrigger('背景色', 'background');
+        const { container: tcTrigger, anchor: tcAnchor } = this.createColorTrigger(t('svgEditor.font.textColor') || '文字色', 'fill');
+        const { container: bgTrigger, anchor: bgAnchor } = this.createColorTrigger(t('svgEditor.font.bgColor') || '背景色', 'background');
 
         contentArea.appendChild(tcTrigger);
         contentArea.appendChild(bgTrigger);
@@ -191,13 +192,13 @@ class SVGFontToolbar extends SVGToolbarBase {
 
         // 文字間隔
         const spacingLabel = document.createElement('span');
-        spacingLabel.textContent = '間隔';
+        spacingLabel.textContent = t('svgEditor.font.spacing') || '間隔';
         spacingLabel.style.cssText = `font-size: 10px; color: var(--svg-toolbar-fg); opacity: 0.6; margin: 0 2px; white-space: nowrap;`;
         contentArea.appendChild(spacingLabel);
 
         this.letterSpacingInput = document.createElement('input');
         this.letterSpacingInput.type = 'number';
-        this.letterSpacingInput.title = '文字間隔';
+        this.letterSpacingInput.title = t('svgEditor.font.spacingTitle') || '文字間隔';
         this.letterSpacingInput.step = '0.5';
         this.letterSpacingInput.style.width = '45px';
         
@@ -262,10 +263,10 @@ class SVGFontToolbar extends SVGToolbarBase {
         if ('queryLocalFonts' in window && !this.localFontsLoaded) {
             const loadBtn = document.createElement('div');
             loadBtn.style.cssText = `padding: 8px; cursor: pointer; font-size: 10px; color: #0D31BB; background: #EEF2FF; border-top: 1px solid var(--svg-toolbar-input-border); text-align: center; font-weight: bold; font-family: sans-serif; position: sticky; bottom: 0; box-shadow: 0 -2px 5px rgba(0,0,0,0.05);`;
-            loadBtn.innerHTML = '✨ PCの全フォントを追加';
+            loadBtn.innerHTML = t('svgEditor.font.addLocalFonts') || '✨ PCの全フォントを追加';
             loadBtn.onclick = async (e) => {
                 e.stopPropagation();
-                loadBtn.innerHTML = '読み込み中...';
+                loadBtn.innerHTML = t('svgEditor.font.loading') || '読み込み中...';
                 try {
                     const localFonts = await window.queryLocalFonts();
                     this.localFontsLoaded = true;
@@ -295,7 +296,7 @@ class SVGFontToolbar extends SVGToolbarBase {
                     this.renderFontList(list, trigger);
                 } catch (err) {
                     console.warn("Local font access failed:", err);
-                    loadBtn.innerHTML = '取得失敗（権限が必要です）';
+                    loadBtn.innerHTML = t('svgEditor.font.permissionDenied') || '取得失敗（権限が必要です）';
                     loadBtn.style.color = 'red';
                     setTimeout(() => {
                         if (list && list.parentNode) this.renderFontList(list, trigger);

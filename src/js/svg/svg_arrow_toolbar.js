@@ -2,6 +2,7 @@
  * SVG Arrow Toolbar - 矢印ツール専用ツールバー
  * 直線矢印、90度曲がり矢印、U字矢印の3種類をサポート。
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 
 // ============================================================
 //  パスユーティリティ（ローカル座標系、原点(0,0)から右向き）
@@ -382,41 +383,41 @@ class DoubleUTurnArrowTool extends UTurnArrowTool {
 // ============================================================
 const ARROW_TOOLS = [
     {
-        id: 'straight_arrow', label: '直線矢印',
-        title: '直線矢印',
+        id: 'straight_arrow', label: t('svg.arrow.straight_label') || '直線矢印',
+        title: t('svg.arrow.straight_title') || '直線矢印',
         icon: `<path d="M2 12H17V8L23 12L17 16V12" fill="currentColor"/>`,
         ToolClass: StraightArrowTool
     },
     {
-        id: 'curved_arrow', label: '90度矢印',
-        title: '90度曲がり矢印',
+        id: 'curved_arrow', label: t('svg.arrow.curved_label') || '90度矢印',
+        title: t('svg.arrow.curved_title') || '90度曲がり矢印',
         icon: `<path d="M4 18V10Q4 4 10 4H17" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
                <path d="M14 0L21 4L14 8Z" fill="currentColor"/>`,
         ToolClass: CurvedArrowTool
     },
     {
-        id: 'uturn_arrow', label: 'U字矢印',
-        title: 'U字矢印',
+        id: 'uturn_arrow', label: t('svg.arrow.uturn_label') || 'U字矢印',
+        title: t('svg.arrow.uturn_title') || 'U字矢印',
         icon: `<path d="M7 4V16Q7 20 12 20Q17 20 17 16V4" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
                <path d="M14 0L21 4L14 8Z" fill="currentColor"/>`,
         ToolClass: UTurnArrowTool
     },
     {
-        id: 'straight_both_arrow', label: '直線(両端)',
-        title: '直線矢印（両端）',
+        id: 'straight_both_arrow', label: t('svg.arrow.straight_both_label') || '直線(両端)',
+        title: t('svg.arrow.straight_both_title') || '直線矢印（両端）',
         icon: `<path d="M2 12H22M2 12L8 8M2 12L8 16M22 12L16 8M22 12L16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
         ToolClass: DoubleStraightArrowTool
     },
     {
-        id: 'curved_both_arrow', label: '90度(両端)',
-        title: '90度曲がり矢印（両端）',
+        id: 'curved_both_arrow', label: t('svg.arrow.curved_both_label') || '90度(両端)',
+        title: t('svg.arrow.curved_both_title') || '90度曲がり矢印（両端）',
         icon: `<path d="M4 18V10Q4 4 10 4H17" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
                <path d="M14 0L21 4L14 8ZM0 15L4 22L8 15Z" fill="currentColor"/>`,
         ToolClass: DoubleCurvedArrowTool
     },
     {
-        id: 'uturn_both_arrow', label: 'U字(両端)',
-        title: 'U字矢印（両端）',
+        id: 'uturn_both_arrow', label: t('svg.arrow.uturn_both_label') || 'U字(両端)',
+        title: t('svg.arrow.uturn_both_title') || 'U字矢印（両端）',
         icon: `<path d="M7 5V16Q7 20 12 20Q17 20 17 16V5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
                <path d="M14 0L21 5L14 10ZM0 10L7 0L14 10Z" fill="currentColor"/>`,
         ToolClass: DoubleUTurnArrowTool
@@ -532,50 +533,50 @@ window.createArrowToolbar = (container, svgToolbar, options) => {
 // ============================================================
 const ARROW_EXTRA_PARAMS = {
     straight_arrow: [
-        { key: 'len', label: '矢印の長さ', default: 120, min: 20 },
-        { key: 'shaftW', label: '軸の太さ', default: 20, min: 2 },
-        { key: 'headW', label: '矢印先の幅', default: 40, min: 5 },
-        { key: 'headL', label: '矢印先の長さ', default: 40, min: 5 },
+        { key: 'len', label: t('svg.arrow.param_len') || '矢印の長さ', default: 120, min: 20 },
+        { key: 'shaftW', label: t('svg.arrow.param_shaft_w') || '軸の太さ', default: 20, min: 2 },
+        { key: 'headW', label: t('svg.arrow.param_head_w') || '矢印先の幅', default: 40, min: 5 },
+        { key: 'headL', label: t('svg.arrow.param_head_l') || '矢印先の長さ', default: 40, min: 5 },
     ],
     curved_arrow: [
-        { key: 'legH', label: '水平部の長さ', default: 80, min: 20 },
-        { key: 'legV', label: '垂直部の長さ', default: 80, min: 20 },
-        { key: 'radius', label: 'コーナーの丸み', default: 20, min: 0 },
-        { key: 'shaftW', label: '軸の太さ', default: 20, min: 2 },
-        { key: 'headW', label: '矢印先の幅', default: 40, min: 5 },
-        { key: 'headL', label: '矢印先の長さ', default: 40, min: 5 },
+        { key: 'legH', label: t('svg.arrow.param_leg_h') || '水平部の長さ', default: 80, min: 20 },
+        { key: 'legV', label: t('svg.arrow.param_leg_v') || '垂直部の長さ', default: 80, min: 20 },
+        { key: 'radius', label: t('svg.arrow.param_radius') || 'コーナーの丸み', default: 20, min: 0 },
+        { key: 'shaftW', label: t('svg.arrow.param_shaft_w') || '軸の太さ', default: 20, min: 2 },
+        { key: 'headW', label: t('svg.arrow.param_head_w') || '矢印先の幅', default: 40, min: 5 },
+        { key: 'headL', label: t('svg.arrow.param_head_l') || '矢印先の長さ', default: 40, min: 5 },
     ],
     uturn_arrow: [
-        { key: 'legH1', label: '前半の長さ', default: 80, min: 20 },
-        { key: 'legH2', label: '後半の長さ', default: 80, min: 20 },
-        { key: 'uWidth', label: 'U字の幅', default: 60, min: 20 },
-        { key: 'radius', label: 'コーナーの丸み', default: 20, min: 0 },
-        { key: 'shaftW', label: '軸の太さ', default: 20, min: 2 },
-        { key: 'headW', label: '矢印先の幅', default: 40, min: 5 },
-        { key: 'headL', label: '矢印先の長さ', default: 40, min: 5 },
+        { key: 'legH1', label: t('svg.arrow.param_leg_h1') || '前半の長さ', default: 80, min: 20 },
+        { key: 'legH2', label: t('svg.arrow.param_leg_h2') || '後半の長さ', default: 80, min: 20 },
+        { key: 'uWidth', label: t('svg.arrow.param_u_width') || 'U字の幅', default: 60, min: 20 },
+        { key: 'radius', label: t('svg.arrow.param_radius') || 'コーナーの丸み', default: 20, min: 0 },
+        { key: 'shaftW', label: t('svg.arrow.param_shaft_w') || '軸の太さ', default: 20, min: 2 },
+        { key: 'headW', label: t('svg.arrow.param_head_w') || '矢印先の幅', default: 40, min: 5 },
+        { key: 'headL', label: t('svg.arrow.param_head_l') || '矢印先の長さ', default: 40, min: 5 },
     ],
     straight_both_arrow: [
-        { key: 'len', label: '矢印の長さ', default: 120, min: 40 },
-        { key: 'shaftW', label: '軸の太さ', default: 20, min: 2 },
-        { key: 'headW', label: '矢印先の幅', default: 40, min: 5 },
-        { key: 'headL', label: '矢印先の長さ', default: 40, min: 5 },
+        { key: 'len', label: t('svg.arrow.param_len') || '矢印の長さ', default: 120, min: 40 },
+        { key: 'shaftW', label: t('svg.arrow.param_shaft_w') || '軸の太さ', default: 20, min: 2 },
+        { key: 'headW', label: t('svg.arrow.param_head_w') || '矢印先の幅', default: 40, min: 5 },
+        { key: 'headL', label: t('svg.arrow.param_head_l') || '矢印先の長さ', default: 40, min: 5 },
     ],
     curved_both_arrow: [
-        { key: 'legH', label: '水平部の長さ', default: 80, min: 20 },
-        { key: 'legV', label: '垂直部の長さ', default: 80, min: 20 },
-        { key: 'radius', label: 'コーナーの丸み', default: 20, min: 0 },
-        { key: 'shaftW', label: '軸の太さ', default: 20, min: 2 },
-        { key: 'headW', label: '矢印先の幅', default: 40, min: 5 },
-        { key: 'headL', label: '矢印先の長さ', default: 40, min: 5 },
+        { key: 'legH', label: t('svg.arrow.param_leg_h') || '水平部の長さ', default: 80, min: 20 },
+        { key: 'legV', label: t('svg.arrow.param_leg_v') || '垂直部の長さ', default: 80, min: 20 },
+        { key: 'radius', label: t('svg.arrow.param_radius') || 'コーナーの丸み', default: 20, min: 0 },
+        { key: 'shaftW', label: t('svg.arrow.param_shaft_w') || '軸の太さ', default: 20, min: 2 },
+        { key: 'headW', label: t('svg.arrow.param_head_w') || '矢印先の幅', default: 40, min: 5 },
+        { key: 'headL', label: t('svg.arrow.param_head_l') || '矢印先の長さ', default: 40, min: 5 },
     ],
     uturn_both_arrow: [
-        { key: 'legH1', label: '前半の長さ', default: 80, min: 20 },
-        { key: 'legH2', label: '後半の長さ', default: 80, min: 20 },
-        { key: 'uWidth', label: 'U字の幅', default: 60, min: 20 },
-        { key: 'radius', label: 'コーナーの丸み', default: 20, min: 0 },
-        { key: 'shaftW', label: '軸の太さ', default: 20, min: 2 },
-        { key: 'headW', label: '矢印先の幅', default: 40, min: 5 },
-        { key: 'headL', label: '矢印先の長さ', default: 40, min: 5 },
+        { key: 'legH1', label: t('svg.arrow.param_leg_h1') || '前半の長さ', default: 80, min: 20 },
+        { key: 'legH2', label: t('svg.arrow.param_leg_h2') || '後半の長さ', default: 80, min: 20 },
+        { key: 'uWidth', label: t('svg.arrow.param_u_width') || 'U字の幅', default: 60, min: 20 },
+        { key: 'radius', label: t('svg.arrow.param_radius') || 'コーナーの丸み', default: 20, min: 0 },
+        { key: 'shaftW', label: t('svg.arrow.param_shaft_w') || '軸の太さ', default: 20, min: 2 },
+        { key: 'headW', label: t('svg.arrow.param_head_w') || '矢印先の幅', default: 40, min: 5 },
+        { key: 'headL', label: t('svg.arrow.param_head_l') || '矢印先の長さ', default: 40, min: 5 },
     ],
 };
 

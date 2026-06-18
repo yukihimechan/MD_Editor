@@ -9,6 +9,9 @@
  *   - AppState, render  (globals.js, renderer.js)
  */
 
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
+
 const CollabManager = (() => {
     // --- 内部状態 ---
     let ydoc = null;           // Y.Doc インスタンス
@@ -102,7 +105,7 @@ const CollabManager = (() => {
             .filter(([clientId]) => clientId !== ydoc.clientID)
             .map(([clientId, state]) => ({
                 clientId,
-                name: state.user?.name || `ユーザー${clientId}`,
+                name: state.user?.name || (t('collab.defaultUserName') || 'ユーザー') + clientId,
                 color: state.user?.color || '#888888',
             }));
 
@@ -121,7 +124,7 @@ const CollabManager = (() => {
             .filter(([clientId]) => clientId !== ydoc.clientID)
             .forEach(([clientId, state]) => {
                 if (state.syncStatus && state.syncStatus.isSyncing) {
-                    activeSyncOwner = state.syncStatus.senderName || `ユーザー${clientId}`;
+                    activeSyncOwner = state.syncStatus.senderName || (t('collab.defaultUserName') || 'ユーザー') + clientId;
                     maxProgress = Math.max(maxProgress, state.syncStatus.progress || 0);
                 }
             });
@@ -258,7 +261,7 @@ const CollabManager = (() => {
             if (!bundle?.Y || !bundle?.WebrtcProvider || !bundle?.IndexeddbPersistence) {
                 console.error('[CollabManager] YjsBundle が読み込まれていません');
                 if (typeof showToast === 'function') {
-                    showToast('共同編集ライブラリの読み込みに失敗しました', 'error');
+                    showToast(t('collab.toast.libraryLoadFailed') || '共同編集ライブラリの読み込みに失敗しました', 'error');
                 }
                 // エラー時は確実にロックを解除
                 if (view && view.dom) {
@@ -314,7 +317,7 @@ const CollabManager = (() => {
                         if (currentLocal !== '' && currentLocal !== currentRemote) {
                             const showConfirmFn = (typeof CollabUI !== 'undefined' && typeof CollabUI.showSyncConfirm === 'function')
                                 ? CollabUI.showSyncConfirm
-                                : () => Promise.resolve(window.confirm('ルーム内のテキストと同期しますか？\n同期すると、現在のローカルテキストは上書きされます。'));
+                                : () => Promise.resolve(window.confirm(t('collab.confirm.syncText') || 'ルーム内のテキストと同期しますか？\n同期すると、現在のローカルテキストは上書きされます。'));
 
                             showConfirmFn().then((confirmed) => {
                                 if (!confirmed) {
@@ -399,7 +402,7 @@ const CollabManager = (() => {
                         const currentYdoc = ydoc; // セッション情報を保存
                         const showConfirmFn = (typeof CollabUI !== 'undefined' && typeof CollabUI.showSyncConfirm === 'function')
                             ? CollabUI.showSyncConfirm
-                            : () => Promise.resolve(window.confirm('過去のルームデータを復元しますか？\n同期すると現在のテキストは上書きされます。'));
+                            : () => Promise.resolve(window.confirm(t('collab.confirm.restoreData') || '過去のルームデータを復元しますか？\n同期すると現在のテキストは上書きされます。'));
 
                         showConfirmFn().then((confirmed) => {
                             if (ydoc !== currentYdoc) return; // 競合防止ガード
@@ -438,7 +441,7 @@ const CollabManager = (() => {
                     view.dom.style.opacity = '';
                 }
                 if (typeof showToast === 'function') {
-                    showToast('ローカルデータの同期に失敗しました', 'error');
+                    showToast(t('collab.toast.localSyncFailed') || 'ローカルデータの同期に失敗しました', 'error');
                 }
             });
         } catch (error) {
@@ -450,7 +453,7 @@ const CollabManager = (() => {
                 view.dom.style.opacity = '';
             }
             if (typeof showToast === 'function') {
-                showToast('共同編集の初期化に失敗しました', 'error');
+                showToast(t('collab.toast.initFailed') || '共同編集の初期化に失敗しました', 'error');
             }
 
             // 部分的に割り当てられたリソースのクリーンアップ
@@ -591,7 +594,7 @@ const CollabManager = (() => {
         provider.on('synced', _onSyncedChange);
 
         if (typeof showToast === 'function') {
-            showToast(`共同編集を開始しました: ルーム「${roomName}」`, 'info');
+            showToast(t('collab.toast.started', { roomName }) || `共同編集を開始しました: ルーム「${roomName}」`, 'info');
         }
     }
 
@@ -679,7 +682,7 @@ const CollabManager = (() => {
             }
 
             if (typeof showToast === 'function') {
-                showToast('共同編集セッションを終了しました', 'info');
+                showToast(t('collab.toast.ended') || '共同編集セッションを終了しました', 'info');
             }
 
             const tempPersistence = persistence;
@@ -828,13 +831,13 @@ const CollabManager = (() => {
         const bytes = new Uint8Array(arrayBuffer);
 
         if (typeof CollabUI !== 'undefined' && typeof CollabUI.lockEditor === 'function') {
-            CollabUI.lockEditor(AppState.collab.userName || '自分', 0);
+            CollabUI.lockEditor(AppState.collab.userName || t('collab.self') || '自分', 0);
         }
 
         provider.awareness.setLocalStateField('syncStatus', {
             isSyncing: true,
             progress: 0,
-            senderName: AppState.collab.userName || 'ユーザー',
+            senderName: AppState.collab.userName || t('collab.defaultUserName') || 'ユーザー',
             fileId: fileId
         });
 
@@ -878,12 +881,12 @@ const CollabManager = (() => {
 
             const progress = ((i + 1) / totalChunks) * 100;
             if (typeof CollabUI !== 'undefined' && typeof CollabUI.lockEditor === 'function') {
-                CollabUI.lockEditor(AppState.collab.userName || '自分', progress);
+                CollabUI.lockEditor(AppState.collab.userName || t('collab.self') || '自分', progress);
             }
             provider.awareness.setLocalStateField('syncStatus', {
                 isSyncing: true,
                 progress: progress,
-                senderName: AppState.collab.userName || 'ユーザー',
+                senderName: AppState.collab.userName || t('collab.defaultUserName') || 'ユーザー',
                 fileId: fileId
             });
         }
@@ -893,7 +896,7 @@ const CollabManager = (() => {
         provider.awareness.setLocalStateField('syncStatus', {
             isSyncing: false,
             progress: 100,
-            senderName: AppState.collab.userName || 'ユーザー',
+            senderName: AppState.collab.userName || t('collab.defaultUserName') || 'ユーザー',
             fileId: fileId
         });
 

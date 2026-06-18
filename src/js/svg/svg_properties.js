@@ -6,6 +6,8 @@
  * - Cleanup Utils
  */
 
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 // --- Property Editor ---
 // (Preserved from original but adjusted for native DOM usage if needed)
 // Note: We use showPropertyEditor logic from original code.
@@ -51,45 +53,45 @@ function showPropertyEditor(element, svgIndex, container) {
         <h3 style="margin-top:0;margin-bottom:20px;font-size:18px;font-weight:600;">${isCanvas ? '' : ''}</h3>
         <div style="flex: 1; overflow-y: auto; margin-bottom: 20px;">
             <div class="svg-prop-row">
-                <span class="svg-prop-label">${isCanvas ? '背景色' : '塗りつぶし色'}</span>
+                <span class="svg-prop-label">${isCanvas ? (t('svgEditor.properties.bgColor') || '背景色') : (t('svgEditor.properties.fillColor') || '塗りつぶし色')}</span>
                 <div id="fill-picker-trigger" class="svg-color-preview" style="background: ${fill === 'none' ? 'transparent' : fill};"></div>
             </div>
             <div class="svg-prop-row">
-                <span class="svg-prop-label">枠線色</span>
+                <span class="svg-prop-label">${t('svgEditor.properties.borderColor') || '枠線色'}</span>
                 <div id="stroke-picker-trigger" class="svg-color-preview" style="background: ${stroke};"></div>
             </div>
             <div class="svg-prop-row">
-                <span class="svg-prop-label">枠線幅</span>
+                <span class="svg-prop-label">${t('svgEditor.properties.borderWidth') || '枠線幅'}</span>
                 <input type="number" id="svg-stroke-width" value="${strokeWidth}" min="0" step="0.5" style="width:80px; padding:4px; border:1px solid #ddd; border-radius:4px;">
             </div>
             ${element.tagName === 'text' ? `
             <div class="svg-prop-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                <span class="svg-prop-label">テキスト</span>
+                <span class="svg-prop-label">${t('svgEditor.properties.text') || 'テキスト'}</span>
                 <input type="text" id="svg-text" value="${textContent}" style="width:100%; padding:8px; box-sizing:border-box; border:1px solid #ddd; border-radius:4px;">
             </div>
             <div class="svg-prop-row">
-                <span class="svg-prop-label">フォントサイズ</span>
+                <span class="svg-prop-label">${t('svgEditor.properties.fontSize') || 'フォントサイズ'}</span>
                 <input type="number" id="svg-font-size" value="${fontSize}" min="8" style="width:80px; padding:4px; border:1px solid #ddd; border-radius:4px;">
             </div>` : ''}
             ${toolId === 'rounded' ? `
             <div class="svg-prop-row">
-                <span class="svg-prop-label">角の半径</span>
+                <span class="svg-prop-label">${t('svgEditor.properties.cornerRadius') || '角の半径'}</span>
                 <input type="number" id="svg-radius" value="${radius}" min="0" style="width:80px; padding:4px; border:1px solid #ddd; border-radius:4px;">
             </div>` : ''}
             ${toolId === 'star' ? `
             <div class="svg-prop-row">
-                <span class="svg-prop-label">星の角数</span>
+                <span class="svg-prop-label">${t('svgEditor.properties.starSpikes') || '星の角数'}</span>
                 <input type="number" id="svg-spikes" value="${spikes}" min="3" style="width:80px; padding:4px; border:1px solid #ddd; border-radius:4px;">
             </div>` : ''}
             ${toolId === 'polygon' ? `
             <div class="svg-prop-row">
-                <span class="svg-prop-label">多角形の辺数</span>
+                <span class="svg-prop-label">${t('svgEditor.properties.polygonSides') || '多角形の辺数'}</span>
                 <input type="number" id="svg-sides" value="${sides}" min="3" style="width:80px; padding:4px; border:1px solid #ddd; border-radius:4px;">
             </div>` : ''}
         </div>
         <div style="text-align:right; border-top: 1px solid #eee; padding-top: 15px; display:flex; gap:12px; justify-content:flex-end;">
-            <button id="svg-prop-cancel" style="padding:8px 16px; border:1px solid #ddd; background:#fff; color:#333; cursor:pointer; border-radius:4px;">取消</button>
-            <button id="svg-prop-ok" style="padding:8px 16px; border:none; background:#0366d6; color:white; cursor:pointer; border-radius:4px; font-weight:500;">保存</button>
+            <button id="svg-prop-cancel" style="padding:8px 16px; border:1px solid #ddd; background:#fff; color:#333; cursor:pointer; border-radius:4px;">${t('svgEditor.properties.cancel') || '取消'}</button>
+            <button id="svg-prop-ok" style="padding:8px 16px; border:none; background:#0366d6; color:white; cursor:pointer; border-radius:4px; font-weight:500;">${t('svgEditor.properties.save') || '保存'}</button>
         </div>
     `;
 
@@ -216,7 +218,7 @@ function showDoneButton(container) {
     if (!expandBtn) {
         expandBtn = document.createElement('button');
         expandBtn.id = 'svg-editor-expand-btn';
-        expandBtn.textContent = typeof I18n !== 'undefined' ? I18n.translate('editor.expandView') || '拡大画面' : '拡大画面';
+        expandBtn.textContent = t('editor.expandView') || '拡大画面';
         expandBtn.className = 'inline-done-btn'; // Reuse inline editor style class
         expandBtn.onclick = (e) => {
             e.stopPropagation();
@@ -349,7 +351,7 @@ function showResizeHandle(container) {
         resizer = document.createElement('div');
         resizer.id = 'svg-editor-resizer';
         resizer.className = 'svg-editor-resizer';
-        resizer.title = 'ドラッグして高さを変更';
+        resizer.title = t('svgEditor.properties.dragToResize') || 'ドラッグして高さを変更';
         document.body.appendChild(resizer);
 
         resizer.onmousedown = (e) => {

@@ -601,6 +601,11 @@ const ToolIcons = {
     line_arrow: `<svg viewBox="0 0 24 24" width="24" height="24">
         <line x1="3" y1="21" x2="19" y2="5" stroke="currentColor" stroke-width="2"/>
         <path d="M15 5h4v4" fill="none" stroke="currentColor" stroke-width="2"/>
+    </svg>`,
+    orthogonal_line: `<svg viewBox="0 0 24 24" width="24" height="24">
+        <path d="M4 6 H14 V18 H20" fill="none" stroke="currentColor" stroke-width="2"/>
+        <circle cx="4" cy="6" r="2" fill="currentColor"/>
+        <circle cx="20" cy="18" r="2" fill="currentColor"/>
     </svg>`
 };
 
@@ -811,17 +816,266 @@ class PolylineArrowTool extends LineTool {
     }
 }
 
+class OrthogonalLineTool extends LineTool {
+    mousedown(e, pt) {
+        this._hoverConnectorCache = null;
+        this.isDragging = false;
+        
+        // 1. スナップ判定
+        const isAlt = SVGUtils.isSnapEnabled(e);
+        if (!isAlt && window.SVGConnectorManager) {
+            const nearest = window.SVGConnectorManager.findNearestConnector(this.draw, pt, 20, this.activeElement);
+            if (nearest) pt = { x: nearest.x, y: nearest.y, connector: nearest };
+        } else if (isAlt) {
+            pt = SVGUtils.snapPointToGrid(pt, isAlt);
+        }
+
+        this.startPoint = pt;
+
+        // 始点確定。仮の <path> を作成
+        const color = this.toolbar.getToolProperty('orthogonal_line', 'stroke') || '#000000';
+        const strokeW = parseFloat(this.toolbar.getToolProperty('orthogonal_line', 'stroke-width')) || 1;
+
+        // 接続用のダミー線として初期化
+        this.activeElement = this.draw.path(`M ${pt.x} ${pt.y}`)
+            .fill('none')
+            .stroke({ color: color, width: strokeW })
+            .attr({
+                'data-tool-id': 'orthogonal_line',
+                'vector-effect': 'non-scaling-stroke'
+            });
+
+        // 開始点のコネクタ接続
+        if (pt.connector && window.SVGConnectorManager) {
+            window.SVGConnectorManager.connect(this.activeElement, 'start', pt.connector.id, pt.connector.index);
+        }
+
+        // コネクタ表示
+        if (!isAlt && window.SVGConnectorManager) {
+            this._connectorCache = window.SVGConnectorManager.cacheConnectorPoints(this.draw, this.activeElement);
+            const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+            window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._connectorCache, pt, zoom);
+        }
+    }
+
+    mousemove(e, pt) {
+        if (!this.activeElement) {
+            // [NEW] ホバー時の近接接続表示
+            const isAlt = SVGUtils.isSnapEnabled(e);
+            if (!isAlt && window.SVGConnectorManager) {
+                if (!this._hoverConnectorCache) {
+                    this._hoverConnectorCache = window.SVGConnectorManager.cacheConnectorPoints(this.draw);
+                }
+                const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+                window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._hoverConnectorCache, pt, zoom);
+            } else if (window.SVGConnectorManager) {
+                window.SVGConnectorManager.hideAllConnectors(this.draw);
+                this._hoverConnectorCache = null;
+            }
+            return;
+        }
+
+        const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
+        if (dist > 3) {
+            this.isDragging = true;
+        }
+
+        const isAlt = SVGUtils.isSnapEnabled(e);
+        let targetPt = pt;
+
+        // コネクタ近接表示
+        if (!isAlt && window.SVGConnectorManager && this._connectorCache) {
+            const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+            window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._connectorCache, pt, zoom);
+        } else if (window.SVGConnectorManager) {
+            window.SVGConnectorManager.hideAllConnectors(this.draw);
+        }
+
+        if (!this.isDragging) return;
+
+        // コネクタ吸着
+        let targetConnector = null;
+        if (!isAlt && window.SVGConnectorManager) {
+            const nearest = window.SVGConnectorManager.findNearestConnector(this.draw, pt, 20, this.activeElement);
+            
+            let skipSnap = false;
+            if (nearest) {
+                const existingData = this.activeElement.attr('data-connections');
+                if (existingData) {
+                    try {
+                        const connections = JSON.parse(existingData);
+                        const startConn = connections.find(c => c.endType === 'start');
+                        if (startConn && nearest.id === startConn.targetId && nearest.index === startConn.pointIndex) {
+                            skipSnap = true;
+                        }
+                    } catch (err) { }
+                }
+            }
+
+            if (nearest && !skipSnap) {
+                const rootNode = this.draw.node;
+                const mLine = rootNode.getScreenCTM().inverse().multiply(this.activeElement.node.getScreenCTM());
+                const mInv = mLine.inverse();
+                const snappedLocal = new SVG.Point(nearest.x, nearest.y).transform(mInv);
+
+                const success = window.SVGConnectorManager.connect(this.activeElement, 'end', nearest.id, nearest.index);
+                if (success) {
+                    targetPt = { x: snappedLocal.x, y: snappedLocal.y };
+                    targetConnector = nearest;
+                } else {
+                    window.SVGConnectorManager.disconnect(this.activeElement, 'end');
+                    targetPt = pt;
+                }
+            } else {
+                window.SVGConnectorManager.disconnect(this.activeElement, 'end');
+                targetPt = pt;
+            }
+        } else if (isAlt) {
+            if (window.SVGConnectorManager) window.SVGConnectorManager.disconnect(this.activeElement, 'end');
+            targetPt = SVGUtils.snapPointToGrid(pt, isAlt);
+        }
+
+        // 経路探索
+        const startPtLocal = this.startPoint;
+        const endPtLocal   = targetPt;
+
+        // ワールド座標に変換して障害物迂回計算
+        const rootNode = this.draw.node;
+        const mLine = rootNode.getScreenCTM().inverse().multiply(this.activeElement.node.getScreenCTM());
+
+        const startWorld = new SVG.Point(startPtLocal.x, startPtLocal.y).transform(mLine);
+        const endWorld = new SVG.Point(endPtLocal.x, endPtLocal.y).transform(mLine);
+
+        const excludeEls = [this.activeElement];
+        if (targetConnector) {
+            const targetEl = this.draw.findOne('#' + targetConnector.id);
+            if (targetEl) excludeEls.push(targetEl);
+        }
+        const startConn = this.activeElement.attr('data-connections');
+        if (startConn) {
+            try {
+                const conn = JSON.parse(startConn).find(c => c.endType === 'start');
+                if (conn) {
+                    const targetEl = this.draw.findOne('#' + conn.targetId);
+                    if (targetEl) excludeEls.push(targetEl);
+                }
+            } catch (err) {}
+        }
+
+        const obstacles = window.SVGAutoRouter ? window.SVGAutoRouter.collectObstacles(this.draw, excludeEls) : [];
+        const routeWorld = OrthogonalRouter.findOrthogonalRoute(
+            { x: startWorld.x, y: startWorld.y },
+            { x: endWorld.x, y: endWorld.y },
+            obstacles
+        );
+
+        // ローカル座標に逆変換
+        const mInv = mLine.inverse();
+        const routeLocal = routeWorld.map(p => {
+            const lp = new SVG.Point(p.x, p.y).transform(mInv);
+            return { x: lp.x, y: lp.y };
+        });
+
+        // パス更新
+        const pointsStr = routeLocal.map(p => `${p.x},${p.y}`).join(' ');
+        this.activeElement.attr('data-ortho-points', pointsStr);
+
+        let d = `M ${routeLocal[0].x} ${routeLocal[0].y}`;
+        for (let i = 1; i < routeLocal.length; i++) {
+            const prev = routeLocal[i - 1];
+            const curr = routeLocal[i];
+            if (prev.y === curr.y) {
+                d += ` H ${curr.x}`;
+            } else if (prev.x === curr.x) {
+                d += ` V ${curr.y}`;
+            } else {
+                d += ` L ${curr.x} ${curr.y}`;
+            }
+        }
+        this.activeElement.plot(d);
+    }
+
+    mouseup(e, pt) {
+        if (!this.activeElement) return;
+
+        if (window.SVGConnectorManager) {
+            window.SVGConnectorManager.hideAllConnectors(this.draw);
+        }
+        this._connectorCache = null;
+
+        // クリックのみの場合、デフォルト100pxの水平線
+        if (!this.isDragging) {
+            const defaults = this.toolbar.defaultSizes['polyline_arrow'] || { w: 100, h: 0 };
+            const endX = this.startPoint.x + defaults.w;
+            const pointsStr = `${this.startPoint.x},${this.startPoint.y} ${endX},${this.startPoint.y}`;
+            this.activeElement.attr('data-ortho-points', pointsStr);
+            this.activeElement.plot(`M ${this.startPoint.x} ${this.startPoint.y} H ${endX}`);
+        }
+
+        // コネクタ吸着後のファイナライズ
+        if (typeof makeInteractive === 'function') makeInteractive(this.activeElement);
+        if (typeof selectElement === 'function') selectElement(this.activeElement);
+
+        this.finalize();
+    }
+}
+
 class FreehandTool extends BaseTool {
     mousedown(e, pt) {
-        pt = SVGUtils.snapPointToGridIfAlt ? SVGUtils.snapPointToGridIfAlt(pt, e) : pt;
+        this._hoverConnectorCache = null;
+        const isAlt = SVGUtils.isSnapEnabled(e);
+        let startConnect = null;
+        if (!isAlt && window.SVGConnectorManager) {
+            const nearest = window.SVGConnectorManager.findNearestConnector(this.draw, pt, 20);
+            if (nearest) {
+                pt = { x: nearest.x, y: nearest.y };
+                startConnect = nearest;
+            }
+        } else if (isAlt) {
+            pt = SVGUtils.snapPointToGrid(pt, isAlt);
+        }
+
         this.startPoint = pt;
         const color = this.getProp('stroke', '#000000');
         const width = this.getProp('stroke-width', 1);
         this.activeElement = this.draw.polyline([[pt.x, pt.y]]).fill('none').stroke({ color, width })
-            .attr('vector-effect', 'non-scaling-stroke');
+            .attr({
+                'vector-effect': 'non-scaling-stroke',
+                'data-tool-id': 'freehand'
+            });
+
+        if (startConnect && window.SVGConnectorManager) {
+            window.SVGConnectorManager.connect(this.activeElement, 'start', startConnect.id, startConnect.index);
+        }
+
+        if (window.SVGConnectorManager && this.draw) {
+            this._connectorCache = window.SVGConnectorManager.cacheConnectorPoints(this.draw, this.activeElement);
+        }
     }
     mousemove(e, pt) {
-        if (!this.activeElement) return;
+        if (!this.activeElement) {
+            const isAlt = SVGUtils.isSnapEnabled(e);
+            if (!isAlt && window.SVGConnectorManager) {
+                if (!this._hoverConnectorCache) {
+                    this._hoverConnectorCache = window.SVGConnectorManager.cacheConnectorPoints(this.draw);
+                }
+                const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+                window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._hoverConnectorCache, pt, zoom);
+            } else if (window.SVGConnectorManager) {
+                window.SVGConnectorManager.hideAllConnectors(this.draw);
+                this._hoverConnectorCache = null;
+            }
+            return;
+        }
+
+        const isAlt = SVGUtils.isSnapEnabled(e);
+        if (!isAlt && window.SVGConnectorManager && this._connectorCache) {
+            const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+            window.SVGConnectorManager.updateConnectorDisplay(this.draw, this._connectorCache, pt, zoom);
+        } else if (window.SVGConnectorManager) {
+            window.SVGConnectorManager.hideAllConnectors(this.draw);
+        }
+
         const arr = this.activeElement.array().valueOf();
         arr.push([pt.x, pt.y]);
         this.activeElement.plot(arr);
@@ -829,30 +1083,71 @@ class FreehandTool extends BaseTool {
     mouseup(e, pt) {
         if (!this.activeElement) return;
 
+        if (window.SVGConnectorManager) {
+            window.SVGConnectorManager.hideAllConnectors(this.draw);
+        }
+        this._connectorCache = null;
+
         const points = this.activeElement.array().valueOf();
+        let finalPt = pt;
+        const isAlt = SVGUtils.isSnapEnabled(e);
+
+        if (!isAlt && window.SVGConnectorManager) {
+            const nearest = window.SVGConnectorManager.findNearestConnector(this.draw, pt, 20, this.activeElement);
+            
+            let skipSnap = false;
+            if (nearest) {
+                const existingData = this.activeElement.attr('data-connections');
+                if (existingData) {
+                    try {
+                        const connections = JSON.parse(existingData);
+                        const startConn = connections.find(c => c.endType === 'start');
+                        if (startConn && nearest.id === startConn.targetId && nearest.index === startConn.pointIndex) {
+                            skipSnap = true;
+                        }
+                    } catch (err) {}
+                }
+            }
+
+            if (nearest && !skipSnap) {
+                const rootNode = this.draw.node;
+                const mLine = rootNode.getScreenCTM().inverse().multiply(this.activeElement.node.getScreenCTM());
+                const mInv = mLine.inverse();
+                const snappedLocal = new SVG.Point(nearest.x, nearest.y).transform(mInv);
+
+                const success = window.SVGConnectorManager.connect(this.activeElement, 'end', nearest.id, nearest.index);
+                if (success) {
+                    finalPt = { x: snappedLocal.x, y: snappedLocal.y };
+                } else {
+                    window.SVGConnectorManager.disconnect(this.activeElement, 'end');
+                }
+            } else {
+                window.SVGConnectorManager.disconnect(this.activeElement, 'end');
+            }
+        } else if (isAlt) {
+            if (window.SVGConnectorManager) window.SVGConnectorManager.disconnect(this.activeElement, 'end');
+        }
+
         if (points.length > 2) {
-            // 1. Simplify points (Douglas-Peucker)
+            points[points.length - 1] = [finalPt.x, finalPt.y];
+            this.activeElement.plot(points);
+
             const epsilon = (typeof AppState !== 'undefined' && AppState.config.freehandEpsilon !== undefined)
                 ? AppState.config.freehandEpsilon
                 : 30.0;
             const simplified = SVGUtils.simplifyPoints(points, epsilon);
 
-            // 2. Convert Polyline to Path
             if (window.SvgPolylineHandler) {
                 const handler = new window.SvgPolylineHandler();
                 const pathNode = handler.convertToPath(this.activeElement.node);
                 if (pathNode) {
                     const pathEl = SVG(pathNode);
-
-                    // 3. Calculate smooth control points
                     const bezData = SVGUtils.calculateSmoothControlPoints(simplified, 0.25);
 
-                    // 4. Update path with new points and bezier data
                     pathEl.attr('data-poly-points', simplified.map(p => p.join(',')).join(' '));
                     pathEl.attr('data-bez-points', JSON.stringify(bezData));
 
-                    // 5. Generate actual 'd' attribute using the same logic as handler
-                    handler.activeNode = pathNode; // Temporarily set for generatePath
+                    handler.activeNode = pathNode;
                     handler.generatePath(pathNode);
 
                     this.activeElement = pathEl;
@@ -1447,6 +1742,7 @@ class SVGMainToolbar extends SVGToolbarBase {
             { id: 'line', label: '直線', icon: '<svg viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="3" stroke="currentColor" stroke-width="2"/></svg>' },
             { id: 'arrow', label: '矢印', icon: ToolIcons.line_arrow },
             { id: 'polyline_arrow', label: '折れ線矢印', icon: ToolIcons.polyline_arrow },
+            { id: 'orthogonal_line', label: '直角折れ線', icon: ToolIcons.orthogonal_line },
             { id: 'freehand', label: '自由描画', icon: '<svg viewBox="0 0 24 24"><path d="M3 21c3-3 6-3 9 0s6 3 9 0" fill="none" stroke="currentColor" stroke-width="2"/></svg>' },
             { id: 'bubble', label: '吹出し', icon: '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10z" fill="none" stroke="currentColor" stroke-width="2"/></svg>' },
             { id: 'text', label: 'テキスト', icon: '<svg viewBox="0 0 24 24"><path d="M5 4v3h5.5l.25 13h3.5l.25-13H20V4z" fill="currentColor"/></svg>' },
@@ -1567,6 +1863,7 @@ class SVGMainToolbar extends SVGToolbarBase {
             'line': new LineTool(this),
             'arrow': new ArrowLineTool(this),
             'polyline_arrow': new PolylineArrowTool(this),
+            'orthogonal_line': new OrthogonalLineTool(this),
             'freehand': new FreehandTool(this),
             'bubble': new BubbleTool(this),
             'text': new TextTool(this),

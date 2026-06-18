@@ -106,14 +106,6 @@ class SvgBubbleHandler {
         line.setAttribute('stroke-width', '1');
         line.setAttribute('stroke-dasharray', '2,2');
 
-        // [NEW] Dynamic Scaling for all bubble handles
-        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-            window.SVGUtils.updateHandleScaling(widthCircle);
-            window.SVGUtils.updateHandleScaling(rootCircle);
-            window.SVGUtils.updateHandleScaling(endCircle);
-            window.SVGUtils.updateHandleScaling(line);
-        }
-
         this.handleGroup.insertBefore(line, this.handleGroup.firstChild);
 
         this.bindRootDrag(rootCircle);
@@ -122,6 +114,14 @@ class SvgBubbleHandler {
 
         if (this.handleGroup.parentNode !== this.overlayGroup) {
             this.overlayGroup.appendChild(this.handleGroup);
+        }
+
+        // [NEW] DOMマウント後にサイズ補正を適用
+        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+            window.SVGUtils.updateHandleScaling(widthCircle);
+            window.SVGUtils.updateHandleScaling(rootCircle);
+            window.SVGUtils.updateHandleScaling(endCircle);
+            window.SVGUtils.updateHandleScaling(line);
         }
     }
 

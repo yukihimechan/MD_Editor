@@ -5,6 +5,8 @@
  * - Z-index management
  */
 
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 // Global Clipboard for SVG Elements
 window.SVGClipboard = {
     elements: [],
@@ -471,6 +473,47 @@ async function pasteElements(container, nativeText = null) {
             });
         });
 
+        // 2.75 [FIX] コピー＆ペーストしたコンテナの移動時にコピー元の要素が動いてしまうバグを防ぐため、親子ID関係をリマップ
+        pastedElements.forEach(clone => {
+            const allElements = [clone, ...clone.find('*')];
+            allElements.forEach(el => {
+                if (el.node && el.node.setAttribute) {
+                    // 子要素側の data-container-id リマップ
+                    const containerId = el.attr('data-container-id');
+                    if (containerId) {
+                        if (idMap.has(containerId)) {
+                            const newContainerId = idMap.get(containerId);
+                            el.attr('data-container-id', newContainerId);
+                            console.log(`[SVG Paste] Remapped data-container-id: ${containerId} -> ${newContainerId}`);
+                        } else {
+                            // コピー元のコンテナは一緒にコピーされなかったため、参照を解除
+                            el.node.removeAttribute('data-container-id');
+                            console.log(`[SVG Paste] Cleared data-container-id: ${containerId} (not in idMap)`);
+                        }
+                    }
+
+                    // 親コンテナ側の data-container-children リマップ
+                    if (el.attr('data-container') === 'true') {
+                        const childrenStr = el.attr('data-container-children') || '';
+                        const childIds = childrenStr.split(',').filter(id => id.trim());
+                        const newChildIds = [];
+                        childIds.forEach(cId => {
+                            if (idMap.has(cId)) {
+                                newChildIds.push(idMap.get(cId));
+                            }
+                        });
+                        if (newChildIds.length > 0) {
+                            el.attr('data-container-children', newChildIds.join(','));
+                            console.log(`[SVG Paste] Remapped data-container-children: ${childrenStr} -> ${newChildIds.join(',')}`);
+                        } else {
+                            el.attr('data-container-children', '');
+                            console.log(`[SVG Paste] Cleared data-container-children: ${childrenStr}`);
+                        }
+                    }
+                }
+            });
+        });
+
         // 3. Finalize
         pastedElements.forEach(clone => {
             // [NEW] ペーストされた要素が元図形のマーカーを共有しないよう、個別のマーカーを即座に再生成する
@@ -676,7 +719,7 @@ function addToToolbar(container) {
     }
 
     // Ask for name
-    const name = prompt('ツールバーに追加する名前を入力してください:', 'カスタム図形');
+    const name = prompt(t('svgEditor.operations.enterCustomToolName') || 'ツールバーに追加する名前を入力してください:', t('svgEditor.operations.defaultCustomShape') || 'カスタム図形');
     if (!name) return;
 
     // [FIX] 絶対変換行列 (CTM) に基づく完全な正規化

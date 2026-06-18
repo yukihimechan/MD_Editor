@@ -1,3 +1,6 @@
+(() => {
+const t = (key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key;
+
 /**
  * Mermaid Expanded View
  * Mermaid図形を全画面化し、SVGの viewBox を操作してパン・ズーム機能を提供します。
@@ -246,7 +249,7 @@ window.MermaidExpandedManager = {
                 placeholder = document.createElement('div');
                 placeholder.id = pid;
                 placeholder.className = 'mermaid-expanded-placeholder';
-                placeholder.textContent = '拡大表示中...';
+                placeholder.textContent = t('mermaidEditor.zoomTitle') || '拡大表示中...';
             }
             
             // ★ FastPath の Diff で正しく検知されるよう、重要な属性をプレースホルダーに引き継ぐ
@@ -311,7 +314,7 @@ window.MermaidExpandedManager = {
                               wrapper.classList.contains('mermaid-class-edit-mode') ||
                               wrapper.classList.contains('mermaid-er-edit-mode');
             
-            eBtn.innerHTML = isEditing ? '✔️ 完了' : '✏️ 編集';
+            eBtn.innerHTML = isEditing ? (t('mermaidEditor.done') || '✔️ 完了') : (t('mermaidEditor.edit') || '✏️ 編集');
             if (isEditing) eBtn.classList.add('is-editing');
             
             eBtn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
@@ -338,10 +341,10 @@ window.MermaidExpandedManager = {
                                                  wrapper.classList.contains('mermaid-class-edit-mode') ||
                                                  wrapper.classList.contains('mermaid-er-edit-mode');
                             if (stillEditing) {
-                                eBtn.innerHTML = '✔️ 完了';
+                                eBtn.innerHTML = t('mermaidEditor.done') || '✔️ 完了';
                                 eBtn.classList.add('is-editing');
                             } else {
-                                eBtn.innerHTML = '✏️ 編集';
+                                eBtn.innerHTML = t('mermaidEditor.edit') || '✏️ 編集';
                                 eBtn.classList.remove('is-editing');
                             }
                         }, 100);
@@ -356,10 +359,10 @@ window.MermaidExpandedManager = {
                               wrapper.classList.contains('mermaid-class-edit-mode') ||
                               wrapper.classList.contains('mermaid-er-edit-mode');
             if (isEditing) {
-                eBtn.innerHTML = '✔️ 完了';
+                eBtn.innerHTML = t('mermaidEditor.done') || '✔️ 完了';
                 eBtn.classList.add('is-editing');
             } else {
-                eBtn.innerHTML = '✏️ 編集';
+                eBtn.innerHTML = t('mermaidEditor.edit') || '✏️ 編集';
                 eBtn.classList.remove('is-editing');
             }
         }
@@ -368,7 +371,7 @@ window.MermaidExpandedManager = {
             const rBtn = document.createElement('button');
             rBtn.className = 'mermaid-expanded-btn mermaid-expanded-reset-btn';
             rBtn.tabIndex = -1;
-            rBtn.innerHTML = '↻ リセット';
+            rBtn.innerHTML = t('mermaidEditor.reset') || '↻ リセット';
             rBtn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
             rBtn.onclick = (e) => {
                 e.preventDefault(); e.stopPropagation();
@@ -381,8 +384,8 @@ window.MermaidExpandedManager = {
             const btn = document.createElement('button');
             btn.className = 'mermaid-expanded-btn mermaid-expanded-close-btn';
             btn.tabIndex = -1; // フォーカス奪取を防止
-            btn.innerHTML = `閉じる`;
-            btn.title = '閉じる (Esc)';
+            btn.innerHTML = t('mermaidEditor.close') || '閉じる';
+            btn.title = t('mermaidEditor.closeTooltip') || '閉じる (Esc)';
             btn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
             btn.onclick = (e) => {
                 e.preventDefault(); e.stopPropagation();
@@ -445,7 +448,7 @@ window.MermaidExpandedManager = {
                     // ボタン表示の更新
                     const eBtn = latestWrapper.querySelector('.mermaid-expanded-edit-btn');
                     if (eBtn) {
-                        eBtn.innerHTML = '✔️ 完了';
+                        eBtn.innerHTML = t('mermaidEditor.done') || '✔️ 完了';
                         eBtn.classList.add('is-editing');
                     }
                 }
@@ -710,3 +713,4 @@ window.showMermaidExpandedView = (wrapper) => window.MermaidExpandedManager.togg
 window.restoreMermaidExpandedView = (wrapper) => {
     if (window.MermaidExpandedManager) window.MermaidExpandedManager.restoreIfNeeded(wrapper);
 };
+})();

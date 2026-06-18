@@ -726,42 +726,34 @@ const MermaidInteraction = (() => {
             { open: '(', close: ')' },      // ID(label)     丸角
         ];
 
-        const nodeIdBoundaryRegex = new RegExp('(?<!\\w)' + escapeRegex(nodeId) + '(?!\\w)');
+        const nodeIdEscaped = escapeRegExp(nodeId);
+        const nodeIdBoundaryRegex = new RegExp('(?<!\\w)' + nodeIdEscaped + '(?!\\w)');
         for (let i = startIdx + 1; i < endIdx; i++) {
             const line = lines[i];
             if (!nodeIdBoundaryRegex.test(line)) continue;
 
             for (const { open, close } of bracketPairs) {
-                const searchStr = nodeId + open;
-                let pos = -1;
+                const openEscaped = escapeRegExp(open);
+                const closeEscaped = escapeRegExp(close);
+                // nodeId + open の厳密な正規表現マッチング（単語境界チェック付き）
+                const pattern = new RegExp(`(?<!\\w)(${nodeIdEscaped}${openEscaped})([\\s\\S]*?)(${closeEscaped})`);
+                
+                const match = line.match(pattern);
+                if (!match) continue;
 
-                // 行内で nodeId+open の位置を探す（単語境界チェック付き）
-                let searchFrom = 0;
-                while (true) {
-                    const found = line.indexOf(searchStr, searchFrom);
-                    if (found === -1) break;
-                    // nodeIdの直前が単語文字でなければ有効なマッチ（部分一致防止）
-                    if (found === 0 || !/\w/.test(line[found - 1])) {
-                        pos = found;
-                        break;
-                    }
-                    searchFrom = found + 1;
-                }
-
+                const pos = line.indexOf(match[1]);
                 if (pos === -1) continue;
 
-                // 対応する閉じブラケットを探す
-                const labelStart = pos + searchStr.length;
-                const closePos = line.indexOf(close, labelStart);
+                const labelStart = pos + match[1].length;
+                const closePos = line.indexOf(match[3], labelStart);
                 if (closePos === -1) continue;
 
-                // closePos直後に余分な閉じ括弧がある場合、短いパターンが長いパターンに
-                // 誤マッチしている可能性があるため（例: ((text)) を (text) でマッチした場合）スキップ
+                // 誤マッチ（短いパターンが長いパターンにマッチ）を防止するチェック
                 const afterClose = line[closePos + close.length];
-                if (close === ')' && afterClose === ')') continue;    // ( が (( に誤マッチ
-                if (close === '))' && afterClose === ')') continue;   // (( が ((( に誤マッチ
+                if (close === ')' && afterClose === ')') continue;
+                if (close === '))' && afterClose === ')') continue;
 
-                // ラベル部分だけを新しいラベルに置き換える（行の前後はそのまま保持）
+                // ラベル部分だけを新しいラベルに置き換える
                 lines[i] = line.substring(0, labelStart) + newLabel + line.substring(closePos);
                 replaced = true;
                 break;
@@ -806,8 +798,10 @@ const MermaidInteraction = (() => {
      * @param {Element} wrapper      - .mermaid-diagram-wrapper
      * @param {string}  currentLabel - 現在のラベル
      * @param {string}  newLabel     - 新しいラベル
+     * @param {string}  fromId       - 接続元ノードID (オプション)
+     * @param {string}  toId         - 接続先ノードID (オプション)
      */
-    function renameMermaidEdgeLabel(wrapper, currentLabel, newLabel) {
+    function renameMermaidEdgeLabel(wrapper, currentLabel, newLabel, fromId = null, toId = null) {
         if (typeof getEditorText !== 'function' || typeof setEditorText !== 'function') return;
 
         let dataLine = parseInt(wrapper.getAttribute('data-line'), 10);
@@ -839,13 +833,35 @@ const MermaidInteraction = (() => {
         if (endIdx === -1) return;
 
         let replaced = false;
+        const escapedLabel = escapeRegExp(currentLabel);
 
-        // エッジラベルの形式： -->|ラベル| または -- ラベル --- または -. ラベル .-> などのパターンがある
-        // ここでは単純に文字列を検索して置換する
-        // "-->|" "--> |" "-- " などの区切り文字があるかチェックすることで誤爆を防ぐ
         for (let i = startIdx + 1; i < endIdx; i++) {
             const line = lines[i];
-            if (!line.includes(currentLabel)) continue;
+
+            // 変更前のラベルがエッジ定義内のラベル部分と完全一致するか正規表現で厳密にチェック
+            const hasPatternA = new RegExp(`(?:-->|-\\.-|-.->|==>|---|--)\\|\\s*${escapedLabel}\\s*\\|`).test(line);
+            const hasPatternB = new RegExp(`--\\s+${escapedLabel}\\s+(---|-->)`).test(line);
+            const hasPatternC = new RegExp(`-\\.\\s+${escapedLabel}\\s+(\\.-|\\.->|->)`).test(line);
+            const hasPatternD = new RegExp(`==\\s+${escapedLabel}\\s+(===|==>)`).test(line);
+
+            if (!hasPatternA && !hasPatternB && !hasPatternC && !hasPatternD) {
+                continue;
+            }
+
+            // fromId, toId が指定されている場合、厳密なエッジ接続チェックを行う
+            if (fromId && toId) {
+                if (!hasMermaidEdge(line, fromId, toId)) continue;
+            } else {
+                // 片方しか指定されていない場合も、単語境界を考慮してチェック
+                if (fromId) {
+                    const fromRegex = new RegExp(`(?<!\\w)${escapeRegExp(fromId)}(?!\\w)`);
+                    if (!fromRegex.test(line)) continue;
+                }
+                if (toId) {
+                    const toRegex = new RegExp(`(?<!\\w)${escapeRegExp(toId)}(?!\\w)`);
+                    if (!toRegex.test(line)) continue;
+                }
+            }
 
             if (newLabel === '') {
                 const escapedLabel = currentLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -2514,6 +2530,60 @@ const MermaidInteraction = (() => {
                 isEdgeLabel = true;
                 const span = edgeLabelEl.tagName.toLowerCase() === 'span' ? edgeLabelEl : edgeLabelEl.querySelector('span, .edgeLabel');
                 currentLabel = (span ? span.textContent : edgeLabelEl.textContent).trim();
+
+                // 対応するエッジの from と to を特定
+                if (edgeLabelEl.classList) {
+                    edgeLabelEl.classList.forEach(cls => {
+                        if (cls.startsWith('LS-')) edgeFromId = cls.substring(3);
+                        if (cls.startsWith('LE-')) edgeToId = cls.substring(3);
+                    });
+                }
+                if (!edgeFromId || !edgeToId) {
+                    // 幾何学的（物理的）な最短距離に基づいて、最も近いエッジパスを特定する
+                    const labelRect = edgeLabelEl.getBoundingClientRect();
+                    const labelCX = labelRect.left + labelRect.width / 2;
+                    const labelCY = labelRect.top + labelRect.height / 2;
+
+                    const allPaths = Array.from(svgEl.querySelectorAll('g.edgePath path, path[id^="L-"]'));
+                    let minDistance = Infinity;
+                    let closestPath = null;
+
+                    allPaths.forEach(path => {
+                        const pathRect = path.getBoundingClientRect();
+                        if (pathRect.width === 0 && pathRect.height === 0) return;
+                        const pathCX = pathRect.left + pathRect.width / 2;
+                        const pathCY = pathRect.top + pathRect.height / 2;
+                        const dist = Math.hypot(pathCX - labelCX, pathCY - labelCY);
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            closestPath = path;
+                        }
+                    });
+
+                    if (closestPath) {
+                        const parsed = parseMermaidEdgeId(closestPath.id, svgEl);
+                        if (parsed) {
+                            edgeFromId = parsed.from;
+                            edgeToId = parsed.to;
+                        }
+                    }
+
+                    // フォールバックとして従来のインデックス照合も残す
+                    if (!edgeFromId || !edgeToId) {
+                        const allLabels = Array.from(svgEl.querySelectorAll('g.edgeLabel'));
+                        const idx = allLabels.indexOf(edgeLabelEl);
+                        if (idx !== -1) {
+                            const correspondingPath = allPaths[idx];
+                            if (correspondingPath) {
+                                const parsed = parseMermaidEdgeId(correspondingPath.id, svgEl);
+                                if (parsed) {
+                                    edgeFromId = parsed.from;
+                                    edgeToId = parsed.to;
+                                }
+                            }
+                        }
+                    }
+                }
             } else if (edgePathEl) {
                 targetEl = edgePathEl;
                 const id = edgePathEl.id || (edgePathEl.parentNode && edgePathEl.parentNode.id);
@@ -2587,7 +2657,7 @@ const MermaidInteraction = (() => {
                 // Markdownソースのラベルを書き換える
                 if (isEdgeLabel) {
                     if (newLabel === currentLabel) return;
-                    renameMermaidEdgeLabel(wrapper, currentLabel, newLabel);
+                    renameMermaidEdgeLabel(wrapper, currentLabel, newLabel, edgeFromId, edgeToId);
                 } else if (isEdgePath) {
                     if (!newLabel) return;
                     addMermaidEdgeLabel(wrapper, edgeFromId, edgeToId, newLabel);

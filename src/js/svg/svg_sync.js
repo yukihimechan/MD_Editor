@@ -226,7 +226,7 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
     const round3 = (val) => Math.round(parseFloat(val) * 1000) / 1000;
 
     // 3. 属性のピンポイントコピー
-    changedIds.forEach(id => {
+    for (const id of changedIds) {
         let liveElNode = null, docEl = null;
 
         if (id === '__root__') {
@@ -238,7 +238,10 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
             docEl = svgDoc.getElementById(id);
         }
 
-        if (!liveElNode || !docEl) return;
+        if (!liveElNode || !docEl) {
+            console.log(`[applyPartialSvgSync] Element not found in editor or live DOM for ID: ${id}. Fallbacking to full sync.`);
+            return false;
+        }
 
         // [A] Live側で消えた属性の削除
         const liveAttrs = liveElNode.attributes;
@@ -285,7 +288,7 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
             if (cur.baseHeight) docEl.setAttribute('data-paper-height', Math.round(cur.baseHeight));
             hasChange = true;
         }
-    });
+    }
 
     if (!hasChange) return true;
 
@@ -959,6 +962,11 @@ function updateSVGFromEditor() {
         svgElement.appendChild(persistentFragment);
         svgElement.appendChild(mainFragment);
 
+        // [FIX] DOM置換直後のgetScreenCTM()呼び出しで正しい値が取得できるよう、強制的にリフローを実行する
+        if (typeof svgElement.getBoundingClientRect === 'function') {
+            svgElement.getBoundingClientRect();
+        }
+
         // [NEW] 初期化ループは廃止。イベントデリゲーション (svg_editor.js の lazyInitHandler) で遅延初期化されます。
 
         // canvas-proxyをz-orderでグリッドより1段上（2番目）に配置する
@@ -1046,6 +1054,21 @@ function updateSVGFromEditor() {
                         selectElement(newEl, true);
                     }
                 }
+            });
+
+            // 【重要】DOMマウント直後は一時的にCSSスケーリングが適用されていないことがあるため、
+            // 段階的にディレイを設けてサイズ補正を再適用し、最終的なレイアウトサイズに追従させる
+            [50, 150, 350, 700].forEach(delay => {
+                setTimeout(() => {
+                    if (window.currentEditingSVG && window.currentEditingSVG.selectedElements) {
+                        window.currentEditingSVG.selectedElements.forEach(el => {
+                            const shape = el.remember('_shapeInstance');
+                            if (shape && typeof shape.syncSelectionHandlers === 'function') {
+                                shape.syncSelectionHandlers(null, true);
+                            }
+                        });
+                    }
+                }, delay);
             });
         }
 

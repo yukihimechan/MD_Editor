@@ -6,7 +6,153 @@ I18n.register('ja', '日本語', {
         "codeExpanded": "コードを展開しました: {{fileName}}",
         "loadingFile": "ファイルを読み込んでいます...",
         "loadingRemoteFile": "リモートファイルを読み込んでいます...",
-        "tauriInitError": "Tauri初期化エラー"
+        "tauriInitError": "Tauri初期化エラー",
+        "welcomeText": "# Markdown Editor へようこそ\n\n(初期コンテンツを読み込めませんでした)"
+    },
+    "collab": {
+        "defaultUserName": "ユーザー",
+        "self": "自分",
+        "guest": "ゲスト",
+        "status": {
+            "connectedRoom": "接続中: ルーム「{{roomName}}」",
+            "disconnected": "未接続",
+            "waitingRoom": "待機中: ルーム「{{roomName}}」 (他のユーザーを待っています)",
+            "offline": "未接続 / オフライン",
+            "connecting": "接続を確立中..."
+        },
+        "editorLock": {
+            "title": "{{senderName}} さんが大容量ファイルを同期中です...",
+            "progress": "同期中: {{progress}}%"
+        },
+        "scan": {
+            "title": "接続先サーバーの選択",
+            "searchingProgress": "探索中...",
+            "searching": "設定されたサーバーに接続できません。ローカルネットワーク上のサーバーを探索しています...",
+            "found": "利用可能なシグナリングサーバーが見つかりました。接続先を選択してください：",
+            "defaultServerName": "シグナリングサーバー",
+            "connectingToServer": "「{{name}}」({{url}}) に接続を試みています...",
+            "notFound": "同一ネットワーク上に利用可能なシグナリングサーバーが見つかりませんでした。",
+            "error": "探索中にエラーが発生しました。再試行してください。",
+            "notSupported": "この環境ではサーバー探索機能を利用できません。",
+            "connectFailed": "接続に失敗しました。サーバーが停止しているか、ファイアウォール設定等のネットワーク設定を確認してください。"
+        },
+        "toast": {
+            "libraryLoadFailed": "共同編集ライブラリの読み込みに失敗しました",
+            "localSyncFailed": "ローカルデータの同期に失敗しました",
+            "initFailed": "共同編集の初期化に失敗しました",
+            "started": "共同編集を開始しました: ルーム「{{roomName}}」",
+            "ended": "共同編集セッションを終了しました",
+            "sharedText": "現在のテキストをルームに共有しました",
+            "roomNotEmpty": "すでにルームにテキストが存在します",
+            "inputRoomName": "ルーム名を入力してください",
+            "connectSuccess": "シグナリングサーバーに正常に接続しました"
+        },
+        "confirm": {
+            "title": "同期の確認",
+            "ok": "同期する",
+            "syncText": "ルーム内のテキストと同期しますか？\n同期すると、現在のローカルテキストは上書きされます。",
+            "restoreData": "過去のルームデータを復元しますか？\n同期すると現在のテキストは上書きされます。"
+        },
+        "title": "共同編集",
+        "tabTitle": "👥 共同編集",
+        "statusDisconnected": "未接続",
+        "statusConnected": "接続中",
+        "statusConnecting": "接続中...",
+        "btnRetry": "再スキャン",
+        "roomLabel": "ルーム名",
+        "roomNote": "（同じ名前を入力した人と接続されます）",
+        "roomPlaceholder": "例: my-document-2026",
+        "nameLabel": "表示名",
+        "namePlaceholder": "例: 山田太郎",
+        "colorLabel": "カーソルの色",
+        "colorNote": "他の参加者に表示されるカーソルの色です",
+        "btnConnect": "接続",
+        "btnDisconnect": "切断",
+        "btnShare": "現在のテキストを共有",
+        "btnClose": "閉じる",
+        "connectedUsersTitle": "接続中のユーザー",
+        "noUsersConnected": "まだ誰も接続していません"
+    },
+    "image": {
+        "toast": {
+            "sourceLineNotFound": "ソース行が見つかりませんでした"
+        }
+    },
+    "editor": {
+        "statsCountSum": "データの個数: {{count}}  合計: {{sum}}",
+        "lineCol": "行: {{line}} 列: {{col}}",
+        "edit": "編集",
+        "done": "完了",
+        "expandView": "拡大画面",
+        "close": "閉じる",
+        "saveSvg": "SVG保存",
+        "saveSvgTitle": "SVG形式で保存",
+        "reload": "再読み込み",
+        "previewLine": "プレビュー行: {{line}}",
+        "historyHeader": "一時保存履歴",
+        "newDocDefault": "新規ドキュメント",
+        "noValue": "なし",
+        "editCode": "コードを編集",
+        "placeholder": "テキストを追加、または '/' でコマンド",
+        "svgUnwrap": "編集完了",
+        "svgUnwrapTitle": "SVGのコード囲いを取り除き、他アプリで表示可能な形式にします",
+        "svgWrap": "編集用意",
+        "svgWrapTitle": "SVGをコードブロックで囲み、エディタで編集可能な安全な状態にします"
+    },
+    "mermaid": {
+        "relationNotFound": "対象のリレーションが見つかりませんでした。",
+        "deleted": "削除しました"
+    },
+    "paint": {
+        "tool": {
+            "brush": "ブラシ",
+            "eraser": "消しゴム",
+            "fill": "塗りつぶし",
+            "selectColor": "色を選択",
+            "lineWidth": "太さ",
+            "rect": "矩形",
+            "ellipse": "楕円",
+            "arrowUp": "矢印(上)",
+            "arrowDown": "矢印(下)",
+            "arrowLeft": "矢印(左)",
+            "arrowRight": "矢印(右)",
+            "text": "テキスト",
+            "fontSize": "Fサイズ",
+            "select": "矩形選択",
+            "copy": "コピー",
+            "paste": "ペースト",
+            "undo": "元に戻す",
+            "redo": "やり直す",
+            "zoomOut": "縮小",
+            "zoomReset": "ズーム/パンをリセット",
+            "zoomIn": "拡大",
+            "openImage": "画像を開く",
+            "clearAll": "全消去",
+            "savePng": "PNGで保存",
+            "saveOverwrite": "上書き保存"
+        },
+        "status": {
+            "canvasSize": "キャンバスサイズ:",
+            "widthTitle": "幅 (px)",
+            "heightTitle": "高さ (px)",
+            "apply": "適用",
+            "applyTitle": "キャンバスサイズを変更（内容は消去されます）"
+        },
+        "toast": {
+            "copiedExternal": "📄 コピーしました (他アプリでも使用可)",
+            "copiedInternal": "📄 コピーしました (内部コピーのみ)",
+            "copied": "📄 コピーしました",
+            "noClipboardImage": "クリップボードに画像がありません",
+            "noClipboardPermission": "クリップボードの読み取り権限がありません。一度ツールでアクセスを許可してください。",
+            "saved": "✅ 保存しました",
+            "saveError": "保存中にエラーが発生しました",
+            "openError": "ファイルを開く際にエラーが発生しました",
+            "minSizeError": "サイズは最低50pxを指定してください"
+        },
+        "confirm": {
+            "clearCanvas": "キャンバスをすべて消去しますか？",
+            "resizeCanvas": "キャンバスを {{width}} × {{height}} にリサイズしますか？\n現在の内容は消去されます。"
+        }
     },
     "toolbar": {
         "file": "ファイル",
@@ -19,7 +165,23 @@ I18n.register('ja', '日本語', {
         "editorOnly": "エディタ",
         "export": "エクスポート",
         "settings": "設定",
-        "help": "ヘルプ"
+        "help": "ヘルプ",
+        "annotation": "注釈",
+        "annotationTitle": "アノテーション（注釈描画）",
+        "collab": "共同編集",
+        "collabTitle": "共同編集",
+        "collabActiveTitle": "共同編集中 ({{count}}人接続)",
+        "fileTitle": "ファイルメニュー",
+        "searchTitle": "検索・置換 (Ctrl+F)",
+        "undoTitle": "元に戻す (Ctrl+Z)",
+        "redoTitle": "やり直し (Ctrl+Y)",
+        "outlineTitle": "アウトライン・レイヤー切替",
+        "viewToggleTitle": "表示モード切替",
+        "slideTitle": "スライド (F10)",
+        "exportTitle": "エクスポート",
+        "settingsTitle": "設定",
+        "helpTitle": "ヘルプ",
+        "resizeBarTitle": "ドラッグして幅を調整"
     },
     "outlineMenu": {
         "markdown": "Markdown (アウトライン)",
@@ -127,14 +289,15 @@ I18n.register('ja', '日本語', {
         "replaceUnicodeCheckboxes": "チェックボックスの置換",
         "replaceUnicodeCheckboxesDesc": "プレビューで☐☑☒をクリックした際に状態を切り替えます"
     },
-    "editor": {
-        "edit": "編集",
-        "done": "完了",
-        "expandView": "拡大画面",
+    "mermaidEditor": {
+        "zoomIn": "拡大表示（パン・ズーム対応）",
+        "zoomText": "拡大",
+        "zoomTitle": "拡大表示中...",
+        "edit": "✏️ 編集",
+        "done": "✔️ 完了",
+        "reset": "↻ リセット",
         "close": "閉じる",
-        "saveSvg": "SVG保存",
-        "saveSvgTitle": "SVG形式で保存",
-        "reload": "再読み込み"
+        "closeTooltip": "閉じる (Esc)"
     },
     "outline": {
         "title": "アウトライン"
@@ -150,7 +313,12 @@ I18n.register('ja', '日本語', {
         "show": "表示する",
         "lock": "操作をロック",
         "unlock": "ロック解除",
-        "empty": "要素がありません"
+        "empty": "要素がありません",
+        "copyTitle": "コピー",
+        "pasteTitle": "貼り付け",
+        "deleteTitle": "削除",
+        "groupTitle": "グループ",
+        "ungroupTitle": "グループ解除"
     },
     "help": {
         "title": "ヘルプ",
@@ -177,7 +345,14 @@ I18n.register('ja', '日本語', {
         "close": "閉じる",
         "cancel": "キャンセル",
         "selectFolder": "フォルダを選択",
-        "confirmDeleteObject": "このオブジェクトを削除してもよろしいですか？"
+        "confirmDeleteObject": "このオブジェクトを削除してもよろしいですか？",
+        "progressTitlePdf": "PDFを作成中...",
+        "progressTitleDocx": "DOCX文書を作成中...",
+        "progressTitleStandalone": "HTML (エディタ同梱) を作成中...",
+        "progressPreparing": "準備中...",
+        "dirAccessTitle": "対象ファイルのフォルダを選択してください",
+        "dirAccessTarget": "対象ファイル:",
+        "dirAccessNote": "があるフォルダを選択してください"
     },
     "svgToolbar": {
         "select": "選択",
@@ -192,6 +367,7 @@ I18n.register('ja', '日本語', {
         "line": "直線",
         "arrow": "矢印",
         "polyline_arrow": "折れ線矢印",
+        "orthogonal_line": "直角折れ線",
         "freehand": "自由描画",
         "bubble": "吹き出し",
         "text": "テキスト"
@@ -328,7 +504,17 @@ I18n.register('ja', '日本語', {
         "sendToBack": "最背面へ移動",
         "showProperties": "プロパティ表示",
         "deleteVertex": "頂点を削除",
-        "removeFromToolbar": "ツールバーから削除"
+        "removeFromToolbar": "ツールバーから削除",
+        "addToToolbar": "ツールバーに追加",
+        "addCSS": "CSS追加",
+        "removeStartArrow": "開始矢印を消す",
+        "addStartArrow": "開始矢印をつける",
+        "removeEndArrow": "終了矢印を消す",
+        "addEndArrow": "終了矢印をつける",
+        "addVertex": "頂点を追加",
+        "saveToFile": "ファイルに保存",
+        "cssClassPrompt": "CSSに追加するクラス名を入力してください",
+        "cssClassPatternDesc": "使用可能: 半角英数字・ハイフン・アンダースコア（先頭は英字）"
     },
     "code": {
         "copyButton": "コピー",
@@ -458,5 +644,340 @@ I18n.register('ja', '日本語', {
         "customToolUnavailable": "カスタムツール機能が利用できません",
         "fontParseFailed": "フォントの解析に失敗しました: ${file.name}\\n${pe.message}",
         "fileReadFailedExt": "ファイルの読み込みに失敗しました: ${file.name}"
+    },
+    "collab": {
+        "defaultUserName": "ユーザー",
+        "self": "自分",
+        "guest": "ゲスト",
+        "status": {
+            "connectedRoom": "接続中: ルーム「{{roomName}}」",
+            "disconnected": "未接続",
+            "waitingRoom": "待機中: ルーム「{{roomName}}」 (他のユーザーを待っています)",
+            "offline": "未接続 / オフライン",
+            "connecting": "接続を確立中..."
+        },
+        "editorLock": {
+            "title": "{{senderName}} さんが大容量ファイルを同期中です...",
+            "progress": "同期中: {{progress}}%"
+        },
+        "scan": {
+            "searching": "設定されたサーバーに接続できません。ローカルネットワーク上のサーバーを探索しています...",
+            "found": "利用可能なシグナリングサーバーが見つかりました。接続先を選択してください：",
+            "defaultServerName": "シグナリングサーバー",
+            "connectingToServer": "「{{name}}」({{url}}) に接続を試みています...",
+            "notFound": "同一ネットワーク上に利用可能なシグナリングサーバーが見つかりませんでした。",
+            "error": "探索中にエラーが発生しました。再試行してください。",
+            "notSupported": "この環境ではサーバー探索機能を利用できません。",
+            "connectFailed": "接続に失敗しました。サーバーが停止しているか、ファイアウォール設定等のネットワーク設定を確認してください。"
+        },
+        "toast": {
+            "libraryLoadFailed": "共同編集ライブラリの読み込みに失敗しました",
+            "localSyncFailed": "ローカルデータの同期に失敗しました",
+            "initFailed": "共同編集の初期化に失敗しました",
+            "started": "共同編集を開始しました: ルーム「{{roomName}}」",
+            "ended": "共同編集セッションを終了しました",
+            "sharedText": "現在のテキストをルームに共有しました",
+            "roomNotEmpty": "すでにルームにテキストが存在します",
+            "inputRoomName": "ルーム名を入力してください",
+            "connectSuccess": "シグナリングサーバーに正常に接続しました"
+        },
+        "confirm": {
+            "syncText": "ルーム内のテキストと同期しますか？\n同期すると、現在のローカルテキストは上書きされます。",
+            "restoreData": "過去のルームデータを復元しますか？\n同期すると現在のテキストは上書きされます。"
+        },
+        "title": "共同編集",
+        "tabTitle": "👥 共同編集",
+        "statusDisconnected": "未接続",
+        "statusConnected": "接続中",
+        "statusConnecting": "接続試行中...",
+        "btnRetry": "再スキャン",
+        "roomLabel": "ルーム名 ",
+        "roomNote": "（同じ名前を入力した人と接続されます）",
+        "roomPlaceholder": "例: my-document-2026",
+        "nameLabel": "表示名",
+        "namePlaceholder": "例: 山田太郎",
+        "colorLabel": "カーソルの色",
+        "btnConnect": "接続",
+        "btnDisconnect": "接続解除",
+        "settingsSignalingLegend": "シグナリングサーバー",
+        "settingsSignalingWarning": "⚠️ <strong>注意:</strong> デフォルトのシグナリングサーバー（wss://signaling.yjs.dev）は開発・テスト用の公開サーバーです。高負荷時に切断・遅延が発生する場合があります。本番利用には自前のサーバーを設定してください。",
+        "settingsSignalingLabel": "サーバーURL:",
+        "settingsSignalingPlaceholder": "wss://...",
+        "settingsSignalingNote": "Yjsに対応したWebsocketシグナリングサーバーのURLを指定してください。",
+        "settingsTurnLegend": "TURNサーバー設定 (WebRTC接続用)",
+        "settingsTurnUrlLabel": "TURNサーバーURL:",
+        "settingsTurnUrlPlaceholder": "turn:...",
+        "settingsTurnUserLabel": "ユーザー名",
+        "settingsTurnUserPlaceholder": "TURN Username",
+        "settingsTurnPassLabel": "パスワード",
+        "settingsTurnPassPlaceholder": "TURN Password",
+        "settingsTurnNote": "企業内ファイアウォールなどの影響でP2P接続が確立できない場合に設定してください。<br>Metered.ca、Twilio、CoturnなどのTURNサービスを利用できます。",
+        "settingsReadmeNote": "⚠️ 設定の詳細は <code>docs/signaling-server.md</code> を参照してください。"
+    },
+    "commentPanel": {
+        "title": "💬 コメント一覧",
+        "unread": "未読 {{count}}件",
+        "pending": "未対応 {{count}}件",
+        "empty": "吹き出し注釈がありません",
+        "bubbleLabel": "💬 吹き出し {{index}}",
+        "jumpTooltip": "クリックして移動",
+        "readTooltip": "既読（クリックで未読に戻す）",
+        "unreadTooltip": "未読（クリックで既読にする）",
+        "doneTooltip": "対応済（クリックで未対応に戻す）",
+        "pendingTooltip": "未対応（クリックで対応済にする）",
+        "showComment": "▼ コメントを表示",
+        "addComment": "▼ コメントを追加",
+        "closeComment": "▲ コメントを閉じる",
+        "placeholder": "コメントを入力..."
+    },
+    "annotationToolbar": {
+        "title": "アノテーション",
+        "select": "選択",
+        "freehand": "自由描画",
+        "rect": "矩形",
+        "circle": "真円",
+        "line": "直線",
+        "bubble": "吹出し",
+        "marker": "マーカー",
+        "clear": "全消去",
+        "comments": "コメント一覧",
+        "close": "終了",
+        "colorTooltip": "色",
+        "strokeTooltip": "太さ",
+        "clearConfirm": "すべてのアノテーションを削除しますか？",
+        "activeTitle": "アノテーション終了 (注釈描画を終了)",
+        "inactiveTitle": "アノテーション（注釈描画）"
+    },
+    "svgEditor": {
+        "airbrush": {
+            "toggleTitle": "エアブラシモード ON/OFF",
+            "colorTitle": "描画色",
+            "strokeWidth": "太さ:",
+            "blur": "ぼかし:",
+            "opacity": "不透明度:",
+            "blend": "合成:",
+            "blendNormal": "通常",
+            "blendMultiply": "乗算",
+            "blendScreen": "スクリーン",
+            "blendOverlay": "オーバーレイ",
+            "blendDarken": "暗く",
+            "blendLighten": "明るく"
+        },
+        "align": {
+            "left": "左揃え",
+            "hCenter": "水平中央揃え",
+            "right": "右揃え",
+            "hDist": "水平等間隔",
+            "top": "上揃え",
+            "vCenter": "垂直中央揃え",
+            "bottom": "下揃え",
+            "vDist": "垂直等間隔"
+        },
+        "animPath": {
+            "label": "パス移動:",
+            "linkBtn": "🔗 パス紐付け",
+            "linkBtnTitle": "ボタンを押した後、レールにしたいキャンバス上のパス要素をクリックして紐付けます",
+            "notSet": "(未設定)",
+            "rotate": "回転",
+            "seconds": "秒:",
+            "removeBtn": "❌ 解除",
+            "selectElementAlert": "アニメーションを設定する要素を選択してください。"
+        },
+        "animTiming": {
+            "label": "タイミング/基点:",
+            "originBtn": "🎯 基点設定",
+            "originBtnTitle": "キャンバス上に基準点マーカーを表示して、ドラッグで位置を設定します",
+            "delay": "遅延:",
+            "delayTitle": "アニメーション開始の遅延（マイナス値で位相をずらせます）",
+            "selectElementAlert": "基準点を設定する要素を選択してください。"
+        },
+        "animTransform": {
+            "label": "変形アニメ:",
+            "none": "なし",
+            "spin": "スピン(回転)",
+            "swing": "スイング(往復)",
+            "bounce": "バウンド(上下)",
+            "pulse": "パルス(拡縮)",
+            "amount": "量:",
+            "amountTitle": "変化量（角度、高さ、スケール）",
+            "seconds": "秒:",
+            "multiple": "複数"
+        },
+        "arrow": {
+            "straight_label": "直線矢印",
+            "straight_title": "直線矢印",
+            "curved_label": "90度矢印",
+            "curved_title": "90度曲がり矢印",
+            "uturn_label": "U字矢印",
+            "uturn_title": "U字矢印",
+            "straight_both_label": "直線(両端)",
+            "straight_both_title": "直線矢印（両端）",
+            "curved_both_label": "90度(両端)",
+            "curved_both_title": "90度曲がり矢印（両端）",
+            "uturn_both_label": "U字(両端)",
+            "uturn_both_title": "U字矢印（両端）",
+            "param_len": "矢印の長さ",
+            "param_shaft_w": "軸の太さ",
+            "param_head_w": "矢印先の幅",
+            "param_head_l": "矢印先の長さ",
+            "param_leg_h": "水平部の長さ",
+            "param_leg_v": "垂直部の長さ",
+            "param_radius": "コーナーの丸み",
+            "param_leg_h1": "前半の長さ",
+            "param_leg_h2": "後半の長さ",
+            "param_u_width": "U字の幅"
+        },
+        "color": {
+            "line": "ライン色",
+            "fill": "塗り色",
+            "opacity": "不透明",
+            "opacityTitle": "不透明度 (%)"
+        },
+        "container": {
+            "defaultLabel": "コンテナ"
+        },
+        "css": {
+            "label": "CSS:",
+            "classListTitle": "CSSクラス一覧",
+            "editStyle": "スタイルを編集",
+            "saveToFile": "CSSをファイルに保存",
+            "openFile": "CSSファイルを開く",
+            "className": "クラス名:",
+            "type": "種類:",
+            "typeShape": "図形",
+            "typeText": "テキスト",
+            "none": "（なし）"
+        },
+        "custom": {
+            "rightClickToDelete": " (右クリックで削除)"
+        },
+        "font": {
+            "gothic": "ゴシック (標準)",
+            "yuGothic": "游ゴシック",
+            "mincho": "明朝体",
+            "familyTitle": "フォントファミリー",
+            "sizeTitle": "フォントサイズ",
+            "bold": "太字",
+            "italic": "斜体",
+            "underline": "下線",
+            "strike": "打ち消し線",
+            "textColor": "文字色",
+            "bgColor": "背景色",
+            "spacing": "間隔",
+            "spacingTitle": "文字間隔",
+            "addLocalFonts": "✨ PCの全フォントを追加",
+            "loading": "読み込み中...",
+            "permissionDenied": "取得失敗（権限が必要です）"
+        },
+        "gradient": {
+            "toggleTitle": "グラデーション編集 ON/OFF",
+            "addColorTitle": "グラデーションに色（パス）を追加",
+            "blurLabel": "ぼかし量:"
+        },
+        "grid": {
+            "sizeTitle": "グリッドのピクセル数",
+            "majorIntervalTitle": "強調線の間隔（本）",
+            "toggleV": "垂直グリッド線の切り替え",
+            "toggleH": "水平グリッド線の切り替え",
+            "zoomOut": "縮小",
+            "zoomIn": "拡大",
+            "zoomReset": "ズームリセット (100%)"
+        },
+        "line": {
+            "solid": "実線",
+            "dotted": "点線",
+            "dashed": "破線",
+            "dashDot": "一点鎖線",
+            "dashDotDot": "二点鎖線",
+            "custom": "カスタム...",
+            "widthTitle": "線の太さ",
+            "typeTitle": "線の種類",
+            "editCustomDash": "カスタム点線を編集",
+            "capButt": "端点: butt",
+            "capRound": "端点: round",
+            "capSquare": "端点: square",
+            "joinMiter": "角: miter",
+            "joinRound": "角: round",
+            "joinBevel": "角: bevel",
+            "autoRoute": "図形を自動で迂回",
+            "customDashTitle": "カスタム点線の作成",
+            "resolution": "解像度:",
+            "helpText": "(クリックまたはドラッグで描画)",
+            "resizeHandleTitle": "ドラッグして解像度を変更"
+        },
+        "operations": {
+            "enterCustomToolName": "ツールバーに追加する名前を入力してください:",
+            "defaultCustomShape": "カスタム図形"
+        },
+        "pathOps": {
+            "fontSelectionSkipped": "フォントが選択されなかったため、一部のテキスト要素の変換をスキップしました。",
+            "excludeNotSupportedImage": "除外（Exclude）は画像要素には対応していません。",
+            "divideNotSupportedImage": "分割（Divide）は画像要素には対応していません。",
+            "flipHorizontal": "水平反転",
+            "flipVertical": "垂直反転",
+            "combine": "結合 (Combine)",
+            "divide": "分割 (Divide)",
+            "subtract": "切り抜き (Subtract)",
+            "intersect": "抽出 (Intersect)",
+            "exclude": "除外 (Exclude)",
+            "cut": "パス切断 (Cut)",
+            "convertToOutline": "アウトライン化"
+        },
+        "properties": {
+            "bgColor": "背景色",
+            "fillColor": "塗りつぶし色",
+            "borderColor": "枠線色",
+            "borderWidth": "枠線幅",
+            "text": "テキスト",
+            "fontSize": "フォントサイズ",
+            "cornerRadius": "角の半径",
+            "starSpikes": "星の角数",
+            "polygonSides": "多角形の辺数",
+            "cancel": "取消",
+            "save": "保存",
+            "dragToResize": "ドラッグして高さを変更"
+        },
+        "shadow": {
+            "toggleTitle": "影効果 ON/OFF",
+            "blur": "ぼかし:",
+            "color": "色:",
+            "colorTitle": "影の色",
+            "opacity": "透明度:",
+            "expandTitle": "詳細設定を展開/折りたたむ",
+            "spread": "拡散:",
+            "inner": "内側:",
+            "angle": "角度:",
+            "distance": "距離:",
+            "blend": "合成:",
+            "blendNormal": "通常",
+            "blendMultiply": "乗算",
+            "blendScreen": "スクリーン",
+            "blendOverlay": "オーバーレイ"
+        },
+        "style": {
+            "palette1": "パレット1",
+            "palette2": "パレット2",
+            "palette3": "パレット3",
+            "expandTitle": "パレットエリアを展開"
+        },
+        "textAlign": {
+            "hLeft": "左寄せ",
+            "hCenter": "中央寄せ",
+            "hRight": "右寄せ",
+            "vTop": "上寄せ",
+            "vMiddle": "上下中央",
+            "vBottom": "下寄せ",
+            "wmHLtr": "左書き",
+            "wmHRtl": "右書き",
+            "wmVRl": "縦書き",
+            "spacingLabel": "行間",
+            "spacingTitle": "行間の倍率 (例: 1.2 や 1.5)"
+        },
+        "toolbarBase": {
+            "dragToMove": "ドラッグして移動",
+            "dragToResize": "ドラッグして伸縮（端までドラッグで左右入替）",
+            "defaultSettings": "の既定設定",
+            "none": "なし"
+        }
     }
 });

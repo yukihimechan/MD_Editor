@@ -2,6 +2,7 @@
  * SVG Color Toolbar
  * 枠・ラインの色、塗りの色、不透明度を設定するツールバー
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGColorToolbar extends SVGToolbarBase {
     constructor(container, svgToolbar, options = {}) {
         super({
@@ -47,12 +48,12 @@ class SVGColorToolbar extends SVGToolbarBase {
         mainRow.style.cssText = `display: flex; align-items: center; gap: 4px; padding-right: 2px;`;
 
         // ラインカラーツール
-        const { container: lineTrigger, anchor: lineAnchor } = this.createColorTrigger('ライン色', 'stroke');
+        const { container: lineTrigger, anchor: lineAnchor } = this.createColorTrigger(t('svgEditor.color.line') || 'ライン色', 'stroke');
         mainRow.appendChild(lineTrigger);
         this.lineColorPicker = this.initPicker('stroke', lineAnchor, lineTrigger, '#000000');
 
         // 塗りカラーツール
-        const { container: fillTrigger, anchor: fillAnchor } = this.createColorTrigger('塗り色', 'fill');
+        const { container: fillTrigger, anchor: fillAnchor } = this.createColorTrigger(t('svgEditor.color.fill') || '塗り色', 'fill');
         mainRow.appendChild(fillTrigger);
         this.fillColorPicker = this.initPicker('fill', fillAnchor, fillTrigger, 'transparent');
 
@@ -63,13 +64,13 @@ class SVGColorToolbar extends SVGToolbarBase {
 
         // 不透明度
         const opacityLabel = document.createElement('span');
-        opacityLabel.textContent = '不透明';
+        opacityLabel.textContent = t('svgEditor.color.opacity') || '不透明';
         opacityLabel.style.cssText = `font-size: 9px; color: var(--svg-toolbar-fg); opacity: 0.6; margin: 0 2px 0 2px; white-space: nowrap;`;
         mainRow.appendChild(opacityLabel);
 
         this.opacityInput = document.createElement('input');
         this.opacityInput.type = 'number';
-        this.opacityInput.title = '不透明度 (%)';
+        this.opacityInput.title = t('svgEditor.color.opacityTitle') || '不透明度 (%)';
         this.opacityInput.min = '1';
         this.opacityInput.max = '100';
         this.opacityInput.step = '1';

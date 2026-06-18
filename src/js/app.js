@@ -4,6 +4,8 @@
  * Initializes modules and handles app startup
  */
 
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
@@ -675,7 +677,7 @@ async function loadSampleContent() {
     // [FIX] Use global constant from default_content.js instead of fetch to avoid CORS errors
     const sampleMarkdown = (typeof DEFAULT_CONTENT !== 'undefined')
         ? DEFAULT_CONTENT
-        : `# Markdown Editor へようこそ\n\n(初期コンテンツを読み込めませんでした)`;
+        : t('app.welcomeText') || `# Markdown Editor へようこそ\n\n(初期コンテンツを読み込めませんでした)`;
 
     if (typeof resetEditor === 'function') {
         resetEditor(sampleMarkdown);

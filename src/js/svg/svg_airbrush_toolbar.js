@@ -4,6 +4,7 @@
  * 描画ツール（AirbrushTool）のロジックもこのファイルに含め、
  * SVGMainToolbar の toolMap へ動的に登録する。
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 
 // ─────────────────────────────────────────────
 // AirbrushTool: BaseTool を継承した描画ツール
@@ -237,7 +238,7 @@ class SVGAirbrushToolbar extends SVGToolbarBase {
 
         // 1. エアブラシ有効化ボタン（トグル）
         this.toggleBtn = document.createElement('button');
-        this.toggleBtn.title = 'エアブラシモード ON/OFF';
+        this.toggleBtn.title = t('svgEditor.airbrush.toggleTitle') || 'エアブラシモード ON/OFF';
         this.toggleBtn.innerHTML = `
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
                 <circle cx="8" cy="16" r="5" opacity="0.4"/>
@@ -257,7 +258,7 @@ class SVGAirbrushToolbar extends SVGToolbarBase {
 
         // 2. カラーボタン
         this.colorBtn = document.createElement('div');
-        this.colorBtn.title = '描画色';
+        this.colorBtn.title = t('svgEditor.airbrush.colorTitle') || '描画色';
         this.colorBtn.style.cssText = `
             width: 18px; height: 18px;
             background-color: ${this.params.color};
@@ -276,7 +277,7 @@ class SVGAirbrushToolbar extends SVGToolbarBase {
         contentArea.appendChild(this._createSeparator());
 
         // 3. 太さスライダー
-        const widthContainer = this._createSliderGroup('太さ:', 1, 100, 1, this.params.strokeWidth, 'px', (val) => {
+        const widthContainer = this._createSliderGroup(t('svgEditor.airbrush.strokeWidth') || '太さ:', 1, 100, 1, this.params.strokeWidth, 'px', (val) => {
             this.params.strokeWidth = val;
             this.applyToSelection();
         });
@@ -288,7 +289,7 @@ class SVGAirbrushToolbar extends SVGToolbarBase {
         contentArea.appendChild(this._createSeparator());
 
         // 4. ぼかしスライダー
-        const blurContainer = this._createSliderGroup('ぼかし:', 0, 50, 1, this.params.blur, 'px', (val) => {
+        const blurContainer = this._createSliderGroup(t('svgEditor.airbrush.blur') || 'ぼかし:', 0, 50, 1, this.params.blur, 'px', (val) => {
             this.params.blur = val;
             this.applyToSelection();
         });
@@ -300,7 +301,7 @@ class SVGAirbrushToolbar extends SVGToolbarBase {
         contentArea.appendChild(this._createSeparator());
 
         // 5. 不透明度スライダー
-        const opacityContainer = this._createSliderGroup('不透明度:', 0.05, 1.0, 0.05, this.params.opacity, '', (val) => {
+        const opacityContainer = this._createSliderGroup(t('svgEditor.airbrush.opacity') || '不透明度:', 0.05, 1.0, 0.05, this.params.opacity, '', (val) => {
             this.params.opacity = parseFloat(val);
             this.applyToSelection();
         });
@@ -316,18 +317,18 @@ class SVGAirbrushToolbar extends SVGToolbarBase {
         blendContainer.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:11px;color:#666;';
 
         const blendLabel = document.createElement('span');
-        blendLabel.textContent = '合成:';
+        blendLabel.textContent = t('svgEditor.airbrush.blend') || '合成:';
         blendContainer.appendChild(blendLabel);
 
         this.blendSelect = document.createElement('select');
         this.blendSelect.style.cssText = 'padding:1px 2px;font-size:11px;border:1px solid #ccc;border-radius:3px;background:#fff;';
         const modes = [
-            { value: 'normal', label: '通常' },
-            { value: 'multiply', label: '乗算' },
-            { value: 'screen', label: 'スクリーン' },
-            { value: 'overlay', label: 'オーバーレイ' },
-            { value: 'darken', label: '暗く' },
-            { value: 'lighten', label: '明るく' }
+            { value: 'normal', label: t('svgEditor.airbrush.blendNormal') || '通常' },
+            { value: 'multiply', label: t('svgEditor.airbrush.blendMultiply') || '乗算' },
+            { value: 'screen', label: t('svgEditor.airbrush.blendScreen') || 'スクリーン' },
+            { value: 'overlay', label: t('svgEditor.airbrush.blendOverlay') || 'オーバーレイ' },
+            { value: 'darken', label: t('svgEditor.airbrush.blendDarken') || '暗く' },
+            { value: 'lighten', label: t('svgEditor.airbrush.blendLighten') || '明るく' }
         ];
         modes.forEach(m => {
             const opt = document.createElement('option');

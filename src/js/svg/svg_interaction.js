@@ -137,11 +137,12 @@ function makeInteractive(el) {
     // すでにインタラクティブ化されている（SvgShape インスタンスが存在する）場合は重複処理を防止
     if (el.remember('_shapeInstance')) return;
 
-    // [NEW] もし el (子要素の rect や text) の親が shape-text-group であれば、親の g 要素をインタラクティブ化する
+    // [NEW] もし el (子要素の rect や text) の親が shape-text-group または container であれば、親の g 要素をインタラクティブ化する
     if (el.node.parentNode && el.node.parentNode.nodeType === 1) {
         const pTagName = el.node.parentNode.tagName.toLowerCase();
         const pToolId = el.node.parentNode.getAttribute('data-tool-id');
-        if (pTagName === 'g' && pToolId === 'shape-text-group') {
+        const pContainer = el.node.parentNode.getAttribute('data-container');
+        if (pTagName === 'g' && (pToolId === 'shape-text-group' || pToolId === 'container' || pContainer === 'true')) {
             const parentEl = el.parent();
             if (parentEl && typeof makeInteractive === 'function') {
                 makeInteractive(parentEl);
@@ -157,6 +158,7 @@ function makeInteractive(el) {
         'polyline-handle', 'midpoint-handle',
         'bez-control-point', 'bez-control-line',
         'polyline-handle-group', 'rotation-handle-group', 'radius-handle-group', 'bubble-handle-group',
+        'orthogonal-handle-group', 'orthogonal-endpoint-handle', 'orthogonal-midpoint-handle',
         'svg_select_group', 'svg-select-group', 'svg-interaction-hitarea',
         'svg-grid-lines', 'svg-grid-line', 'svg-canvas-proxy', 'svg-canvas-border',
         'svg-snap-guides', 'svg-control-marker', 'svg-ruler'

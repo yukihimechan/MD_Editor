@@ -6,7 +6,89 @@ I18n.register('en', 'English', {
         "codeExpanded": "Expanded code: {{fileName}}",
         "loadingFile": "Loading file...",
         "loadingRemoteFile": "Loading remote file...",
-        "tauriInitError": "Tauri Initialization Error"
+        "tauriInitError": "Tauri Initialization Error",
+        "welcomeText": "# Welcome to Markdown Editor\n\n(Failed to load initial content)"
+    },
+    "image": {
+        "toast": {
+            "sourceLineNotFound": "Could not find the source line"
+        }
+    },
+    "editor": {
+        "statsCountSum": "Count: {{count}}  Sum: {{sum}}",
+        "lineCol": "Ln: {{line}} Col: {{col}}",
+        "edit": "Edit",
+        "done": "Done",
+        "expandView": "Expand View",
+        "close": "Close",
+        "saveSvg": "Save SVG",
+        "saveSvgTitle": "Save as SVG format",
+        "reload": "Reload",
+        "previewLine": "Preview Line: {{line}}",
+        "historyHeader": "Temporary Save History",
+        "newDocDefault": "New Document",
+        "noValue": "None",
+        "editCode": "Edit Code",
+        "placeholder": "Add text, or '/' for commands",
+        "svgUnwrap": "Finish Edit",
+        "svgUnwrapTitle": "Remove the SVG code block fence to make it viewable in other applications",
+        "svgWrap": "Prepare Edit",
+        "svgWrapTitle": "Wrap SVG in a code block to make it editable in the editor"
+    },
+    "mermaid": {
+        "relationNotFound": "Target relation not found.",
+        "deleted": "Deleted"
+    },
+    "paint": {
+        "tool": {
+            "brush": "Brush",
+            "eraser": "Eraser",
+            "fill": "Fill",
+            "selectColor": "Select Color",
+            "lineWidth": "Width",
+            "rect": "Rectangle",
+            "ellipse": "Ellipse",
+            "arrowUp": "Arrow (Up)",
+            "arrowDown": "Arrow (Down)",
+            "arrowLeft": "Arrow (Left)",
+            "arrowRight": "Arrow (Right)",
+            "text": "Text",
+            "fontSize": "Font Size",
+            "select": "Select",
+            "copy": "Copy",
+            "paste": "Paste",
+            "undo": "Undo",
+            "redo": "Redo",
+            "zoomOut": "Zoom Out",
+            "zoomReset": "Reset Zoom/Pan",
+            "zoomIn": "Zoom In",
+            "openImage": "Open Image",
+            "clearAll": "Clear All",
+            "savePng": "Save PNG",
+            "saveOverwrite": "Save"
+        },
+        "status": {
+            "canvasSize": "Canvas Size:",
+            "widthTitle": "Width (px)",
+            "heightTitle": "Height (px)",
+            "apply": "Apply",
+            "applyTitle": "Change canvas size (content will be cleared)"
+        },
+        "toast": {
+            "copiedExternal": "📄 Copied (Available for other apps)",
+            "copiedInternal": "📄 Copied (Internal clipboard only)",
+            "copied": "📄 Copied",
+            "noClipboardImage": "No image in clipboard",
+            "noClipboardPermission": "No permission to read clipboard. Please grant access in your browser.",
+            "saved": "✅ Saved successfully",
+            "saveError": "An error occurred while saving",
+            "openError": "An error occurred while opening the file",
+            "minSizeError": "Size must be at least 50px"
+        },
+        "confirm": {
+            "clearCanvas": "Are you sure you want to clear the canvas?",
+            "resizeCanvas": "Do you want to resize the canvas to {{width}} x {{height}}?\nCurrent content will be cleared."
+        }
     },
     "toolbar": {
         "file": "File",
@@ -19,7 +101,23 @@ I18n.register('en', 'English', {
         "editorOnly": "Editor",
         "export": "Export",
         "settings": "Settings",
-        "help": "Help"
+        "help": "Help",
+        "annotation": "Annotation",
+        "annotationTitle": "Annotation (Draw Notes)",
+        "collab": "Collab",
+        "collabTitle": "Collaborative Editing",
+        "collabActiveTitle": "Collaborating ({{count}} connected)",
+        "fileTitle": "File Menu",
+        "searchTitle": "Search & Replace (Ctrl+F)",
+        "undoTitle": "Undo (Ctrl+Z)",
+        "redoTitle": "Redo (Ctrl+Y)",
+        "outlineTitle": "Toggle Outline/Layers",
+        "viewToggleTitle": "Toggle View Mode",
+        "slideTitle": "Slide (F10)",
+        "exportTitle": "Export",
+        "settingsTitle": "Settings",
+        "helpTitle": "Help",
+        "resizeBarTitle": "Drag to resize width"
     },
     "outlineMenu": {
         "markdown": "Markdown (Outline)",
@@ -127,14 +225,15 @@ I18n.register('en', 'English', {
         "replaceUnicodeCheckboxes": "Replace Checkboxes",
         "replaceUnicodeCheckboxesDesc": "Cycle through ☐, ☑, ☒ by clicking them in the preview"
     },
-    "editor": {
-        "edit": "Edit",
-        "done": "Done",
-        "expandView": "Expand View",
+    "mermaidEditor": {
+        "zoomIn": "Zoom In (Pan & Zoom)",
+        "zoomText": "Zoom",
+        "zoomTitle": "Zooming...",
+        "edit": "✏️ Edit",
+        "done": "✔️ Done",
+        "reset": "↻ Reset",
         "close": "Close",
-        "saveSvg": "Save SVG",
-        "saveSvgTitle": "Save as SVG format",
-        "reload": "Reload"
+        "closeTooltip": "Close (Esc)"
     },
     "outline": {
         "title": "Outline"
@@ -148,7 +247,12 @@ I18n.register('en', 'English', {
         "show": "Show",
         "lock": "Lock",
         "unlock": "Unlock",
-        "empty": "No elements"
+        "empty": "No elements",
+        "copyTitle": "Copy",
+        "pasteTitle": "Paste",
+        "deleteTitle": "Delete",
+        "groupTitle": "Group",
+        "ungroupTitle": "Ungroup"
     },
     "help": {
         "title": "Help",
@@ -175,7 +279,14 @@ I18n.register('en', 'English', {
         "close": "Close",
         "cancel": "Cancel",
         "selectFolder": "Select Folder",
-        "confirmDeleteObject": "Are you sure you want to delete this object?"
+        "confirmDeleteObject": "Are you sure you want to delete this object?",
+        "progressTitlePdf": "Generating PDF...",
+        "progressTitleDocx": "Generating DOCX...",
+        "progressTitleStandalone": "Generating Standalone HTML...",
+        "progressPreparing": "Preparing...",
+        "dirAccessTitle": "Please select the folder of the target file",
+        "dirAccessTarget": "Target File:",
+        "dirAccessNote": "exists"
     },
     "svgToolbar": {
         "select": "Select",
@@ -189,6 +300,7 @@ I18n.register('en', 'English', {
         "line": "Line",
         "arrow": "Arrow",
         "polyline_arrow": "Polyline Arrow",
+        "orthogonal_line": "Orthogonal Line",
         "freehand": "Freehand",
         "bubble": "Bubble",
         "text": "Text"
@@ -335,7 +447,17 @@ I18n.register('en', 'English', {
         "sendToBack": "Send to Back",
         "showProperties": "Show Properties",
         "deleteVertex": "Delete Vertex",
-        "removeFromToolbar": "Remove from Toolbar"
+        "removeFromToolbar": "Remove from Toolbar",
+        "addToToolbar": "Add to Toolbar",
+        "addCSS": "Add CSS",
+        "removeStartArrow": "Remove Start Arrow",
+        "addStartArrow": "Add Start Arrow",
+        "removeEndArrow": "Remove End Arrow",
+        "addEndArrow": "Add End Arrow",
+        "addVertex": "Add Vertex",
+        "saveToFile": "Save to File",
+        "cssClassPrompt": "Please enter a class name to add to CSS",
+        "cssClassPatternDesc": "Allowed: Alphanumeric, hyphens, underscores (must start with a letter)"
     },
     "code": {
         "copyButton": "Copy",
@@ -465,5 +587,349 @@ I18n.register('en', 'English', {
         "customToolUnavailable": "Custom tool feature is unavailable",
         "fontParseFailed": "Failed to parse font: ${file.name}\\n${pe.message}",
         "fileReadFailedExt": "Failed to read file: ${file.name}"
+    },
+    "collab": {
+        "defaultUserName": "User",
+        "self": "Me",
+        "guest": "Guest",
+        "status": {
+            "connectedRoom": "Connected: Room \"{{roomName}}\"",
+            "disconnected": "Disconnected",
+            "waitingRoom": "Waiting: Room \"{{roomName}}\" (Waiting for other users)",
+            "offline": "Disconnected / Offline",
+            "connecting": "Establishing connection..."
+        },
+        "editorLock": {
+            "title": "{{senderName}} is syncing large files...",
+            "progress": "Syncing: {{progress}}%"
+        },
+        "scan": {
+            "title": "Select Connection Server",
+            "searchingProgress": "Searching...",
+            "searching": "Cannot connect to the configured server. Searching for servers on the local network...",
+            "found": "Available signaling servers found. Please select a server to connect:",
+            "defaultServerName": "Signaling Server",
+            "connectingToServer": "Trying to connect to \"{{name}}\" ({{url}})...",
+            "notFound": "No available signaling servers found on the same network.",
+            "error": "An error occurred during search. Please try again.",
+            "notSupported": "Server discovery is not supported in this environment.",
+            "connectFailed": "Connection failed. Make sure the server is running and check your network/firewall settings."
+        },
+        "toast": {
+            "libraryLoadFailed": "Failed to load collaboration libraries",
+            "localSyncFailed": "Failed to sync local data",
+            "initFailed": "Failed to initialize collaboration",
+            "started": "Started collaboration: Room \"{{roomName}}\"",
+            "ended": "Ended collaboration session",
+            "sharedText": "Shared current text to the room",
+            "roomNotEmpty": "Text already exists in the room",
+            "inputRoomName": "Please enter a room name",
+            "connectSuccess": "Successfully connected to the signaling server"
+        },
+        "confirm": {
+            "title": "Sync Confirmation",
+            "ok": "Sync",
+            "syncText": "Do you want to sync with the text in the room?\nSyncing will overwrite your current local text.",
+            "restoreData": "Do you want to restore past room data?\nSyncing will overwrite your current text."
+        },
+        "title": "Collab",
+        "tabTitle": "👥 Collab",
+        "statusDisconnected": "Disconnected",
+        "statusConnected": "Connected",
+        "statusConnecting": "Connecting...",
+        "btnRetry": "Rescan",
+        "roomLabel": "Room Name ",
+        "roomNote": "(Connected with people who entered the same room name)",
+        "roomPlaceholder": "e.g. my-document-2026",
+        "nameLabel": "Display Name",
+        "namePlaceholder": "e.g. John Doe",
+        "colorLabel": "Cursor Color",
+        "colorNote": "This color represents your cursor color shown to other collaborators",
+        "btnConnect": "Connect",
+        "btnDisconnect": "Disconnect",
+        "btnShare": "Share current text",
+        "btnClose": "Close",
+        "connectedUsersTitle": "Connected Users",
+        "noUsersConnected": "No users connected yet",
+        "settingsSignalingLegend": "Signaling Server",
+        "settingsSignalingWarning": "⚠️ <strong>Notice:</strong> The default signaling server (wss://signaling.yjs.dev) is a public server for development and testing. Disconnections and delays may occur under heavy load. Please set up your own server for production use.",
+        "settingsSignalingLabel": "Server URL:",
+        "settingsSignalingPlaceholder": "wss://...",
+        "settingsSignalingNote": "Specify the URL of the Websocket signaling server compatible with Yjs.",
+        "settingsTurnLegend": "TURN Server Settings (for WebRTC)",
+        "settingsTurnUrlLabel": "TURN Server URL:",
+        "settingsTurnUrlPlaceholder": "turn:...",
+        "settingsTurnUserLabel": "Username",
+        "settingsTurnUserPlaceholder": "TURN Username",
+        "settingsTurnPassLabel": "Password",
+        "settingsTurnPassPlaceholder": "TURN Password",
+        "settingsTurnNote": "Configure this if you cannot establish P2P connection behind corporate firewalls.<br>TURN services like Metered.ca, Twilio, or Coturn can be used.",
+        "settingsReadmeNote": "⚠️ Refer to <code>docs/signaling-server.md</code> for configuration details."
+    },
+    "commentPanel": {
+        "title": "💬 Comments",
+        "unread": "Unread: {{count}}",
+        "pending": "Pending: {{count}}",
+        "empty": "No callout comments",
+        "bubbleLabel": "💬 Callout {{index}}",
+        "jumpTooltip": "Click to jump",
+        "readTooltip": "Read (Click to mark unread)",
+        "unreadTooltip": "Unread (Click to mark read)",
+        "doneTooltip": "Done (Click to mark pending)",
+        "pendingTooltip": "Pending (Click to mark done)",
+        "showComment": "▼ Show Comments",
+        "addComment": "▼ Add Comment",
+        "closeComment": "▲ Close Comments",
+        "placeholder": "Enter comment..."
+    },
+    "annotationToolbar": {
+        "title": "Annotation",
+        "select": "Select",
+        "freehand": "Freehand",
+        "rect": "Rectangle",
+        "circle": "Circle",
+        "line": "Line",
+        "bubble": "Bubble",
+        "marker": "Marker",
+        "clear": "Clear All",
+        "comments": "Comments",
+        "close": "Close",
+        "colorTooltip": "Color",
+        "strokeTooltip": "Stroke Width",
+        "clearConfirm": "Are you sure you want to delete all annotations?",
+        "activeTitle": "Exit Annotation",
+        "inactiveTitle": "Annotation (Draw Notes)"
+    },
+    "svgEditor": {
+        "airbrush": {
+            "toggleTitle": "Airbrush Mode ON/OFF",
+            "colorTitle": "Color",
+            "strokeWidth": "Width:",
+            "blur": "Blur:",
+            "opacity": "Opacity:",
+            "blend": "Blend:",
+            "blendNormal": "Normal",
+            "blendMultiply": "Multiply",
+            "blendScreen": "Screen",
+            "blendOverlay": "Overlay",
+            "blendDarken": "Darken",
+            "blendLighten": "Lighten"
+        },
+        "align": {
+            "left": "Align Left",
+            "hCenter": "Align Horizontal Center",
+            "right": "Align Right",
+            "hDist": "Distribute Horizontally",
+            "top": "Align Top",
+            "vCenter": "Align Vertical Center",
+            "bottom": "Align Bottom",
+            "vDist": "Distribute Vertically"
+        },
+        "animPath": {
+            "label": "Path Motion:",
+            "linkBtn": "🔗 Link Path",
+            "linkBtnTitle": "Click this button, then click a path element on the canvas to link it as a motion path",
+            "notSet": "(Not Set)",
+            "rotate": "Rotate",
+            "seconds": "sec:",
+            "removeBtn": "❌ Unlink",
+            "selectElementAlert": "Please select an element to animate first."
+        },
+        "animTiming": {
+            "label": "Timing/Origin:",
+            "originBtn": "🎯 Set Origin",
+            "originBtnTitle": "Show origin marker on canvas and drag to set position",
+            "delay": "Delay:",
+            "delayTitle": "Delay before animation starts (negative values offset phase)",
+            "selectElementAlert": "Please select an element to set origin first."
+        },
+        "animTransform": {
+            "label": "Transform Anim:",
+            "none": "None",
+            "spin": "Spin (Rotate)",
+            "swing": "Swing (Oscillate)",
+            "bounce": "Bounce (Vertical)",
+            "pulse": "Pulse (Scale)",
+            "amount": "Amt:",
+            "amountTitle": "Amount (angle, height, scale)",
+            "seconds": "sec:",
+            "multiple": "Mult"
+        },
+        "arrow": {
+            "straight_label": "Straight Arrow",
+            "straight_title": "Straight Arrow",
+            "curved_label": "90-deg Arrow",
+            "curved_title": "90-degree Curved Arrow",
+            "uturn_label": "U-turn Arrow",
+            "uturn_title": "U-turn Arrow",
+            "straight_both_label": "Straight (Both)",
+            "straight_both_title": "Straight Arrow (Both Ends)",
+            "curved_both_label": "90-deg (Both)",
+            "curved_both_title": "90-degree Curved Arrow (Both Ends)",
+            "uturn_both_label": "U-turn (Both)",
+            "uturn_both_title": "U-turn Arrow (Both Ends)",
+            "param_len": "Arrow Length",
+            "param_shaft_w": "Shaft Width",
+            "param_head_w": "Head Width",
+            "param_head_l": "Head Length",
+            "param_leg_h": "Horizontal Leg",
+            "param_leg_v": "Vertical Leg",
+            "param_radius": "Corner Radius",
+            "param_leg_h1": "First Leg Length",
+            "param_leg_h2": "Second Leg Length",
+            "param_u_width": "U-turn Width"
+        },
+        "color": {
+            "line": "Line Color",
+            "fill": "Fill Color",
+            "opacity": "Opacity",
+            "opacityTitle": "Opacity (%)"
+        },
+        "container": {
+            "defaultLabel": "Container"
+        },
+        "css": {
+            "label": "CSS:",
+            "classListTitle": "CSS Class List",
+            "editStyle": "Edit Style",
+            "saveToFile": "Save CSS to File",
+            "openFile": "Open CSS File",
+            "className": "Class Name:",
+            "type": "Type:",
+            "typeShape": "Shape",
+            "typeText": "Text",
+            "none": "(None)"
+        },
+        "custom": {
+            "rightClickToDelete": " (Right-click to delete)"
+        },
+        "font": {
+            "gothic": "Gothic (Standard)",
+            "yuGothic": "Yu Gothic",
+            "mincho": "Mincho",
+            "familyTitle": "Font Family",
+            "sizeTitle": "Font Size",
+            "bold": "Bold",
+            "italic": "Italic",
+            "underline": "Underline",
+            "strike": "Strikethrough",
+            "textColor": "Text Color",
+            "bgColor": "Background Color",
+            "spacing": "Spacing",
+            "spacingTitle": "Letter Spacing",
+            "addLocalFonts": "✨ Add all local PC fonts",
+            "loading": "Loading...",
+            "permissionDenied": "Failed to get local fonts (permission required)"
+        },
+        "gradient": {
+            "toggleTitle": "Gradient Edit ON/OFF",
+            "addColorTitle": "Add Color (Path) to Gradient",
+            "blurLabel": "Blur amount:"
+        },
+        "grid": {
+            "sizeTitle": "Grid size in pixels",
+            "majorIntervalTitle": "Major grid line interval (lines)",
+            "toggleV": "Toggle Vertical Grid Lines",
+            "toggleH": "Toggle Horizontal Grid Lines",
+            "zoomOut": "Zoom Out",
+            "zoomIn": "Zoom In",
+            "zoomReset": "Reset Zoom (100%)"
+        },
+        "line": {
+            "solid": "Solid",
+            "dotted": "Dotted",
+            "dashed": "Dashed",
+            "dashDot": "Dash-Dot",
+            "dashDotDot": "Dash-Dot-Dot",
+            "custom": "Custom...",
+            "widthTitle": "Stroke Width",
+            "typeTitle": "Stroke Type",
+            "editCustomDash": "Edit Custom Dash",
+            "capButt": "Cap: butt",
+            "capRound": "Cap: round",
+            "capSquare": "Cap: square",
+            "joinMiter": "Join: miter",
+            "joinRound": "Join: round",
+            "joinBevel": "Join: bevel",
+            "autoRoute": "Auto Route Around Shapes",
+            "customDashTitle": "Create Custom Dash Pattern",
+            "resolution": "Resolution:",
+            "helpText": "(Click or drag to draw)",
+            "resizeHandleTitle": "Drag to change resolution"
+        },
+        "operations": {
+            "enterCustomToolName": "Please enter a name to add to the toolbar:",
+            "defaultCustomShape": "Custom Shape"
+        },
+        "pathOps": {
+            "fontSelectionSkipped": "Some text elements were skipped because no font was selected.",
+            "excludeNotSupportedImage": "Exclude is not supported for image elements.",
+            "divideNotSupportedImage": "Divide is not supported for image elements.",
+            "flipHorizontal": "Flip Horizontally",
+            "flipVertical": "Flip Vertically",
+            "combine": "Combine",
+            "divide": "Divide",
+            "subtract": "Subtract (Clip)",
+            "intersect": "Intersect",
+            "exclude": "Exclude",
+            "cut": "Cut Path",
+            "convertToOutline": "Convert to Outline"
+        },
+        "properties": {
+            "bgColor": "Background Color",
+            "fillColor": "Fill Color",
+            "borderColor": "Border Color",
+            "borderWidth": "Border Width",
+            "text": "Text",
+            "fontSize": "Font Size",
+            "cornerRadius": "Corner Radius",
+            "starSpikes": "Star Spikes",
+            "polygonSides": "Polygon Sides",
+            "cancel": "Cancel",
+            "save": "Save",
+            "dragToResize": "Drag to change height"
+        },
+        "shadow": {
+            "toggleTitle": "Shadow Effect ON/OFF",
+            "blur": "Blur:",
+            "color": "Color:",
+            "colorTitle": "Shadow Color",
+            "opacity": "Opacity:",
+            "expandTitle": "Toggle details",
+            "spread": "Spread:",
+            "inner": "Inner:",
+            "angle": "Angle:",
+            "distance": "Distance:",
+            "blend": "Blend:",
+            "blendNormal": "Normal",
+            "blendMultiply": "Multiply",
+            "blendScreen": "Screen",
+            "blendOverlay": "Overlay"
+        },
+        "style": {
+            "palette1": "Palette 1",
+            "palette2": "Palette 2",
+            "palette3": "Palette 3",
+            "expandTitle": "Expand palette area"
+        },
+        "textAlign": {
+            "hLeft": "Left Align",
+            "hCenter": "Center Align",
+            "hRight": "Right Align",
+            "vTop": "Top Align",
+            "vMiddle": "Middle Align",
+            "vBottom": "Bottom Align",
+            "wmHLtr": "Horizontal (L-to-R)",
+            "wmHRtl": "Horizontal (R-to-L)",
+            "wmVRl": "Vertical (R-to-L)",
+            "spacingLabel": "Spacing",
+            "spacingTitle": "Line spacing multiplier (e.g. 1.2 or 1.5)"
+        },
+        "toolbarBase": {
+            "dragToMove": "Drag to move",
+            "dragToResize": "Drag to resize (drag to edge to swap sides)",
+            "defaultSettings": "Default Settings",
+            "none": "None"
+        }
     }
 });

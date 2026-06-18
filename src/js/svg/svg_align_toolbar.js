@@ -2,6 +2,7 @@
  * SVG Align Toolbar
  * Provides UI for aligning and distributing selected elements.
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGAlignToolbar extends SVGToolbarBase {
     constructor(container, draw, options = {}) {
         super({
@@ -24,14 +25,14 @@ class SVGAlignToolbar extends SVGToolbarBase {
         };
 
         this.buttonsConfig = [
-            { id: 'align-left', title: '左揃え', icon: this.icons.left, action: () => this.alignElements('left') },
-            { id: 'align-hcenter', title: '水平中央揃え', icon: this.icons.hCenter, action: () => this.alignElements('hCenter') },
-            { id: 'align-right', title: '右揃え', icon: this.icons.right, action: () => this.alignElements('right') },
-            { id: 'dist-h', title: '水平等間隔', icon: this.icons.hDist, action: () => this.distributeElements('horizontal') },
-            { id: 'align-top', title: '上揃え', icon: this.icons.top, action: () => this.alignElements('top') },
-            { id: 'align-vcenter', title: '垂直中央揃え', icon: this.icons.vCenter, action: () => this.alignElements('vCenter') },
-            { id: 'align-bottom', title: '下揃え', icon: this.icons.bottom, action: () => this.alignElements('bottom') },
-            { id: 'dist-v', title: '垂直等間隔', icon: this.icons.vDist, action: () => this.distributeElements('vertical') }
+            { id: 'align-left', title: t('svgEditor.align.left') || '左揃え', icon: this.icons.left, action: () => this.alignElements('left') },
+            { id: 'align-hcenter', title: t('svgEditor.align.hCenter') || '水平中央揃え', icon: this.icons.hCenter, action: () => this.alignElements('hCenter') },
+            { id: 'align-right', title: t('svgEditor.align.right') || '右揃え', icon: this.icons.right, action: () => this.alignElements('right') },
+            { id: 'dist-h', title: t('svgEditor.align.hDist') || '水平等間隔', icon: this.icons.hDist, action: () => this.distributeElements('horizontal') },
+            { id: 'align-top', title: t('svgEditor.align.top') || '上揃え', icon: this.icons.top, action: () => this.alignElements('top') },
+            { id: 'align-vcenter', title: t('svgEditor.align.vCenter') || '垂直中央揃え', icon: this.icons.vCenter, action: () => this.alignElements('vCenter') },
+            { id: 'align-bottom', title: t('svgEditor.align.bottom') || '下揃え', icon: this.icons.bottom, action: () => this.alignElements('bottom') },
+            { id: 'dist-v', title: t('svgEditor.align.vDist') || '垂直等間隔', icon: this.icons.vDist, action: () => this.distributeElements('vertical') }
         ];
 
         this.createToolbar();

@@ -134,11 +134,6 @@ class SvgRotationHandler {
         line.setAttribute('stroke-width', '1');
         line.setAttribute('stroke-dasharray', '3 3');
 
-        // [NEW] Dynamic Scaling for rotation line
-        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-            window.SVGUtils.updateHandleScaling(line);
-        }
-
         handleGroup.appendChild(line);
 
         // 2. Handle Circle
@@ -151,16 +146,17 @@ class SvgRotationHandler {
         circle.setAttribute('stroke-width', '2');
         circle.setAttribute('class', 'rotation-handle'); // [CSS Target]
 
-        // [NEW] Dynamic Scaling for rotation handle
-        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-            window.SVGUtils.updateHandleScaling(circle);
-        }
-
         handleGroup.appendChild(circle);
 
         // Add to overlay
         overlayGroup.appendChild(handleGroup);
         this.rotationHandle = handleGroup;
+
+        // [NEW] DOMマウント後にサイズ補正を適用（getScreenCTMを機能させるため）
+        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+            window.SVGUtils.updateHandleScaling(line);
+            window.SVGUtils.updateHandleScaling(circle);
+        }
 
         // Attach Event Listeners
         // Use pointer events for broad support

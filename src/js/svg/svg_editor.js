@@ -1379,6 +1379,16 @@ function startSVGEdit(container, svgIndex) {
                 requestAnimationFrame(() => {
                     if (typeof updateGrid === 'function') updateGrid(window.currentEditingSVG.draw);
                     if (typeof updateRulers === 'function') updateRulers(window.currentEditingSVG.draw);
+                    
+                    // 枠サイズ変更時に選択ハンドルのスケーリングも再計算・更新する（CSSスケーリング確定時への追従）
+                    if (window.currentEditingSVG.selectedElements) {
+                        window.currentEditingSVG.selectedElements.forEach(el => {
+                            const shape = el.remember('_shapeInstance');
+                            if (shape && typeof shape.syncSelectionHandlers === 'function') {
+                                shape.syncSelectionHandlers(null, true);
+                            }
+                        });
+                    }
                 });
             }
         });

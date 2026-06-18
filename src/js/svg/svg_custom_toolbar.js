@@ -2,6 +2,7 @@
  * SVG Custom Toolbar - カスタムツール専用ツールバー
  * 既存のSVGToolbarを補完し、カスタムツールのみを表示する独立したツールバー
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGCustomToolbar extends SVGToolbarBase {
     constructor(container, options = {}) {
         super({
@@ -96,7 +97,7 @@ class SVGCustomToolbar extends SVGToolbarBase {
 
     createToolButton(tool) {
         const btn = document.createElement('button');
-        btn.title = tool.label + ' (右クリックで削除)';
+        btn.title = tool.label + (t('svgEditor.custom.rightClickToDelete') || ' (右クリックで削除)');
         btn.dataset.tool = tool.id;
 
         const viewBox = tool.viewBox || "0 0 24 24";

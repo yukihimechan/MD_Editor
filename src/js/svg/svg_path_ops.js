@@ -3,6 +3,9 @@
  * Provides logic for flipping, combining, and subtracting (clipping) SVG shapes.
  * Includes a true boolean operation engine for outline extraction.
  */
+
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 const SVGPathOps = {
     flip(elements, axis) {
         if (!elements || elements.length === 0) return;
@@ -549,7 +552,7 @@ const SVGPathOps = {
         }
 
         if (hasTextSkipped) {
-            const msg = "フォントが選択されなかったため、一部のテキスト要素の変換をスキップしました。";
+            const msg = t('svgEditor.pathOps.fontSelectionSkipped') || "フォントが選択されなかったため、一部のテキスト要素の変換をスキップしました。";
             if (window.showToast) window.showToast(msg);
             else alert(msg);
         }
@@ -701,7 +704,7 @@ const SVGPathOps = {
         const hasImage = elements.some(el => el.type === 'image');
         if (hasImage) {
             console.warn('[Exclude] Image elements detected. Exclude is not supported for images.');
-            const msg = '除外（Exclude）は画像要素には対応していません。';
+            const msg = t('svgEditor.pathOps.excludeNotSupportedImage') || '除外（Exclude）は画像要素には対応していません。';
             if (window.showToast) window.showToast(msg, 'warning');
             else alert(msg);
             return;
@@ -738,7 +741,7 @@ const SVGPathOps = {
         const hasImage = elements.some(el => el.type === 'image');
         if (hasImage) {
             console.warn('[Divide] Image elements detected. Divide is not supported for images.');
-            const msg = '分割（Divide）は画像要素には対応していません。';
+            const msg = t('svgEditor.pathOps.divideNotSupportedImage') || '分割（Divide）は画像要素には対応していません。';
             if (window.showToast) window.showToast(msg, 'warning');
             else alert(msg);
             return;
@@ -1927,12 +1930,12 @@ class SVGPathOpToolbar extends SVGToolbarBase {
         const contentArea = this.contentArea;
         contentArea.innerHTML = '';
 
-        contentArea.appendChild(this.createPathOpButton('↔️', '水平反転', () => {
+        contentArea.appendChild(this.createPathOpButton('↔️', t('svgEditor.pathOps.flipHorizontal') || '水平反転', () => {
             if (window.SVGPathOps) window.SVGPathOps.flip(this.getSelected(), 'x');
             if (window.syncChanges) window.syncChanges();
         }));
 
-        contentArea.appendChild(this.createPathOpButton('↕️', '垂直反転', () => {
+        contentArea.appendChild(this.createPathOpButton('↕️', t('svgEditor.pathOps.flipVertical') || '垂直反転', () => {
             if (window.SVGPathOps) window.SVGPathOps.flip(this.getSelected(), 'y');
             if (window.syncChanges) window.syncChanges();
         }));
@@ -1940,43 +1943,43 @@ class SVGPathOpToolbar extends SVGToolbarBase {
         contentArea.appendChild(this.createSeparator());
 
         const iconCombine = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="9" cy="12" r="7" /><circle cx="15" cy="12" r="7" /></svg>';
-        contentArea.appendChild(this.createPathOpButton(iconCombine, '結合 (Combine)', () => {
+        contentArea.appendChild(this.createPathOpButton(iconCombine, t('svgEditor.pathOps.combine') || '結合 (Combine)', () => {
             if (window.SVGPathOps) window.SVGPathOps.combine(this.getSelected());
             if (window.syncChanges) window.syncChanges();
         }));
 
         const iconDivide = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M 12,5.7 A 7,7 0 1,0 12,18.3 A 7,7 0 0,1 12,5.7 Z" transform="translate(-1.5, 0)"/><path d="M 12,5.7 A 7,7 0 0,1 12,18.3 A 7,7 0 0,1 12,5.7 Z" /><path d="M 12,5.7 A 7,7 0 1,1 12,18.3 A 7,7 0 0,0 12,5.7 Z" transform="translate(1.5, 0)"/></svg>';
-        contentArea.appendChild(this.createPathOpButton(iconDivide, '分割 (Divide)', () => {
+        contentArea.appendChild(this.createPathOpButton(iconDivide, t('svgEditor.pathOps.divide') || '分割 (Divide)', () => {
             if (window.SVGPathOps) window.SVGPathOps.divide(this.getSelected());
             if (window.syncChanges) window.syncChanges();
         }));
 
         const iconSubtract = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M 12,5.7 A 7,7 0 1,0 12,18.3 A 7,7 0 0,1 12,5.7 Z" /><circle cx="15" cy="12" r="7" fill="none" stroke="currentColor" stroke-dasharray="2,2" stroke-width="1"/></svg>';
-        contentArea.appendChild(this.createPathOpButton(iconSubtract, '切り抜き (Subtract)', () => {
+        contentArea.appendChild(this.createPathOpButton(iconSubtract, t('svgEditor.pathOps.subtract') || '切り抜き (Subtract)', () => {
             if (window.SVGPathOps) window.SVGPathOps.subtract(this.getSelected());
             if (window.syncChanges) window.syncChanges();
         }));
 
         // 抽出 (Intersect): 2図形の重なり部分のみを残す
         const iconIntersect = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><clipPath id="clip-intersect-a"><circle cx="9" cy="12" r="7"/></clipPath><circle cx="15" cy="12" r="7" clip-path="url(#clip-intersect-a)"/><circle cx="9" cy="12" r="7" fill="none" stroke="currentColor" stroke-dasharray="2,2" stroke-width="1"/><circle cx="15" cy="12" r="7" fill="none" stroke="currentColor" stroke-dasharray="2,2" stroke-width="1"/></svg>';
-        contentArea.appendChild(this.createPathOpButton(iconIntersect, '抽出 (Intersect)', () => {
+        contentArea.appendChild(this.createPathOpButton(iconIntersect, t('svgEditor.pathOps.intersect') || '抽出 (Intersect)', () => {
             if (window.SVGPathOps) window.SVGPathOps.intersect(this.getSelected());
             if (window.syncChanges) window.syncChanges();
         }));
 
         // 除外 (Exclude): 重なり合う部分をくり抜いて削除する
         const iconExclude = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path fill-rule="evenodd" d="M 3,12 a 6,6 0 1,0 12,0 a 6,6 0 1,0 -12,0 M 9,12 a 6,6 0 1,0 12,0 a 6,6 0 1,0 -12,0" /></svg>';
-        contentArea.appendChild(this.createPathOpButton(iconExclude, '除外 (Exclude)', () => {
+        contentArea.appendChild(this.createPathOpButton(iconExclude, t('svgEditor.pathOps.exclude') || '除外 (Exclude)', () => {
             if (window.SVGPathOps) window.SVGPathOps.exclude(this.getSelected());
             if (window.syncChanges) window.syncChanges();
         }));
 
-        const cutBtn = this.createPathOpButton('✂️', 'パス切断 (Cut)', () => {
+        const cutBtn = this.createPathOpButton('✂️', t('svgEditor.pathOps.cut') || 'パス切断 (Cut)', () => {
             if (window.SVGPathOps) window.SVGPathOps.togglePathCutMode(cutBtn);
         });
         contentArea.appendChild(cutBtn);
 
-        contentArea.appendChild(this.createPathOpButton('🔤', 'アウトライン化', async () => {
+        contentArea.appendChild(this.createPathOpButton('🔤', t('svgEditor.pathOps.convertToOutline') || 'アウトライン化', async () => {
             if (window.SVGPathOps) {
                 await window.SVGPathOps.convertToOutline(this.getSelected());
             }

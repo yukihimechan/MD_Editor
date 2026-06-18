@@ -3,6 +3,7 @@
  * タイミングおよび変形の基準点（Transform Origin）を設定するUIモジュール。
  * 十字マーカーをドラッグして「関節」の位置を視覚的にリギングできます。
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGAnimationTimingToolbar extends SVGToolbarBase {
     constructor(container, options = {}) {
         super({
@@ -45,13 +46,13 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
         // ツールバーラベル
         const label = document.createElement('span');
         label.style.cssText = 'color:var(--svg-toolbar-fg); font-size:10px; font-weight:bold; margin:0 4px;';
-        label.textContent = 'タイミング/基点:';
+        label.textContent = t('svgEditor.animTiming.label') || 'タイミング/基点:';
         contentArea.appendChild(label);
 
         // 基準点設定ボタン (トグル)
         const setOriginBtn = document.createElement('button');
-        setOriginBtn.innerHTML = '🎯 基点設定';
-        setOriginBtn.title = 'キャンバス上に基準点マーカーを表示して、ドラッグで位置を設定します';
+        setOriginBtn.innerHTML = t('svgEditor.animTiming.originBtn') || '🎯 基点設定';
+        setOriginBtn.title = t('svgEditor.animTiming.originBtnTitle') || 'キャンバス上に基準点マーカーを表示して、ドラッグで位置を設定します';
         setOriginBtn.style.cssText = 'padding: 2px 6px; font-size: 10px; cursor: pointer; border-radius: 4px; border: 1px solid var(--svg-toolbar-border);';
         setOriginBtn.addEventListener('click', () => this.toggleOriginSettingMode());
         contentArea.appendChild(setOriginBtn);
@@ -90,7 +91,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
         // 遅延 (Delay)
         const delayWrap = document.createElement('div');
         delayWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
-        delayWrap.innerHTML = '<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;" title="アニメーション開始の遅延（マイナス値で位相をずらせます）">遅延:</span>';
+        delayWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;" title="${t('svgEditor.animTiming.delayTitle') || 'アニメーション開始の遅延（マイナス値で位相をずらせます）'}">${t('svgEditor.animTiming.delay') || '遅延:'}</span>`;
         const delayInput = document.createElement('input');
         delayInput.type = 'number';
         delayInput.style.width = '45px';
@@ -117,7 +118,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
         if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
         const selected = Array.from(window.currentEditingSVG.selectedElements)[0];
         if (!selected) {
-            alert('基準点を設定する要素を選択してください。');
+            alert(t('svgEditor.animTiming.selectElementAlert') || '基準点を設定する要素を選択してください。');
             return;
         }
 

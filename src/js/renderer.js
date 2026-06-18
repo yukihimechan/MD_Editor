@@ -373,7 +373,7 @@ async function render(force = false) {
                         DOM.preview.innerHTML = '';
                         const dummyArea = document.createElement('div');
                         dummyArea.className = 'dummy-tail-block';
-                        dummyArea.setAttribute('data-placeholder', 'テキストを追加、または \'/\' でコマンド');
+                        dummyArea.setAttribute('data-placeholder', typeof I18n !== 'undefined' ? I18n.translate('editor.placeholder') || 'テキストを追加、または \'/\' でコマンド' : 'テキストを追加、または \'/\' でコマンド');
                         DOM.preview.appendChild(dummyArea);
                     }
                     if (typeof updateOutline === 'function') updateOutline();
@@ -1107,7 +1107,7 @@ async function render(force = false) {
                         if (!dummyArea) {
                             dummyArea = document.createElement('div');
                             dummyArea.className = 'dummy-tail-block';
-                            dummyArea.setAttribute('data-placeholder', 'テキストを追加、または \'/\' でコマンド');
+                            dummyArea.setAttribute('data-placeholder', typeof I18n !== 'undefined' ? I18n.translate('editor.placeholder') || 'テキストを追加、または \'/\' でコマンド' : 'テキストを追加、または \'/\' でコマンド');
                             DOM.preview.appendChild(dummyArea);
                         }
                     }
@@ -1744,8 +1744,8 @@ async function processMermaidDiagrams(root) {
             const expandBtn = document.createElement('button');
             expandBtn.className = 'btn-expand-mermaid code-edit-btn';
             expandBtn.setAttribute('type', 'button');
-            expandBtn.title = '拡大表示（パン・ズーム対応）';
-            expandBtn.textContent = '拡大';
+            expandBtn.title = typeof I18n !== 'undefined' ? I18n.translate('mermaidEditor.zoomIn') || '拡大表示（パン・ズーム対応）' : '拡大表示（パン・ズーム対応）';
+            expandBtn.textContent = typeof I18n !== 'undefined' ? I18n.translate('mermaidEditor.zoomText') || '拡大' : '拡大';
             expandBtn.style.marginRight = '4px';
             expandBtn.onclick = (e) => {
                 e.preventDefault();
@@ -1994,8 +1994,8 @@ function processSVGBlocks(root) {
                         const unwrapBtn = document.createElement('button');
                         unwrapBtn.className = 'btn-unwrap-svg';
                         unwrapBtn.setAttribute('type', 'button');
-                        unwrapBtn.title = 'SVGのコード囲いを取り除き、他アプリで表示可能な形式にします';
-                        unwrapBtn.textContent = '編集完了';
+                        unwrapBtn.title = typeof I18n !== 'undefined' ? I18n.translate('editor.svgUnwrapTitle') || 'SVGのコード囲いを取り除き、他アプリで表示可能な形式にします' : 'SVGのコード囲いを取り除き、他アプリで表示可能な形式にします';
+                        unwrapBtn.textContent = typeof I18n !== 'undefined' ? I18n.translate('editor.svgUnwrap') || '編集完了' : '編集完了';
                         controls.insertBefore(unwrapBtn, controls.firstChild);
 
                         const saveBtn = document.createElement('button');
@@ -2024,8 +2024,8 @@ function processSVGBlocks(root) {
             const wrapBtn = document.createElement('button');
             wrapBtn.className = 'btn-wrap-svg';
             wrapBtn.setAttribute('type', 'button');
-            wrapBtn.textContent = '編集用意';
-            wrapBtn.title = 'SVGをコードブロックで囲み、エディタで編集可能な安全な状態にします';
+            wrapBtn.textContent = typeof I18n !== 'undefined' ? I18n.translate('editor.svgWrap') || '編集用意' : '編集用意';
+            wrapBtn.title = typeof I18n !== 'undefined' ? I18n.translate('editor.svgWrapTitle') || 'SVGをコードブロックで囲み、エディタで編集可能な安全な状態にします' : 'SVGをコードブロックで囲み、エディタで編集可能な安全な状態にします';
             controls.appendChild(wrapBtn);
             wrapper.appendChild(controls);
         }

@@ -2,6 +2,9 @@
  * SVG Shadow Toolbar
  * 選択したSVG要素に対して、カスタマイズ可能な影効果（ドロップシャドウ/インナーシャドウ）を設定・編集するツールバー
  */
+
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 class SVGShadowToolbar extends SVGToolbarBase {
     constructor(container, svgToolbar, options = {}) {
         super({
@@ -62,7 +65,7 @@ class SVGShadowToolbar extends SVGToolbarBase {
 
         // 1-1. シャドウ有効化ボタン (トグル)
         this.toggleBtn = document.createElement('button');
-        this.toggleBtn.title = '影効果 ON/OFF';
+        this.toggleBtn.title = t('svgEditor.shadow.toggleTitle') || '影効果 ON/OFF';
         this.toggleBtn.innerHTML = `
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
                 <rect x="3" y="3" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -82,7 +85,7 @@ class SVGShadowToolbar extends SVGToolbarBase {
         mainRow.appendChild(this._createSeparator());
 
         // 1-2. ぼかし半径スライダー
-        const blurContainer = this._createSliderGroup('ぼかし:', 0, 50, 1, this.params.blur, 'px', 'shadow-blur-val', (val) => {
+        const blurContainer = this._createSliderGroup(t('svgEditor.shadow.blur') || 'ぼかし:', 0, 50, 1, this.params.blur, 'px', 'shadow-blur-val', (val) => {
             this.params.blur = val;
             this.applyToSelection();
         });
@@ -95,12 +98,12 @@ class SVGShadowToolbar extends SVGToolbarBase {
 
         // 1-3. 影の色ボタン (カラーピッカー)
         const colorLabel = document.createElement('span');
-        colorLabel.textContent = '色:';
+        colorLabel.textContent = t('svgEditor.shadow.color') || '色:';
         colorLabel.style.cssText = 'font-size:11px;color:#666;';
         mainRow.appendChild(colorLabel);
 
         this.colorBtn = document.createElement('div');
-        this.colorBtn.title = '影の色';
+        this.colorBtn.title = t('svgEditor.shadow.colorTitle') || '影の色';
         this.colorBtn.style.cssText = `
             width: 18px; height: 18px;
             background-color: ${this.params.color};
@@ -119,7 +122,7 @@ class SVGShadowToolbar extends SVGToolbarBase {
         mainRow.appendChild(this._createSeparator());
 
         // 1-4. 不透明度スライダー
-        const opacityContainer = this._createSliderGroup('透明度:', 0.0, 1.0, 0.05, this.params.opacity, '', 'shadow-opacity-val', (val) => {
+        const opacityContainer = this._createSliderGroup(t('svgEditor.shadow.opacity') || '透明度:', 0.0, 1.0, 0.05, this.params.opacity, '', 'shadow-opacity-val', (val) => {
             this.params.opacity = parseFloat(val);
             this.applyToSelection();
         });
@@ -133,7 +136,7 @@ class SVGShadowToolbar extends SVGToolbarBase {
         // 1-5. 展開ボタン (▼/▲)
         this.expandBtn = document.createElement('button');
         this.expandBtn.innerHTML = '▼';
-        this.expandBtn.title = '詳細設定を展開/折りたたむ';
+        this.expandBtn.title = t('svgEditor.shadow.expandTitle') || '詳細設定を展開/折りたたむ';
         this.expandBtn.style.cssText = `
             background: transparent; border: none; color: var(--svg-toolbar-fg); cursor: pointer; padding: 0 4px;
             font-size: 10px; border-radius: 3px; margin-left: auto; height: 20px; opacity: 0.6;
@@ -164,7 +167,7 @@ class SVGShadowToolbar extends SVGToolbarBase {
         row1.style.cssText = 'display:flex;align-items:center;gap:8px;white-space:nowrap;';
 
         // スプレッドスライダー
-        const spreadContainer = this._createSliderGroup('拡散:', -20, 50, 1, this.params.spread, 'px', 'shadow-spread-val', (val) => {
+        const spreadContainer = this._createSliderGroup(t('svgEditor.shadow.spread') || '拡散:', -20, 50, 1, this.params.spread, 'px', 'shadow-spread-val', (val) => {
             this.params.spread = val;
             this.applyToSelection();
         });
@@ -180,7 +183,7 @@ class SVGShadowToolbar extends SVGToolbarBase {
         innerContainer.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:11px;color:#666;';
         
         const innerLabel = document.createElement('span');
-        innerLabel.textContent = '内側:';
+        innerLabel.textContent = t('svgEditor.shadow.inner') || '内側:';
         innerContainer.appendChild(innerLabel);
 
         this.innerCheckbox = document.createElement('input');
@@ -202,7 +205,7 @@ class SVGShadowToolbar extends SVGToolbarBase {
         row2.style.cssText = 'display:flex;align-items:center;gap:8px;white-space:nowrap;margin-top:4px;';
 
         // 角度スライダー
-        const angleContainer = this._createSliderGroup('角度:', 0, 360, 5, this.params.angle, '°', 'shadow-angle-val', (val) => {
+        const angleContainer = this._createSliderGroup(t('svgEditor.shadow.angle') || '角度:', 0, 360, 5, this.params.angle, '°', 'shadow-angle-val', (val) => {
             this.params.angle = val;
             this.applyToSelection();
         });
@@ -214,7 +217,7 @@ class SVGShadowToolbar extends SVGToolbarBase {
         row2.appendChild(this._createSeparator());
 
         // 距離スライダー
-        const distanceContainer = this._createSliderGroup('距離:', 0, 50, 1, this.params.distance, 'px', 'shadow-distance-val', (val) => {
+        const distanceContainer = this._createSliderGroup(t('svgEditor.shadow.distance') || '距離:', 0, 50, 1, this.params.distance, 'px', 'shadow-distance-val', (val) => {
             this.params.distance = val;
             this.applyToSelection();
         });
@@ -230,7 +233,7 @@ class SVGShadowToolbar extends SVGToolbarBase {
         blendContainer.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:11px;color:#666;';
 
         const blendLabel = document.createElement('span');
-        blendLabel.textContent = '合成:';
+        blendLabel.textContent = t('svgEditor.shadow.blend') || '合成:';
         blendContainer.appendChild(blendLabel);
 
         this.blendSelect = document.createElement('select');

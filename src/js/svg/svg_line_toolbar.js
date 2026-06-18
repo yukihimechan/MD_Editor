@@ -2,6 +2,7 @@
  * SVG Line Toolbar
  * 選択中の図形の線のプロパティ（太さ、線種、端点、角、透明度）を調整するツールバー
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGLineToolbar extends SVGToolbarBase {
     constructor(container, draw, options = {}) {
         super({
@@ -13,12 +14,12 @@ class SVGLineToolbar extends SVGToolbarBase {
         this.draw = draw;
 
         this.dashOptions = [
-            { name: '実線', value: 'none' },
-            { name: '点線', value: '1 2' },
-            { name: '破線', value: '6 3' },
-            { name: '一点鎖線', value: '8 3 1 3' },
-            { name: '二点鎖線', value: '8 3 1 3 1 3' },
-            { name: 'カスタム...', value: 'custom' }
+            { name: t('svgEditor.line.solid') || '実線', value: 'none' },
+            { name: t('svgEditor.line.dotted') || '点線', value: '1 2' },
+            { name: t('svgEditor.line.dashed') || '破線', value: '6 3' },
+            { name: t('svgEditor.line.dashDot') || '一点鎖線', value: '8 3 1 3' },
+            { name: t('svgEditor.line.dashDotDot') || '二点鎖線', value: '8 3 1 3 1 3' },
+            { name: t('svgEditor.line.custom') || 'カスタム...', value: 'custom' }
         ];
 
         this.createToolbar();
@@ -48,7 +49,7 @@ class SVGLineToolbar extends SVGToolbarBase {
         // 線の太さ
         this.widthInput = document.createElement('input');
         this.widthInput.type = 'number';
-        this.widthInput.title = '線の太さ';
+        this.widthInput.title = t('svgEditor.line.widthTitle') || '線の太さ';
         this.widthInput.min = '0';
         this.widthInput.step = '0.5';
         this.widthInput.style.width = '45px';
@@ -72,7 +73,7 @@ class SVGLineToolbar extends SVGToolbarBase {
         dashContainer.style.cssText = `display: flex; align-items: center; gap: 2px;`;
 
         this.dashSelect = document.createElement('select');
-        this.dashSelect.title = '線の種類';
+        this.dashSelect.title = t('svgEditor.line.typeTitle') || '線の種類';
         this.dashSelect.style.width = '60px';
         this.dashOptions.forEach(optData => {
             const opt = document.createElement('option');
@@ -83,7 +84,7 @@ class SVGLineToolbar extends SVGToolbarBase {
 
         this.editDashBtn = document.createElement('button');
         this.editDashBtn.innerHTML = '✎';
-        this.editDashBtn.title = 'カスタム点線を編集';
+        this.editDashBtn.title = t('svgEditor.line.editCustomDash') || 'カスタム点線を編集';
         this.editDashBtn.style.cssText = `font-size: 12px; width: 20px; padding: 0; display: none;`;
         this.editDashBtn.onclick = (e) => {
             e.stopPropagation();
@@ -117,17 +118,17 @@ class SVGLineToolbar extends SVGToolbarBase {
 
         const caps = [
             {
-                id: 'butt', title: '端点: butt', icon: `
+                id: 'butt', title: t('svgEditor.line.capButt') || '端点: butt', icon: `
                 <line x1="18" y1="4" x2="18" y2="20" stroke="var(--svg-toolbar-sep)" stroke-width="1.5"/>
                 <line x1="4" y1="12" x2="18" y2="12" stroke="currentColor" stroke-width="6" stroke-linecap="butt"/>`
             },
             {
-                id: 'round', title: '端点: round', icon: `
+                id: 'round', title: t('svgEditor.line.capRound') || '端点: round', icon: `
                 <line x1="18" y1="4" x2="18" y2="20" stroke="var(--svg-toolbar-sep)" stroke-width="1.5"/>
                 <line x1="4" y1="12" x2="18" y2="12" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>`
             },
             {
-                id: 'square', title: '端点: square', icon: `
+                id: 'square', title: t('svgEditor.line.capSquare') || '端点: square', icon: `
                 <line x1="18" y1="4" x2="18" y2="20" stroke="var(--svg-toolbar-sep)" stroke-width="1.5"/>
                 <line x1="4" y1="12" x2="18" y2="12" stroke="currentColor" stroke-width="6" stroke-linecap="square"/>`
             }
@@ -146,9 +147,9 @@ class SVGLineToolbar extends SVGToolbarBase {
         const joinContainer = document.createElement('div');
         joinContainer.style.cssText = `display: flex; gap: 2px;`;
         const joins = [
-            { id: 'miter', title: '角: miter', icon: `<path d="M4 18 L12 6 L20 18" stroke="currentColor" stroke-width="5" stroke-linejoin="miter" fill="none"/>` },
-            { id: 'round', title: '角: round', icon: `<path d="M4 18 L12 6 L20 18" stroke="currentColor" stroke-width="5" stroke-linejoin="round" fill="none"/>` },
-            { id: 'bevel', title: '角: bevel', icon: `<path d="M4 18 L12 6 L20 18" stroke="currentColor" stroke-width="5" stroke-linejoin="bevel" fill="none"/>` }
+            { id: 'miter', title: t('svgEditor.line.joinMiter') || '角: miter', icon: `<path d="M4 18 L12 6 L20 18" stroke="currentColor" stroke-width="5" stroke-linejoin="miter" fill="none"/>` },
+            { id: 'round', title: t('svgEditor.line.joinRound') || '角: round', icon: `<path d="M4 18 L12 6 L20 18" stroke="currentColor" stroke-width="5" stroke-linejoin="round" fill="none"/>` },
+            { id: 'bevel', title: t('svgEditor.line.joinBevel') || '角: bevel', icon: `<path d="M4 18 L12 6 L20 18" stroke="currentColor" stroke-width="5" stroke-linejoin="bevel" fill="none"/>` }
         ];
         joins.forEach(j => {
             const btn = this.createIconBtn(j.title, j.icon, () => this.applyProperty('stroke-linejoin', j.id));
@@ -160,7 +161,7 @@ class SVGLineToolbar extends SVGToolbarBase {
         contentArea.appendChild(this.createSeparator());
 
         // 自動迂回 (Auto Route)
-        this.autoRouteBtn = this.createIconBtn('図形を自動で迂回', `
+        this.autoRouteBtn = this.createIconBtn(t('svgEditor.line.autoRoute') || '図形を自動で迂回', `
         <path d="M4 17 L10 11 L14 15 L20 9" stroke="currentColor" stroke-width="2" fill="none"/>
         <path d="M16 9 H20 V13" stroke="currentColor" stroke-width="2" fill="none"/>
         <path d="M4 7 L8 7 C11 7, 13 17, 16 17 L20 17" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2" fill="none" opacity="0.6"/>`,
@@ -347,7 +348,7 @@ class SVGLineToolbar extends SVGToolbarBase {
         const dialog = document.createElement('div');
         dialog.className = 'svg-toolbar is-active';
         dialog.style.cssText = `padding: 20px; border-radius: 8px; width: 440px; flex-direction: column; font-family: sans-serif; user-select: none; position: relative; opacity: 1 !important; pointer-events: auto !important; z-index: 11001 !important; display: flex !important;`;
-        dialog.innerHTML = `<h3 style="margin-top:0; color:var(--svg-toolbar-fg)">カスタム点線の作成</h3>`;
+        dialog.innerHTML = `<h3 style="margin-top:0; color:var(--svg-toolbar-fg)">${t('svgEditor.line.customDashTitle') || 'カスタム点線の作成'}</h3>`;
 
         const resInput = document.createElement('input');
         resInput.type = 'number'; resInput.min = '4'; resInput.max = '128'; resInput.value = '24'; resInput.style.width = '50px';
@@ -356,12 +357,12 @@ class SVGLineToolbar extends SVGToolbarBase {
         settingsArea.style.cssText = `display: flex; align-items: center; gap: 10px; margin-bottom: 15px; font-size: 12px;`;
 
         const resLabel = document.createElement('label');
-        resLabel.textContent = '解像度:';
+        resLabel.textContent = t('svgEditor.line.resolution') || '解像度:';
         settingsArea.appendChild(resLabel);
         settingsArea.appendChild(resInput);
 
         const helpText = document.createElement('span');
-        helpText.textContent = '(クリックまたはドラッグで描画)';
+        helpText.textContent = t('svgEditor.line.helpText') || '(クリックまたはドラッグで描画)';
         helpText.style.color = '#888';
         settingsArea.appendChild(helpText);
 
@@ -394,7 +395,7 @@ class SVGLineToolbar extends SVGToolbarBase {
         gridWrapper.appendChild(gridContainer);
 
         const resizeHandle = document.createElement('div');
-        resizeHandle.title = 'ドラッグして解像度を変更';
+        resizeHandle.title = t('svgEditor.line.resizeHandleTitle') || 'ドラッグして解像度を変更';
         resizeHandle.style.cssText = `width: 14px; height: 14px; cursor: ew-resize; background: #555; border: 1px dashed #888; display: flex; align-items: center; justify-content: center; flex-shrink: 0;`;
         resizeHandle.innerHTML = '<span style="color:#aaa; font-size:10px;">↔</span>';
 
@@ -483,10 +484,10 @@ class SVGLineToolbar extends SVGToolbarBase {
 
         const actions = document.createElement('div');
         actions.style.cssText = `display: flex; justify-content: flex-end; gap: 10px;`;
-        const cancelBtn = document.createElement('button'); cancelBtn.textContent = "キャンセル";
+        const cancelBtn = document.createElement('button'); cancelBtn.textContent = t('dialog.cancel') || "キャンセル";
         cancelBtn.style.cssText = `padding: 5px 10px; background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer;`;
         cancelBtn.onclick = () => { overlay.remove(); this.updateUI(); };
-        const saveBtn = document.createElement('button'); saveBtn.textContent = "保存"; saveBtn.className = 'active'; saveBtn.style.padding = '5px 15px';
+        const saveBtn = document.createElement('button'); saveBtn.textContent = t('settings.save') || "保存"; saveBtn.className = 'active'; saveBtn.style.padding = '5px 15px';
         saveBtn.onclick = () => { this.dashSelect.dataset.customValue = textInput.value; this.applyProperty('stroke-dasharray', textInput.value); overlay.remove(); };
         actions.appendChild(cancelBtn); actions.appendChild(saveBtn);
         dialog.appendChild(actions);

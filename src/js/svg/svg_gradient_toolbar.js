@@ -2,6 +2,7 @@
  * SVG Gradient Toolbar
  * フリーフォーム・グラデーション（グラデーションメッシュ風表現）を設定・編集するツールバー
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGGradientToolbar extends SVGToolbarBase {
     constructor(container, svgToolbar, options = {}) {
         super({
@@ -49,7 +50,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
 
         // 1. 編集ON/OFFボタン (トグル式)
         this.toggleEditBtn = document.createElement('button');
-        this.toggleEditBtn.title = 'グラデーション編集 ON/OFF';
+        this.toggleEditBtn.title = t('svgEditor.gradient.toggleTitle') || 'グラデーション編集 ON/OFF';
         this.toggleEditBtn.innerHTML = `
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
@@ -89,7 +90,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
 
         // 5. 色追加ボタン
         this.addColorBtn = document.createElement('button');
-        this.addColorBtn.title = 'グラデーションに色（パス）を追加';
+        this.addColorBtn.title = t('svgEditor.gradient.addColorTitle') || 'グラデーションに色（パス）を追加';
         this.addColorBtn.innerHTML = `
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -120,7 +121,7 @@ class SVGGradientToolbar extends SVGToolbarBase {
         `;
 
         const label = document.createElement('span');
-        label.textContent = 'ぼかし量:';
+        label.textContent = t('svgEditor.gradient.blurLabel') || 'ぼかし量:';
         thicknessContainer.appendChild(label);
 
         this.thicknessSlider = document.createElement('input');

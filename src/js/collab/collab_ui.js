@@ -6,6 +6,8 @@
  *   - AppState, showToast (globals.js)
  */
 
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 const CollabUI = (() => {
     // ランダムなユーザーカラーパレット
     const USER_COLORS = [
@@ -33,11 +35,11 @@ const CollabUI = (() => {
     function loadUserPreferences() {
         try {
             return {
-                name: localStorage.getItem('collab_userName') || `ユーザー${Math.floor(Math.random() * 1000)}`,
+                name: localStorage.getItem('collab_userName') || `${t('collab.defaultUserName') || 'ユーザー'}${Math.floor(Math.random() * 1000)}`,
                 color: localStorage.getItem('collab_userColor') || getRandomColor(),
             };
         } catch {
-            return { name: 'ゲスト', color: getRandomColor() };
+            return { name: t('collab.guest') || 'ゲスト', color: getRandomColor() };
         }
     }
 
@@ -99,10 +101,10 @@ const CollabUI = (() => {
         // 接続中かどうかで表示を切り替え
         if (statusEl) {
             if (CollabManager.isActive()) {
-                statusEl.textContent = `接続中: ルーム「${AppState.collab.roomName}」`;
+                statusEl.textContent = t('collab.status.connectedRoom', { roomName: AppState.collab.roomName }) || `接続中: ルーム「${AppState.collab.roomName}」`;
                 statusEl.className = 'collab-status collab-status--connected';
             } else {
-                statusEl.textContent = '未接続';
+                statusEl.textContent = t('collab.status.disconnected') || '未接続';
                 statusEl.className = 'collab-status collab-status--disconnected';
             }
         }
@@ -209,9 +211,9 @@ const CollabUI = (() => {
         const barInnerEl = document.getElementById('collab-lock-progress-bar');
         const percentEl = document.getElementById('collab-lock-percent');
 
-        if (titleEl) titleEl.textContent = `${senderName} さんが大容量ファイルを同期中です...`;
+        if (titleEl) titleEl.textContent = t('collab.editorLock.title', { senderName }) || `${senderName} さんが大容量ファイルを同期中です...`;
         if (barInnerEl) barInnerEl.style.width = `${progress}%`;
-        if (percentEl) percentEl.textContent = `同期中: ${Math.round(progress)}%`;
+        if (percentEl) percentEl.textContent = t('collab.editorLock.progress', { progress: Math.round(progress) }) || `同期中: ${Math.round(progress)}%`;
 
         if (typeof window.setEditorReadOnly === 'function') {
             window.setEditorReadOnly(true);
@@ -250,10 +252,10 @@ const CollabUI = (() => {
 
         if (CollabManager.isActive()) {
             btn.classList.add('collab-active');
-            btn.title = `共同編集中 (${CollabManager.getConnectedUsers().length + 1}人接続)`;
+            btn.title = t('toolbar.collabActiveTitle', { count: CollabManager.getConnectedUsers().length + 1 }) || `共同編集中 (${CollabManager.getConnectedUsers().length + 1}人接続)`;
         } else {
             btn.classList.remove('collab-active');
-            btn.title = '共同編集';
+            btn.title = t('toolbar.collabTitle') || '共同編集';
         }
     }
 
@@ -281,7 +283,7 @@ const CollabUI = (() => {
         const allUsers = [
             {
                 clientId: -1,
-                name: AppState.collab?.userName || '自分',
+                name: AppState.collab?.userName || t('collab.self') || '自分',
                 color: AppState.collab?.userColor || '#888',
                 isSelf: true,
             },
@@ -308,7 +310,7 @@ const CollabUI = (() => {
                 return `
                     <li class="collab-user-item">
                         <span class="collab-user-dot" style="background-color: ${safeColor};"></span>
-                        <span class="collab-user-name">${escapeHtml(u.name)}${u.isSelf ? ' (自分)' : ''}</span>
+                        <span class="collab-user-name">${escapeHtml(u.name)}${u.isSelf ? ` (${t('collab.self') || '自分'})` : ''}</span>
                     </li>
                 `;
             }).join('');
@@ -324,16 +326,16 @@ const CollabUI = (() => {
         if (!statusEl) return;
 
         if (status === 'connected') {
-            statusEl.textContent = `接続中: ルーム「${AppState.collab?.roomName || ''}」`;
+            statusEl.textContent = t('collab.status.connectedRoom', { roomName: AppState.collab?.roomName || '' }) || `接続中: ルーム「${AppState.collab?.roomName || ''}」`;
             statusEl.className = 'collab-status collab-status--connected';
         } else if (status === 'waiting') {
-            statusEl.textContent = `待機中: ルーム「${AppState.collab?.roomName || ''}」 (他のユーザーを待っています)`;
+            statusEl.textContent = t('collab.status.waitingRoom', { roomName: AppState.collab?.roomName || '' }) || `待機中: ルーム「${AppState.collab?.roomName || ''}」 (他のユーザーを待っています)`;
             statusEl.className = 'collab-status collab-status--waiting';
         } else if (status === 'disconnected') {
-            statusEl.textContent = '未接続 / オフライン';
+            statusEl.textContent = t('collab.status.offline') || '未接続 / オフライン';
             statusEl.className = 'collab-status collab-status--disconnected';
         } else {
-            statusEl.textContent = '接続を確立中...';
+            statusEl.textContent = t('collab.status.connecting') || '接続を確立中...';
             statusEl.className = 'collab-status collab-status--connecting';
         }
 
@@ -472,12 +474,12 @@ const CollabUI = (() => {
         const success = CollabManager.pushLocalText();
         if (success) {
             if (typeof showToast === 'function') {
-                showToast('現在のテキストをルームに共有しました', 'success');
+                showToast(t('collab.toast.sharedText') || '現在のテキストをルームに共有しました', 'success');
             }
             updateShareButtonState();
         } else {
             if (typeof showToast === 'function') {
-                showToast('すでにルームにテキストが存在します', 'warning');
+                showToast(t('collab.toast.roomNotEmpty') || 'すでにルームにテキストが存在します', 'warning');
             }
         }
     }
@@ -508,7 +510,7 @@ const CollabUI = (() => {
             
             if (!dialog || !okBtn || !cancelBtn) {
                 // DOMが存在しない場合はフォールバックとして confirm を使用する
-                resolve(!!window.confirm('ルーム内のテキストと同期しますか？\n同期すると、現在のローカルテキストは上書きされます。'));
+                resolve(!!window.confirm(t('collab.confirm.syncText') || 'ルーム内のテキストと同期しますか？\n同期すると、現在のローカルテキストは上書きされます。'));
                 return;
             }
 
@@ -550,12 +552,12 @@ const CollabUI = (() => {
         const joinBtn = document.getElementById('btn-collab-join');
 
         const roomName = (roomInput?.value || '').trim();
-        const userName = (nameInput?.value || '').trim() || `ユーザー${Math.floor(Math.random() * 1000)}`;
+        const userName = (nameInput?.value || '').trim() || `${t('collab.defaultUserName') || 'ユーザー'}${Math.floor(Math.random() * 1000)}`;
         const userColor = colorInput?.value || getRandomColor();
 
         if (!roomName) {
             if (typeof showToast === 'function') {
-                showToast('ルーム名を入力してください', 'error');
+                showToast(t('collab.toast.inputRoomName') || 'ルーム名を入力してください', 'error');
             }
             return;
         }
@@ -621,7 +623,7 @@ const CollabUI = (() => {
         if (!dialog) return;
 
         // UIをスキャン中状態に初期化
-        messageEl.textContent = '設定されたサーバーに接続できません。ローカルネットワーク上のサーバーを探索しています...';
+        messageEl.textContent = t('collab.scan.searching') || '設定されたサーバーに接続できません。ローカルネットワーク上のサーバーを探索しています...';
         loaderEl.style.display = 'block';
         resultsEl.style.display = 'none';
         resultsEl.innerHTML = '';
@@ -639,7 +641,7 @@ const CollabUI = (() => {
                     retryBtn.style.display = 'block';
 
                     if (servers && servers.length > 0) {
-                        messageEl.textContent = '利用可能なシグナリングサーバーが見つかりました。接続先を選択してください：';
+                        messageEl.textContent = t('collab.scan.found') || '利用可能なシグナリングサーバーが見つかりました。接続先を選択してください：';
                         resultsEl.style.display = 'block';
 
                         resultsEl.innerHTML = servers.map(srv => {
@@ -658,10 +660,10 @@ const CollabUI = (() => {
                         items.forEach(item => {
                             item.addEventListener('click', () => {
                                 const url = item.getAttribute('data-url');
-                                const safeName = item.querySelector('.collab-scan-name')?.textContent || 'シグナリングサーバー';
+                                const safeName = item.querySelector('.collab-scan-name')?.textContent || t('collab.scan.defaultServerName') || 'シグナリングサーバー';
                                 
                                 // ダイアログは閉じず、接続試行中の表示に切り替える
-                                messageEl.textContent = `「${safeName}」(${url}) に接続を試みています...`;
+                                messageEl.textContent = t('collab.scan.connectingToServer', { name: safeName, url }) || `「${safeName}」(${url}) に接続を試みています...`;
                                 loaderEl.style.display = 'block';
                                 resultsEl.style.display = 'none';
                                 retryBtn.style.display = 'none';
@@ -671,18 +673,18 @@ const CollabUI = (() => {
                             });
                         });
                     } else {
-                        messageEl.textContent = '同一ネットワーク上に利用可能なシグナリングサーバーが見つかりませんでした。';
+                        messageEl.textContent = t('collab.scan.notFound') || '同一ネットワーク上に利用可能なシグナリングサーバーが見つかりませんでした。';
                     }
                 })
                 .catch((err) => {
                     console.error('[CollabUI] サーバー探索エラー:', err);
                     loaderEl.style.display = 'none';
                     retryBtn.style.display = 'block';
-                    messageEl.textContent = '探索中にエラーが発生しました。再試行してください。';
+                    messageEl.textContent = t('collab.scan.error') || '探索中にエラーが発生しました。再試行してください。';
                 });
         } else {
             loaderEl.style.display = 'none';
-            messageEl.textContent = 'この環境ではサーバー探索機能を利用できません。';
+            messageEl.textContent = t('collab.scan.notSupported') || 'この環境ではサーバー探索機能を利用できません。';
         }
     }
 
@@ -726,7 +728,7 @@ const CollabUI = (() => {
                 dialog.close();
             }
             if (typeof showToast === 'function') {
-                showToast('シグナリングサーバーに正常に接続しました', 'success');
+                showToast(t('collab.toast.connectSuccess') || 'シグナリングサーバーに正常に接続しました', 'success');
             }
         }
     }
@@ -746,7 +748,7 @@ const CollabUI = (() => {
             const retryBtn = document.getElementById('btn-collab-scan-retry');
 
             if (messageEl) {
-                messageEl.textContent = '接続に失敗しました。サーバーが停止しているか、ファイアウォール設定等のネットワーク設定を確認してください。';
+                messageEl.textContent = t('collab.scan.connectFailed') || '接続に失敗しました。サーバーが停止しているか、ファイアウォール設定等のネットワーク設定を確認してください。';
             }
             if (loaderEl) loaderEl.style.display = 'none';
             if (retryBtn) retryBtn.style.display = 'block';

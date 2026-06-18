@@ -2,6 +2,7 @@
  * SVG Animation Transform Toolbar
  * 変形アニメーション（スピン、スイング、バウンド、パルス）を設定するUIモジュール
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGAnimationTransformToolbar extends SVGToolbarBase {
     constructor(container, options = {}) {
         super({
@@ -41,18 +42,18 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
         // ツールバーラベル
         const label = document.createElement('span');
         label.style.cssText = 'color:var(--svg-toolbar-fg); font-size:10px; font-weight:bold; margin:0 4px;';
-        label.textContent = '変形アニメ:';
+        label.textContent = t('svgEditor.animTransform.label') || '変形アニメ:';
         contentArea.appendChild(label);
 
         // 種類 (Type)
         const typeSelect = document.createElement('select');
         typeSelect.style.width = '75px';
         typeSelect.innerHTML = `
-            <option value="none">なし</option>
-            <option value="spin">スピン(回転)</option>
-            <option value="swing">スイング(往復)</option>
-            <option value="bounce">バウンド(上下)</option>
-            <option value="pulse">パルス(拡縮)</option>
+            <option value="none">${t('svgEditor.animTransform.none') || 'なし'}</option>
+            <option value="spin">${t('svgEditor.animTransform.spin') || 'スピン(回転)'}</option>
+            <option value="swing">${t('svgEditor.animTransform.swing') || 'スイング(往復)'}</option>
+            <option value="bounce">${t('svgEditor.animTransform.bounce') || 'バウンド(上下)'}</option>
+            <option value="pulse">${t('svgEditor.animTransform.pulse') || 'パルス(拡縮)'}</option>
         `;
         typeSelect.addEventListener('change', () => {
             this.inputs['amount'].value = this.getDefaultAmountForType(typeSelect.value);
@@ -66,7 +67,7 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
         // 変化量 (Amount)
         const amountWrap = document.createElement('div');
         amountWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
-        amountWrap.innerHTML = '<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;" title="変化量（角度、高さ、スケール）">量:</span>';
+        amountWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;" title="${t('svgEditor.animTransform.amountTitle') || '変化量（角度、高さ、スケール）'}">${t('svgEditor.animTransform.amount') || '量:'}</span>`;
         const amountInput = document.createElement('input');
         amountInput.type = 'number';
         amountInput.style.width = '50px';
@@ -81,7 +82,7 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
         // 再生時間 (Duration)
         const durWrap = document.createElement('div');
         durWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
-        durWrap.innerHTML = '<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;">秒:</span>';
+        durWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;">${t('svgEditor.animTransform.seconds') || '秒:'}</span>`;
         const durInput = document.createElement('input');
         durInput.type = 'number';
         durInput.style.width = '45px';
@@ -221,7 +222,7 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
         const amountInput = this.inputs['amount'];
         if (uniqueAmounts.length > 1) {
             amountInput.value = '';
-            amountInput.placeholder = '複数';
+            amountInput.placeholder = t('svgEditor.animTransform.multiple') || '複数';
         } else if (uniqueAmounts.length === 1) {
             amountInput.value = uniqueAmounts[0];
             amountInput.placeholder = '';
@@ -233,7 +234,7 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
         const durInput = this.inputs['dur'];
         if (uniqueDurs.length > 1) {
             durInput.value = '';
-            durInput.placeholder = '複数';
+            durInput.placeholder = t('svgEditor.animTransform.multiple') || '複数';
         } else if (uniqueDurs.length === 1) {
             durInput.value = uniqueDurs[0];
             durInput.placeholder = '';

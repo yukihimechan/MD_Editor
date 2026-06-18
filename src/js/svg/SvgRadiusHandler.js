@@ -107,14 +107,14 @@ class SvgRadiusHandler {
         circle.setAttribute('cx', handlePos.x);
         circle.setAttribute('cy', handlePos.y);
 
-        // [NEW] Dynamic Scaling for radius handle
-        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
-            window.SVGUtils.updateHandleScaling(circle);
-        }
-
         // [FIX] Ensure the handle group is still in the overlay (library might have cleared it)
         if (this.handleGroup && !this.handleGroup.parentNode) {
             this.overlayGroup.appendChild(this.handleGroup);
+        }
+
+        // [NEW] DOMマウント後にサイズ補正を適用
+        if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
+            window.SVGUtils.updateHandleScaling(circle);
         }
 
         // [REMOVED] refreshHandleSizes is now a no-op handled by CSS

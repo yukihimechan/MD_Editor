@@ -2,6 +2,9 @@
  * SVG Style Toolbar
  * Provides a UI for quickly applying predefined fill and stroke colors to selected SVG elements.
  */
+
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 class SVGStyleToolbar extends SVGToolbarBase {
     constructor(container, svgToolbar, options = {}) {
         super({
@@ -16,7 +19,7 @@ class SVGStyleToolbar extends SVGToolbarBase {
 
         this.palettes = [
             {
-                name: "パレット1",
+                name: t('svgEditor.style.palette1') || "パレット1",
                 colors: [
                     { fill: '#fdeff2', stroke: '#f6bfbc', strokeWidth: 1 },
                     { fill: '#e6cde3', stroke: '#4f455c', strokeWidth: 1 },
@@ -31,7 +34,7 @@ class SVGStyleToolbar extends SVGToolbarBase {
                 ]
             },
             {
-                name: "パレット2",
+                name: t('svgEditor.style.palette2') || "パレット2",
                 colors: [
                     { fill: '#fff79980', stroke: '#fff352', strokeWidth: 1 },
                     { fill: '#fdede480', stroke: '#de82a7', strokeWidth: 1 },
@@ -46,7 +49,7 @@ class SVGStyleToolbar extends SVGToolbarBase {
                 ]
             },
             {
-                name: "パレット3",
+                name: t('svgEditor.style.palette3') || "パレット3",
                 colors: [
                     { fill: '#E7B69599', stroke: '#E7B695', strokeWidth: 2 },
                     { fill: '#F1DC9899', stroke: '#F1DC98', strokeWidth: 2 },
@@ -103,7 +106,7 @@ class SVGStyleToolbar extends SVGToolbarBase {
         // 展開ボタン
         this.expandBtn = document.createElement('button');
         this.expandBtn.innerHTML = '▼';
-        this.expandBtn.title = 'パレットエリアを展開';
+        this.expandBtn.title = t('svgEditor.style.expandTitle') || 'パレットエリアを展開';
         this.expandBtn.style.cssText = `
             background: transparent; border: none; color: var(--svg-toolbar-fg); cursor: pointer; padding: 0 4px;
             font-size: 10px; border-radius: 3px; margin-left: auto; height: 20px; opacity: 0.6;

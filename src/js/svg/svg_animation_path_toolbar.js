@@ -3,6 +3,7 @@
  * モーションパスアニメーション（<animateMotion> + <mpath>）を設定するUIモジュール。
  * 描画されたパスをガイドレールにして要素を移動させることができます。
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGAnimationPathToolbar extends SVGToolbarBase {
     constructor(container, options = {}) {
         super({
@@ -45,13 +46,13 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
         // ツールバーラベル
         const label = document.createElement('span');
         label.style.cssText = 'color:var(--svg-toolbar-fg); font-size:10px; font-weight:bold; margin:0 4px;';
-        label.textContent = 'パス移動:';
+        label.textContent = t('svgEditor.animPath.label') || 'パス移動:';
         contentArea.appendChild(label);
 
         // パス選択紐付けボタン
         const selectPathBtn = document.createElement('button');
-        selectPathBtn.innerHTML = '🔗 パス紐付け';
-        selectPathBtn.title = 'ボタンを押した後、レールにしたいキャンバス上のパス要素をクリックして紐付けます';
+        selectPathBtn.innerHTML = t('svgEditor.animPath.linkBtn') || '🔗 パス紐付け';
+        selectPathBtn.title = t('svgEditor.animPath.linkBtnTitle') || 'ボタンを押した後、レールにしたいキャンバス上のパス要素をクリックして紐付けます';
         selectPathBtn.style.cssText = 'padding: 2px 6px; font-size: 10px; cursor: pointer; border-radius: 4px; border: 1px solid var(--svg-toolbar-border);';
         selectPathBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -63,7 +64,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
         // パスID表示（読み取り専用）
         const pathIdLabel = document.createElement('span');
         pathIdLabel.style.cssText = 'color:var(--svg-toolbar-fg); font-size: 10px; opacity: 0.7; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
-        pathIdLabel.textContent = '(未設定)';
+        pathIdLabel.textContent = t('svgEditor.animPath.notSet') || '(未設定)';
         contentArea.appendChild(pathIdLabel);
         this.inputs['pathIdLabel'] = pathIdLabel;
 
@@ -75,14 +76,14 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
         rotateCheck.checked = true;
         rotateCheck.addEventListener('change', () => this.handleParamsChange());
         rotateLabel.appendChild(rotateCheck);
-        rotateLabel.appendChild(document.createTextNode('回転'));
+        rotateLabel.appendChild(document.createTextNode(t('svgEditor.animPath.rotate') || '回転'));
         contentArea.appendChild(rotateLabel);
         this.inputs['autoRotate'] = rotateCheck;
 
         // 再生時間 (Duration)
         const durWrap = document.createElement('div');
         durWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
-        durWrap.innerHTML = '<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;">秒:</span>';
+        durWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;">${t('svgEditor.animPath.seconds') || '秒:'}</span>`;
         const durInput = document.createElement('input');
         durInput.type = 'number';
         durInput.style.width = '45px';
@@ -98,7 +99,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
 
         // 解除ボタン
         const removeBtn = document.createElement('button');
-        removeBtn.innerHTML = '❌ 解除';
+        removeBtn.innerHTML = t('svgEditor.animPath.removeBtn') || '❌ 解除';
         removeBtn.style.cssText = 'padding: 2px 4px; font-size: 10px; cursor: pointer; color: #f44336; border-radius: 4px; border: 1px solid var(--svg-toolbar-border);';
         removeBtn.addEventListener('click', () => this.handleRemovePath());
         contentArea.appendChild(removeBtn);
@@ -119,7 +120,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
         if (!selected) {
             // 要素が選択されていない状態でのトグル起動または有効化時のみ警告を出す
             if (forceState === undefined || forceState === true) {
-                alert('アニメーションを設定する要素を選択してください。');
+                alert(t('svgEditor.animPath.selectElementAlert') || 'アニメーションを設定する要素を選択してください。');
             }
             // 強制解除（あるいは警告後）のクリーンアップ処理
             this.isSelectingPath = false;
@@ -284,7 +285,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
             if (window.selectElement) window.selectElement(el, true);
         });
 
-        this.inputs['pathIdLabel'].textContent = '(未設定)';
+        this.inputs['pathIdLabel'].textContent = t('svgEditor.animPath.notSet') || '(未設定)';
         this.inputs['pathIdLabel'].title = '';
     }
 
@@ -294,7 +295,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
     updateValuesFromSelected() {
         if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
         
-        let foundPath = '(未設定)';
+        let foundPath = t('svgEditor.animPath.notSet') || '(未設定)';
         let foundDur = '4.0';
         let foundRotate = true;
 

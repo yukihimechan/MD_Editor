@@ -9,6 +9,8 @@
  * - data-container-id="container_1" で子要素側から所属先を参照
  */
 
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 const SVGContainerManager = (() => {
 
     // --- 定数 ---
@@ -37,7 +39,7 @@ const SVGContainerManager = (() => {
      * @param {string} label - ラベルテキスト
      * @returns {SVG.G} 生成されたコンテナグループ要素
      */
-    function createContainer(draw, x, y, w, h, label = 'コンテナ') {
+    function createContainer(draw, x, y, w, h, label = t('svgEditor.container.defaultLabel') || 'コンテナ') {
         if (!draw) return null;
 
         const group = draw.group();
@@ -256,6 +258,9 @@ const SVGContainerManager = (() => {
             if (children.length === 0) continue;
             const child = children[0];
 
+            // 線要素はコンテナのサイズ計算から除外する
+            if (_isLineElement(child)) continue;
+
             try {
                 const m = child.matrix() || new SVG.Matrix();
                 const box = child.bbox().transform(m);
@@ -402,6 +407,12 @@ const SVGContainerManager = (() => {
      * @param {SVG.Element} el - ドラッグ開始した要素
      */
     function onDragStart(el) {
+        // [FIX] el がコンテナの構成要素である場合、親のコンテナグループ要素に切り替え
+        if (el && el.node) {
+            const containerG = el.node.closest('[data-container="true"]');
+            if (containerG && containerG.instance) el = containerG.instance;
+        }
+
         _dragStartChildPositions.clear();
         _dragStartContainerPos = null;
 
@@ -447,6 +458,11 @@ const SVGContainerManager = (() => {
      */
     function onDragMove(el, dx, dy, pt) {
         if (!el) return;
+        // [FIX] el がコンテナの構成要素である場合、親のコンテナグループ要素に切り替え
+        if (el.node) {
+            const containerG = el.node.closest('[data-container="true"]');
+            if (containerG && containerG.instance) el = containerG.instance;
+        }
 
         if (el.attr('data-container') === 'true') {
             // コンテナの移動 → 子要素追従
@@ -478,6 +494,12 @@ const SVGContainerManager = (() => {
      * @param {Object} pt - ドロップ位置のSVG座標 {x, y}
      */
     function handleDragEnd(el, pt) {
+        // [FIX] el がコンテナの構成要素である場合、親のコンテナグループ要素に切り替え
+        if (el && el.node) {
+            const containerG = el.node.closest('[data-container="true"]');
+            if (containerG && containerG.instance) el = containerG.instance;
+        }
+
         hideAllGlow();
         _dragStartChildPositions.clear();
         _dragStartContainerPos = null;
@@ -512,14 +534,18 @@ const SVGContainerManager = (() => {
         const draggedElements = [];
         if (window.currentEditingSVG && window.currentEditingSVG.selectedElements) {
             window.currentEditingSVG.selectedElements.forEach(sel => {
-                // コンテナ自身は除外
-                if (sel.attr('data-container') !== 'true') {
+                // コンテナ自身と線要素は除外
+                if (sel.attr('data-container') !== 'true' && !_isLineElement(sel)) {
                     draggedElements.push(sel);
                 }
             });
         }
-        if (draggedElements.length === 0) {
+        if (draggedElements.length === 0 && !_isLineElement(el)) {
             draggedElements.push(el);
+        }
+
+        if (draggedElements.length === 0) {
+            return;
         }
 
         // ドロップ先のコンテナを検索
@@ -617,12 +643,12 @@ const SVGContainerManager = (() => {
         const draggedElements = [];
         if (window.currentEditingSVG && window.currentEditingSVG.selectedElements) {
             window.currentEditingSVG.selectedElements.forEach(sel => {
-                if (sel.attr('data-container') !== 'true') {
+                if (sel.attr('data-container') !== 'true' && !_isLineElement(sel)) {
                     draggedElements.push(sel);
                 }
             });
         }
-        if (draggedElements.length === 0) {
+        if (draggedElements.length === 0 && !_isLineElement(el)) {
             draggedElements.push(el);
         }
 
@@ -647,6 +673,24 @@ const SVGContainerManager = (() => {
             return new SVG.Box(0, 0, 0, 0);
         }
         return new SVG.Box(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    /**
+     * 要素が線（直線、折れ線、矢印など）であるか判定する
+     * @param {SVG.Element} el
+     * @returns {boolean}
+     */
+    function _isLineElement(el) {
+        if (!el) return false;
+        const type = el.type || (el.node && el.node.tagName ? el.node.tagName.toLowerCase() : '');
+        if (type === 'line' || type === 'polyline') return true;
+        if (type === 'path') {
+            const toolId = el.attr('data-tool-id') || '';
+            if (toolId.includes('line') || toolId.includes('arrow') || toolId === 'freehand' || toolId === 'airbrush') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

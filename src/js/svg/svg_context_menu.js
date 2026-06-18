@@ -1,6 +1,7 @@
 /**
  * 表示中のコンテキストメニュー管理
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 let activeSVGContextMenu = null;
 let activeSVGContextMenuCleanup = null;
 
@@ -104,7 +105,7 @@ function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions) 
             }
         },
         { type: 'separator' },
-        { label: 'ツールバーに追加', enabled: selectionCount === 1, action: () => actions.addToToolbar(container) }
+        { label: t('svgContextMenu.addToToolbar', 'ツールバーに追加'), enabled: selectionCount === 1, action: () => actions.addToToolbar(container) }
     ];
 
     // [NEW] CSS追加メニュー（クラス未設定の図形のみ、且つscriptタグが読み込まれているとき）
@@ -122,7 +123,7 @@ function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions) 
         if (!hasValidClass) {
             menuItems.push({ type: 'separator' });
             menuItems.push({
-                label: 'CSS追加',
+                label: t('svgContextMenu.addCSS', 'CSS追加'),
                 enabled: true,
                 action: () => {
                     _showCSSAddDialog(el, draw);
@@ -145,7 +146,7 @@ function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions) 
             const hasEnd = el.node.getAttribute('data-arrow-end') === 'true';
 
             menuItems.push({
-                label: hasStart ? '開始矢印を消す' : '開始矢印をつける',
+                label: hasStart ? t('svgContextMenu.removeStartArrow', '開始矢印を消す') : t('svgContextMenu.addStartArrow', '開始矢印をつける'),
                 enabled: true,
                 action: () => {
                     el.node.setAttribute('data-arrow-start', !hasStart);
@@ -160,7 +161,7 @@ function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions) 
                 }
             });
             menuItems.push({
-                label: hasEnd ? '終了矢印を消す' : '終了矢印をつける',
+                label: hasEnd ? t('svgContextMenu.removeEndArrow', '終了矢印を消す') : t('svgContextMenu.addEndArrow', '終了矢印をつける'),
                 enabled: true,
                 action: () => {
                     el.node.setAttribute('data-arrow-end', !hasEnd);
@@ -177,7 +178,7 @@ function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions) 
 
             menuItems.push({ type: 'separator' });
             menuItems.push({
-                label: '頂点を追加',
+                label: t('svgContextMenu.addVertex', '頂点を追加'),
                 enabled: true,
                 action: () => {
                     const pts = window.SVGConnectorManager ? window.SVGConnectorManager.getPolyPoints(el) : [];
@@ -396,7 +397,7 @@ function showCustomToolContextMenu(e, tool, deleteCallback, saveCallback) {
             }
         },
         {
-            label: 'ファイルに保存',
+            label: t('svgContextMenu.saveToFile', 'ファイルに保存'),
             action: () => {
                 saveCallback(tool);
             }
@@ -473,7 +474,7 @@ function _showCSSAddDialog(el, draw) {
     `;
 
     const title = document.createElement('p');
-    title.textContent = 'CSSに追加するクラス名を入力してください';
+    title.textContent = t('svgContextMenu.cssClassPrompt') || 'CSSに追加するクラス名を入力してください';
     title.style.cssText = 'margin: 0 0 10px 0; font-weight: bold;';
     dialog.appendChild(title);
 
@@ -490,7 +491,7 @@ function _showCSSAddDialog(el, draw) {
 
     // 注意書き
     const note = document.createElement('small');
-    note.textContent = '使用可能: 半角英数字・ハイフン・アンダースコア（先頭は英字）';
+    note.textContent = t('svgContextMenu.cssClassPatternDesc') || '使用可能: 半角英数字・ハイフン・アンダースコア（先頭は英字）';
     note.style.cssText = 'display: block; color: #888; margin-bottom: 12px; font-size: 11px;';
     dialog.appendChild(note);
 
@@ -498,7 +499,7 @@ function _showCSSAddDialog(el, draw) {
     btnRow.style.cssText = 'display: flex; justify-content: flex-end; gap: 8px;';
 
     const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.textContent = t('dialog.cancel') || 'キャンセル';
     cancelBtn.style.cssText = `
         padding: 4px 14px; border-radius: 4px; cursor: pointer;
         border: 1px solid var(--svg-toolbar-border, #ccc);
@@ -508,7 +509,7 @@ function _showCSSAddDialog(el, draw) {
     btnRow.appendChild(cancelBtn);
 
     const saveBtn = document.createElement('button');
-    saveBtn.textContent = '保存';
+    saveBtn.textContent = t('settings.save') || '保存';
     saveBtn.style.cssText = `
         padding: 4px 18px; border-radius: 4px; cursor: pointer;
         border: 1px solid #E8A000;

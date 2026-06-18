@@ -2,6 +2,8 @@
  * Editor <-> Preview Sync Functionality
  */
 
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 // --- Scroll Sync (CM6 Precise) ---
 // Note: window.isScrolling is defined in editor_core.js
 
@@ -321,7 +323,7 @@ function bindScrollSync() {
                 if (window.TableEditor && typeof window.TableEditor.getSelectedCellsStats === 'function') {
                     const stats = window.TableEditor.getSelectedCellsStats();
                     if (stats.hasNumber) {
-                        statsText = `データの個数: ${stats.dataCount}  合計: ${stats.sum}`;
+                        statsText = t('editor.statsCountSum', { count: stats.dataCount, sum: stats.sum }) || `データの個数: ${stats.dataCount}  合計: ${stats.sum}`;
                     }
                 }
                 DOM.previewStatusBar.textContent = statsText;
@@ -348,10 +350,10 @@ function bindScrollSync() {
                         if (window.TableEditor && typeof window.TableEditor.getSelectedCellsStats === 'function') {
                             const stats = window.TableEditor.getSelectedCellsStats();
                             if (stats.hasNumber) {
-                                statsText = `  データの個数: ${stats.dataCount}  合計: ${stats.sum}`;
+                                statsText = '  ' + (t('editor.statsCountSum', { count: stats.dataCount, sum: stats.sum }) || `データの個数: ${stats.dataCount}  合計: ${stats.sum}`);
                             }
                         }
-                        DOM.previewStatusBar.textContent = `行: ${startLine} 列: ${textOffset}${statsText}`;
+                        DOM.previewStatusBar.textContent = (t('editor.lineCol', { line: startLine, col: textOffset }) || `行: ${startLine} 列: ${textOffset}`) + statsText;
                         DOM.previewStatusBar.style.display = 'block';
                     } catch (e) { /* ignore range errors */ }
                     return;
@@ -363,7 +365,7 @@ function bindScrollSync() {
             if (window.TableEditor && typeof window.TableEditor.getSelectedCellsStats === 'function') {
                 const stats = window.TableEditor.getSelectedCellsStats();
                 if (stats.hasNumber) {
-                    statsText = `データの個数: ${stats.dataCount}  合計: ${stats.sum}`;
+                    statsText = t('editor.statsCountSum', { count: stats.dataCount, sum: stats.sum }) || `データの個数: ${stats.dataCount}  合計: ${stats.sum}`;
                 }
             }
             DOM.previewStatusBar.textContent = statsText; // Clear or show stats

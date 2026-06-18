@@ -2,6 +2,9 @@
  * SVG Text Alignment Toolbar
  * 図形内のテキストの配置（左・中央・右、上・中・下）を調整するツールバー
  */
+
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 class SVGTextAlignToolbar extends SVGToolbarBase {
     constructor(container, draw, options = {}) {
         super({
@@ -25,19 +28,19 @@ class SVGTextAlignToolbar extends SVGToolbarBase {
         };
 
         this.buttonsConfig = [
-            { id: 'h-left', title: '左寄せ', icon: this.icons.hLeft, h: 'left' },
-            { id: 'h-center', title: '中央寄せ', icon: this.icons.hCenter, h: 'center' },
-            { id: 'h-right', title: '右寄せ', icon: this.icons.hRight, h: 'right' },
+            { id: 'h-left', title: t('svgEditor.textAlign.hLeft') || '左寄せ', icon: this.icons.hLeft, h: 'left' },
+            { id: 'h-center', title: t('svgEditor.textAlign.hCenter') || '中央寄せ', icon: this.icons.hCenter, h: 'center' },
+            { id: 'h-right', title: t('svgEditor.textAlign.hRight') || '右寄せ', icon: this.icons.hRight, h: 'right' },
             { separator: true },
-            { id: 'v-top', title: '上寄せ', icon: this.icons.vTop, v: 'top' },
-            { id: 'v-middle', title: '上下中央', icon: this.icons.vMiddle, v: 'middle' },
-            { id: 'v-bottom', title: '下寄せ', icon: this.icons.vBottom, v: 'bottom' },
+            { id: 'v-top', title: t('svgEditor.textAlign.vTop') || '上寄せ', icon: this.icons.vTop, v: 'top' },
+            { id: 'v-middle', title: t('svgEditor.textAlign.vMiddle') || '上下中央', icon: this.icons.vMiddle, v: 'middle' },
+            { id: 'v-bottom', title: t('svgEditor.textAlign.vBottom') || '下寄せ', icon: this.icons.vBottom, v: 'bottom' },
             { separator: true },
-            { id: 'wm-h-ltr', title: '左書き', icon: this.icons.wmH_LTR, wm: 'h-ltr' },
-            { id: 'wm-h-rtl', title: '右書き', icon: this.icons.wmH_RTL, wm: 'h-rtl' },
-            { id: 'wm-v-rl', title: '縦書き', icon: this.icons.wmV_RL, wm: 'v-rl' },
+            { id: 'wm-h-ltr', title: t('svgEditor.textAlign.wmHLtr') || '左書き', icon: this.icons.wmH_LTR, wm: 'h-ltr' },
+            { id: 'wm-h-rtl', title: t('svgEditor.textAlign.wmHRtl') || '右書き', icon: this.icons.wmH_RTL, wm: 'h-rtl' },
+            { id: 'wm-v-rl', title: t('svgEditor.textAlign.wmVRl') || '縦書き', icon: this.icons.wmV_RL, wm: 'v-rl' },
             { separator: true },
-            { isLabel: true, title: '行間' }
+            { isLabel: true, title: t('svgEditor.textAlign.spacingLabel') || '行間' }
         ];
 
         this.createToolbar();
@@ -84,7 +87,7 @@ class SVGTextAlignToolbar extends SVGToolbarBase {
 
         this.spacingInput = document.createElement('input');
         this.spacingInput.type = 'number';
-        this.spacingInput.title = '行間の倍率 (例: 1.2 や 1.5)';
+        this.spacingInput.title = t('svgEditor.textAlign.spacingTitle') || '行間の倍率 (例: 1.2 や 1.5)';
         this.spacingInput.step = '0.1';
         this.spacingInput.style.width = '45px';
         this.spacingInput.onchange = () => {

@@ -2,6 +2,7 @@
  * SVG CSS Toolbar
  * SVGの<style>タグに定義されたCSSクラスを図形に適用・管理するツールバー
  */
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
 class SVGCSSToolbar extends SVGToolbarBase {
     constructor(container, options = {}) {
         super({
@@ -52,13 +53,13 @@ class SVGCSSToolbar extends SVGToolbarBase {
 
         // ラベル
         const label = document.createElement('span');
-        label.textContent = 'CSS:';
+        label.textContent = t('svgEditor.css.label') || 'CSS:';
         label.style.cssText = 'font-size: 10px; color: var(--svg-toolbar-fg); opacity: 0.7; white-space: nowrap; flex-shrink: 0;';
         contentArea.appendChild(label);
 
         // クラス選択リストボックス
         this._classSelect = document.createElement('select');
-        this._classSelect.title = 'CSSクラス一覧';
+        this._classSelect.title = t('svgEditor.css.classListTitle') || 'CSSクラス一覧';
         this._classSelect.style.cssText = `
             height: 22px; font-size: 11px; padding: 0 2px;
             border: 1px solid var(--svg-toolbar-border);
@@ -70,7 +71,7 @@ class SVGCSSToolbar extends SVGToolbarBase {
         contentArea.appendChild(this._classSelect);
 
         // スタイル編集ボタン
-        this._editBtn = this._createBtn('✎', 'スタイルを編集', () => this._toggleEditPanel());
+        this._editBtn = this._createBtn('✎', t('svgEditor.css.editStyle') || 'スタイルを編集', () => this._toggleEditPanel());
         contentArea.appendChild(this._editBtn);
 
         // セパレータ
@@ -79,11 +80,11 @@ class SVGCSSToolbar extends SVGToolbarBase {
         contentArea.appendChild(sep);
 
         // 保存ボタン
-        this._saveBtn = this._createBtn('💾', 'CSSをファイルに保存', () => this._saveCSSFile());
+        this._saveBtn = this._createBtn('💾', t('svgEditor.css.saveToFile') || 'CSSをファイルに保存', () => this._saveCSSFile());
         contentArea.appendChild(this._saveBtn);
 
         // 開くボタン
-        this._openBtn = this._createBtn('📂', 'CSSファイルを開く', () => this._openCSSFile());
+        this._openBtn = this._createBtn('📂', t('svgEditor.css.openFile') || 'CSSファイルを開く', () => this._openCSSFile());
         contentArea.appendChild(this._openBtn);
 
         // 隠しファイルinput
@@ -146,7 +147,7 @@ class SVGCSSToolbar extends SVGToolbarBase {
         nameRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 8px;';
 
         const nameLabel = document.createElement('span');
-        nameLabel.textContent = 'クラス名:';
+        nameLabel.textContent = t('svgEditor.css.className') || 'クラス名:';
         nameLabel.style.cssText = 'font-size: 11px; color: var(--svg-toolbar-fg); white-space: nowrap; width: 56px; flex-shrink: 0;';
         nameRow.appendChild(nameLabel);
 
@@ -168,11 +169,11 @@ class SVGCSSToolbar extends SVGToolbarBase {
         typeRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
 
         const typeLabel = document.createElement('span');
-        typeLabel.textContent = '種類:';
+        typeLabel.textContent = t('svgEditor.css.type') || '種類:';
         typeLabel.style.cssText = 'font-size: 11px; color: var(--svg-toolbar-fg); width: 56px; flex-shrink: 0;';
         typeRow.appendChild(typeLabel);
 
-        ['図形', 'テキスト'].forEach((label, i) => {
+        [t('svgEditor.css.typeShape') || '図形', t('svgEditor.css.typeText') || 'テキスト'].forEach((label, i) => {
             const radio = document.createElement('input');
             radio.type = 'radio';
             radio.name = 'css-preview-type-' + this.id;
@@ -230,7 +231,7 @@ class SVGCSSToolbar extends SVGToolbarBase {
         btnRow.style.cssText = 'display: flex; justify-content: flex-end; gap: 6px;';
 
         const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = 'キャンセル';
+        cancelBtn.textContent = t('dialog.cancel') || 'キャンセル';
         cancelBtn.style.cssText = `
             font-size: 11px; padding: 2px 10px; border-radius: 4px;
             border: 1px solid var(--svg-toolbar-border);
@@ -240,7 +241,7 @@ class SVGCSSToolbar extends SVGToolbarBase {
         btnRow.appendChild(cancelBtn);
 
         const saveBtn = document.createElement('button');
-        saveBtn.textContent = '保存';
+        saveBtn.textContent = t('settings.save') || '保存';
         saveBtn.style.cssText = `
             font-size: 11px; padding: 2px 14px; border-radius: 4px;
             border: 1px solid ${this.config.borderColor};
@@ -422,7 +423,7 @@ class SVGCSSToolbar extends SVGToolbarBase {
             return;
         }
         if (!this._isValidClassName(className)) {
-            alert('無効なクラス名です。\n使用可能: 半角英数字・ハイフン・アンダースコア（先頭は英字）');
+            alert(t('alert.invalidClassName') || '無効なクラス名です。\n使用可能: 半角英数字・ハイフン・アンダースコア（先頭は英字）');
             return;
         }
 
@@ -629,7 +630,7 @@ class SVGCSSToolbar extends SVGToolbarBase {
         // 空選択肢（クラスなし）
         const emptyOpt = document.createElement('option');
         emptyOpt.value = '';
-        emptyOpt.textContent = '（なし）';
+        emptyOpt.textContent = t('svgEditor.css.none') || '（なし）';
         this._classSelect.appendChild(emptyOpt);
 
         classes.forEach(cls => {
@@ -844,7 +845,7 @@ class SVGCSSToolbar extends SVGToolbarBase {
 
         const existingStyleEl = draw.node.querySelector('style');
         if (existingStyleEl && existingStyleEl.textContent.trim()) {
-            const overwrite = confirm('<style>タグが既に存在します。上書きしますか？\n「キャンセル」を選ぶと追記します。');
+            const overwrite = confirm(t('confirm.overwriteStyle') || '<style>タグが既に存在します。上書きしますか？\n「キャンセル」を選ぶと追記します。');
             if (overwrite) {
                 existingStyleEl.textContent = cssText;
             } else {

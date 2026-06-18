@@ -441,6 +441,20 @@ const SvgTextEditor = {
                         shape.node.removeAttribute('data-original-y');
                     }
 
+                    // [NEW] もしグループがコンテナに属していた場合、所属関係を元の図形に戻す
+                    const containerId = group.attr('data-container-id');
+                    if (containerId) {
+                        shape.attr('data-container-id', containerId);
+                        const draw = window.currentEditingSVG ? window.currentEditingSVG.draw : null;
+                        const container = draw ? draw.findOne('#' + containerId) : null;
+                        if (container) {
+                            const childrenStr = container.attr('data-container-children') || '';
+                            const childIds = childrenStr.split(',').filter(id => id.trim());
+                            const newChildIds = childIds.map(id => id === group.id() ? shape.id() : id);
+                            container.attr('data-container-children', newChildIds.join(','));
+                        }
+                    }
+
                     group.before(shape);
                     group.remove();
                     if (window.makeInteractive) window.makeInteractive(shape);
@@ -754,6 +768,20 @@ const SvgTextEditor = {
                         shape.untransform();
                     }
                     shape._box = null;
+
+                    // [NEW] もしグループがコンテナに属していた場合、所属関係を元の図形に戻す
+                    const containerId = group.attr('data-container-id');
+                    if (containerId) {
+                        shape.attr('data-container-id', containerId);
+                        const draw = window.currentEditingSVG ? window.currentEditingSVG.draw : null;
+                        const container = draw ? draw.findOne('#' + containerId) : null;
+                        if (container) {
+                            const childrenStr = container.attr('data-container-children') || '';
+                            const childIds = childrenStr.split(',').filter(id => id.trim());
+                            const newChildIds = childIds.map(id => id === group.id() ? shape.id() : id);
+                            container.attr('data-container-children', newChildIds.join(','));
+                        }
+                    }
 
                     group.before(shape);
                     group.remove();

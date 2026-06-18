@@ -2,6 +2,9 @@
  * SVGツールバーの共通基盤クラス
  * 各ツールバーはこのクラスを継承、またはこのクラスのメソッドを利用して構築します。
  */
+
+var t = t || ((key, params) => typeof I18n !== 'undefined' ? I18n.translate(key, params) : key);
+
 class SVGToolbarBase {
     constructor(config = {}) {
         this.config = config;
@@ -17,7 +20,7 @@ class SVGToolbarBase {
     createDragHandle(title, borderColor) {
         const handle = document.createElement('button');
         handle.className = 'svg-toolbar-drag-handle';
-        handle.title = title || 'ドラッグして移動';
+        handle.title = title || t('svgEditor.toolbarBase.dragToMove') || 'ドラッグして移動';
 
         if (borderColor) {
             handle.style.setProperty('--handle-color', borderColor, 'important');
@@ -52,7 +55,7 @@ class SVGToolbarBase {
     createResizeDivider(title, borderColor) {
         const divider = document.createElement('div');
         divider.className = 'svg-toolbar-resize-divider';
-        divider.title = title || 'ドラッグして伸縮（端までドラッグで左右入替）';
+        divider.title = title || t('svgEditor.toolbarBase.dragToResize') || 'ドラッグして伸縮（端までドラッグで左右入替）';
 
         // ドラッグハンドルと同様のスタイルを適用
         divider.style.cssText = `
@@ -324,24 +327,19 @@ class SVGToolbarBase {
             if (config.position.right) toolbar.style.right = config.position.right;
         }
 
-        // 1. ドラッグハンドルを追加
-        const dragHandle = this.createDragHandle('ドラッグして移動', config.borderColor);
+        const dragHandle = this.createDragHandle(t('svgEditor.toolbarBase.dragToMove') || 'ドラッグして移動', config.borderColor);
         toolbar.appendChild(dragHandle);
 
-        // 2. コンテンツ領域を作成
         const contentArea = document.createElement('div');
         contentArea.className = 'svg-toolbar-content';
         contentArea.style.cssText = `display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; flex: 1; overflow: hidden; border-radius: 0;`;
         toolbar.appendChild(contentArea);
 
-        // 3. 伸縮ハンドル（||）を追加
-        const resizeDivider = this.createResizeDivider('ドラッグして伸縮（端までドラッグで左右入替）', config.borderColor);
+        const resizeDivider = this.createResizeDivider(t('svgEditor.toolbarBase.dragToResize') || 'ドラッグして伸縮（端までドラッグで左右入替）', config.borderColor);
         toolbar.appendChild(resizeDivider);
 
-        // 4. ピン留め・レイアウト状態の復元
         this.applyPinnedState(toolbar);
 
-        // 5. ドラッグ機能の初期化 (SVGUtils.makeElementDraggable が存在する場合)
         if (window.SVGUtils && window.SVGUtils.makeElementDraggable) {
             window.SVGUtils.makeElementDraggable(toolbar, dragHandle, {
                 storageKey: (config.id || 'svg-toolbar') + '-pos',
@@ -349,15 +347,11 @@ class SVGToolbarBase {
             });
         }
 
-        // 6. 伸縮・位置入替ロジックを適用
         this.initToolbarLayout(toolbar);
 
         return { toolbar, contentArea };
     }
 
-    /**
-     * ツール初期値のロード
-     */
     loadToolDefaults() {
         if (!this.toolDefaults) this.toolDefaults = {};
         const key = this.toolDefaultsKey || (this.id + '-defaults');
@@ -378,9 +372,6 @@ class SVGToolbarBase {
         }
     }
 
-    /**
-     * ツール初期値のセーブ
-     */
     saveToolDefaults() {
         if (this.toolDefaults) {
             const key = this.toolDefaultsKey || (this.id + '-defaults');
@@ -402,13 +393,9 @@ class SVGToolbarBase {
         this.saveToolDefaults();
     }
 
-    /**
-     * ツール初期値設定ダイアログ（プロパティ設定画面）の汎用表示メソッド
-     */
     showToolPropertiesDialog(toolId, toolLabel) {
         if (typeof window.currentEditingSVG === 'undefined') return;
 
-        // toolDefaults に toolId の定義が無い場合は設定ダイアログが不要とみなす
         if (!this.toolDefaults || !this.toolDefaults[toolId]) {
             console.log(`[SVGToolbarBase] No initial properties defined for ${toolId}`);
             return;
@@ -434,45 +421,44 @@ class SVGToolbarBase {
         dialog.className = 'svg-property-dialog tool-settings';
         dialog.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;padding:25px;border:1px solid #ccc;box-shadow:0 10px 40px rgba(0,0,0,0.3);z-index:12000;width:400px;border-radius:12px;';
 
-        let html = `<h3 style="margin:0 0 20px 0; font-size:16px;">${toolLabel || toolId} の既定設定</h3>`;
+        let html = `<h3 style="margin:0 0 20px 0; font-size:16px;">${toolLabel || toolId} ${t('svgEditor.toolbarBase.defaultSettings') || 'の既定設定'}</h3>`;
 
-        // ToolDefaults 内のプロパティごとにフォーム部品を動的生成する
         const keys = Object.keys(props);
         const pickersToInit = [];
-        let tempProps = { ...props }; // 現在の変更内容バッファ
+        let tempProps = { ...props };
 
         keys.forEach(k => {
             const val = props[k];
             
             if (k === 'fill' || k === 'stroke') {
-                const labelName = k === 'fill' ? '塗りつぶし色' : '枠線色';
+                const labelName = k === 'fill' ? (t('svgEditor.properties.fillColor') || '塗りつぶし色') : (t('svgEditor.properties.borderColor') || '枠線色');
                 const triggerId = `tool-${k}-trigger`;
                 html += `
                     <div class="svg-prop-row">
                         <span class="svg-prop-label">${labelName}:</span>
                         <div class="svg-color-preview-container">
                             <div id="${triggerId}"></div>
-                            ${k === 'fill' ? `<label style="font-size:12px;"><input type="checkbox" id="tool-fill-none" ${val === 'none' ? 'checked' : ''}> なし</label>` : ''}
+                            ${k === 'fill' ? `<label style="font-size:12px;"><input type="checkbox" id="tool-fill-none" ${val === 'none' ? 'checked' : ''}> ${t('svgEditor.toolbarBase.none') || 'なし'}</label>` : ''}
                         </div>
                     </div>
                 `;
                 pickersToInit.push({ key: k, triggerId: triggerId, initialVal: val });
             } else if (typeof val === 'number') {
                 const labelMap = {
-                    'stroke-width': '枠線幅',
-                    'radius': '角の半径',
-                    'spikes': '星の角数',
-                    'sides': '多角形の辺数',
-                    'fontSize': 'フォントサイズ',
-                    'len': '矢印の長さ',
-                    'shaftW': '軸の太さ',
-                    'headW': '矢印先の幅',
-                    'headL': '矢印先の長さ',
-                    'legH': '水平部の長さ',
-                    'legV': '垂直部の長さ',
-                    'legH1': '前半の長さ',
-                    'legH2': '後半の長さ',
-                    'uWidth': 'U字の幅'
+                    'stroke-width': t('svgEditor.properties.borderWidth') || '枠線幅',
+                    'radius': t('svgEditor.properties.cornerRadius') || '角の半径',
+                    'spikes': t('svgEditor.properties.starSpikes') || '星の角数',
+                    'sides': t('svgEditor.properties.polygonSides') || '多角形の辺数',
+                    'fontSize': t('svgEditor.properties.fontSize') || 'フォントサイズ',
+                    'len': t('svgEditor.arrow.param_len') || '矢印の長さ',
+                    'shaftW': t('svgEditor.arrow.param_shaft_w') || '軸の太さ',
+                    'headW': t('svgEditor.arrow.param_head_w') || '矢印先の幅',
+                    'headL': t('svgEditor.arrow.param_head_l') || '矢印先の長さ',
+                    'legH': t('svgEditor.arrow.param_leg_h') || '水平部の長さ',
+                    'legV': t('svgEditor.arrow.param_leg_v') || '垂直部の長さ',
+                    'legH1': t('svgEditor.arrow.param_leg_h1') || '前半の長さ',
+                    'legH2': t('svgEditor.arrow.param_leg_h2') || '後半の長さ',
+                    'uWidth': t('svgEditor.arrow.param_u_width') || 'U字の幅'
                 };
                 const labelName = labelMap[k] || k;
                 html += `
@@ -493,8 +479,8 @@ class SVGToolbarBase {
 
         html += `
             <div style="text-align:right; margin-top:20px; display:flex; gap:12px; justify-content:flex-end;">
-                <button id="tool-settings-cancel" style="padding:6px 16px; border:1px solid #ddd; background:#fff; color:#333; cursor:pointer; border-radius:4px;">取消</button>
-                <button id="tool-settings-ok" style="background:#0366d6; color:white; border:none; padding:6px 16px; border-radius:4px; cursor:pointer; font-weight:500;">保存</button>
+                <button id="tool-settings-cancel" style="padding:6px 16px; border:1px solid #ddd; background:#fff; color:#333; cursor:pointer; border-radius:4px;">${t('svgEditor.properties.cancel') || '取消'}</button>
+                <button id="tool-settings-ok" style="background:#0366d6; color:white; border:none; padding:6px 16px; border-radius:4px; cursor:pointer; font-weight:500;">${t('svgEditor.properties.save') || '保存'}</button>
             </div>
         `;
         dialog.innerHTML = html;
