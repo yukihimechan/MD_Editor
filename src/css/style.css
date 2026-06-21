@@ -1510,6 +1510,11 @@ body.comment-panel-visible {
     background: var(--primary);
 }
 
+/* [FIX] パネルが非表示の時はリサイズバーも非表示にする（他の要素との重なりを防止） */
+.outline-panel:not(.visible) .outline-resize-handle {
+    display: none;
+}
+
 .svg-list-toolbar {
     display: flex;
     gap: 4px;
@@ -2908,18 +2913,18 @@ html body .svg-select-group-canvas .svg_select_handle_point_l {
     vector-effect: non-scaling-stroke !important;
     display: block !important;
     visibility: visible !important;
-    opacity: 1 !important;
+    opacity: 1;
     pointer-events: all !important;
 }
 
 /* Force markers to be visible even if tiny in coordinates */
 rect.svg_select_handle {
-    width: 8px !important;
-    height: 8px !important;
+    width: 8px;
+    height: 8px;
 }
 
 circle.svg_select_handle {
-    r: 5px !important;
+    r: 5px;
 }
 
 /* Handle Hover */
@@ -3922,53 +3927,6 @@ body.dark-theme .language-label.clickable:hover {
     border-color: rgba(255, 255, 255, 0.2);
 }
 
-/* ============================================================ */
-/* SVG Editor Zoom-independent Handles (ULTIMATE OVERRIDE)      */
-/* ============================================================ */
-.svg-editor-container {
-    --svg-zoom: 100;
-}
-
-.svg-editor-container [class*="-handle"],
-.svg-editor-container .bez-control-point,
-.svg-editor-container .svg-control-marker {
-    /* Pure Math-based transformation applied via JS to ensure Invariant Points */
-    vector-effect: non-scaling-stroke !important;
-}
-
-/* Ensure consistent base sizes (don't scale attributes in CSS!) */
-.svg-editor-container circle[class*="-handle"],
-.svg-editor-container circle.bez-control-point,
-.svg-editor-container circle.svg-control-marker {
-    /* Base radius should remain constant in SVG units (e.g. 5-6px) */
-    /* Handlers will be createad with proper attributes by JS */
-    vector-effect: inherit;
-}
-
-/* Non-scaling strokes for selection lines */
-.svg-editor-container .svg-select-shape,
-.svg-editor-container .svg-select-group,
-.svg-editor-container .rotation-handle-group line,
-.svg-editor-container .bez-control-line,
-.svg-editor-container polyline.svg-select-shape {
-    vector-effect: non-scaling-stroke !important;
-    stroke-width: 1.5px !important;
-}
-
-/* --- Canvas Proxy Specific Handle Restriction --- */
-/* [FIX] Use high specificity to override library defaults */
-html body .svg-select-group-canvas .svg-select-handle:not([class*="-b"]):not([class*="_b"]),
-html body .svg-select-group-canvas circle:not([class*="-b"]):not([class*="_b"]),
-html body .svg-select-group-canvas rect:not([class*="-b"]):not([class*="_b"]),
-html body .svg-select-group-canvas .rotation-handle-group,
-html body .svg-select-group-canvas .radius-handle {
-    display: none !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
-}
-
-/* Ensure the bottom handle is visible and emphasized for canvas */
-html body .svg-select-group-canvas .svg-select-handle-b,
 .export-menu-item .icon {
     flex-shrink: 0;
     opacity: 0.8;
@@ -4860,5 +4818,29 @@ g[data-tool-id="shape-text-group"] text tspan {
     color: #666;
 }
 
+/* SVG Smart Snap Indicators */
+.svg-spacing-indicators {
+    pointer-events: none;
+}
+.svg-spacing-indicators line,
+.svg-spacing-indicators polyline {
+    vector-effect: non-scaling-stroke;
+}
 
+/* リサイズマーカーのフラッシュ抑制 (rAFポーリング方式によるセーフネット) */
+.svg_select_handle,
+.svg-select-handle,
+.rotation-handle-group circle,
+.rotation-handle-group line,
+.radius-handle,
+.bez-control-point,
+.svg-control-marker {
+    /* デフォルトは表示（rAFループが追従するため） */
+    opacity: 1;
+}
 
+/* 緊急時のみ：scaling が一度も成功していないハンドルは隠す */
+.svg_select_handle:not(.scaling-applied):not([transform]),
+.svg-select-handle:not(.scaling-applied):not([transform]) {
+    opacity: 0;
+}

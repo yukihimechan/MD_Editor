@@ -40,29 +40,10 @@
 
 /* 閉じるボタン */
 .svg-expanded-close-btn {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    padding: 12px 24px;
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #333;
-    cursor: pointer;
-    z-index: 10010;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    transition: background 0.2s, transform 0.1s;
-}
-
-.svg-expanded-close-btn:hover {
-    background: #f0f0f0;
-    transform: scale(1.05);
-}
-
-.svg-expanded-close-btn:active {
-    transform: scale(0.98);
+    position: absolute !important;
+    top: 10px !important;
+    right: 10px !important;
+    z-index: 10005 !important;
 }
 
 /* 拡大表示中のSVGコンテナ */
@@ -78,16 +59,6 @@
 /* ダークテーマ対応 */
 body.dark-theme .svg-expanded-dialog {
     background: #2d2d2d;
-}
-
-body.dark-theme .svg-expanded-close-btn {
-    background: rgba(50, 50, 50, 0.95);
-    color: #fff;
-    border-color: #555;
-}
-
-body.dark-theme .svg-expanded-close-btn:hover {
-    background: rgba(70, 70, 70, 0.95);
 }
 
 body.dark-theme .svg-expanded-dialog .split-cell {
