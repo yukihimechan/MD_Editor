@@ -1676,8 +1676,12 @@ const SVGPathOps = {
                 return;
             }
 
-            const ectm = el.ctm();
-            const d = this.convertToPathData(el, ectm);
+            // [FIX] el.ctm() は viewBox 変換を含んだ viewport 座標になってしまうため、要素自身の transform のみを使用する
+            let localMatrix = new SVG.Matrix();
+            try {
+                localMatrix = new SVG.Matrix(el);
+            } catch(e) {}
+            const d = this.convertToPathData(el, localMatrix);
             if (d) {
                 try {
                     const item = new paper.Path(d);
@@ -1705,7 +1709,7 @@ const SVGPathOps = {
         svgNode.addEventListener('click', this._boundCutClick, true); // キャプチャフェーズで処理
 
         if (window.showToast) window.showToast(t('toast.clickPathToCut'));
-        if (window.deselectElement) window.deselectElement();
+        if (window.deselectAll) window.deselectAll();
     },
 
     stopPathCutMode() {
@@ -1748,16 +1752,41 @@ const SVGPathOps = {
         const draw = window.currentEditingSVG ? window.currentEditingSVG.draw : null;
         if (!draw) return;
 
-        const pt = draw.point(e.clientX, e.clientY);
+        // ズーム等(CSS TransformやviewBox)を正確に加味して座標変換する（スナップさせない純粋な座標変換）
+        let pt;
+        try {
+            const svgNode = draw.node;
+            const p = svgNode.createSVGPoint();
+            p.x = e.clientX;
+            p.y = e.clientY;
+            const ctm = svgNode.getScreenCTM();
+            if (ctm) {
+                pt = p.matrixTransform(ctm.inverse());
+            } else {
+                pt = draw.point(e.clientX, e.clientY);
+            }
+        } catch(ex) {
+            pt = draw.point(e.clientX, e.clientY);
+        }
+        
         const paperPt = new paper.Point(pt.x, pt.y);
 
+        // ズーム倍率に合わせて判定距離も調整する (表示上の 20px 相当)
+        const cssScale = window.SVGUtils ? window.SVGUtils.getTransformScale(draw.node) : 1;
+        const paperZoom = parseFloat(draw.node.getAttribute('data-paper-zoom')) || 100;
+        const scale = cssScale * (paperZoom / 100);
+        
+        const adjustedTolerance = minDistance / scale;
+        let currentBestDist = adjustedTolerance;
+
         this._cutCache.forEach(cache => {
-            const hit = cache.paperItem.hitTest(paperPt, { stroke: true, segments: true, tolerance: minDistance });
-            if (hit && hit.location) {
-                const dist = hit.point.getDistance(paperPt);
-                if (dist < minDistance) {
-                    minDistance = dist;
-                    bestHit = { point: hit.point, location: hit.location, element: cache.element, paperItem: cache.paperItem };
+            // hitTest だと曲線の特定の区間で判定漏れが発生することがあるため、getNearestLocation を使う
+            const location = cache.paperItem.getNearestLocation(paperPt);
+            if (location) {
+                const dist = location.point.getDistance(paperPt);
+                if (dist <= adjustedTolerance && dist < currentBestDist) {
+                    currentBestDist = dist;
+                    bestHit = { point: location.point, location: location, element: cache.element, paperItem: cache.paperItem };
                 }
             }
         });
@@ -1766,7 +1795,10 @@ const SVGPathOps = {
 
         if (this._currentHit) {
             const cp = this._currentHit.point;
-            this._cutMarker.attr({ cx: cp.x, cy: cp.y }).show();
+            // ズームに関わらず画面上で常に同じ大きさ(半径6px, 枠線2px)に見えるようにスケールで割る
+            const visualRadius = 6 / scale;
+            const visualStrokeWidth = 2 / scale;
+            this._cutMarker.attr({ cx: cp.x, cy: cp.y, r: visualRadius, 'stroke-width': visualStrokeWidth }).show();
             this._cutMarker.front();
         } else {
             this._cutMarker.hide();
@@ -1861,7 +1893,7 @@ const SVGPathOps = {
                 item.remove();
                 if (parts && parts !== item) parts.remove();
 
-                if (window.deselectElement) window.deselectElement();
+                if (window.deselectAll) window.deselectAll();
 
                 // Completely remove the original element from the canvas
                 const origId = el.attr('id');

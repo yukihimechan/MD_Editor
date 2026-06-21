@@ -33,20 +33,27 @@ const SVGAutoRouter = {
 
     draw.children().forEach(el => {
       const node = el.node;
-      if (!node || excludeNodes.has(node)) return;
-
-      // 内部要素・UIハンドルは除外
-      if (window.isSVGInternalElement && window.isSVGInternalElement(node)) return;
-
       const tagName = node.tagName.toLowerCase();
       // 定義、テキスト、および線要素は迂回対象（障害物）から除外
       const skipTags = ['defs', 'style', 'marker', 'symbol', 'metadata',
                         'line', 'polyline', 'text', 'tspan', 'g'];
-      if (skipTags.includes(tagName)) return;
-
+      if (skipTags.includes(tagName)) {
+        return;
+      }
+      
       // コネクタ対象と同じ判定ロジックを流用して迂回すべき図形を判定
       if (window.SVGConnectorManager &&
-          !window.SVGConnectorManager.shouldShowConnectorsFor(el)) return;
+          !window.SVGConnectorManager.shouldShowConnectorsFor(el)) {
+        return;
+      }
+      
+      // 除外指定された図形ならスキップ
+      if (excludeNodes.has(node)) {
+        return;
+      }
+
+      // 内部要素・UIハンドルは除外
+      if (window.isSVGInternalElement && window.isSVGInternalElement(node)) return;
 
       try {
         const bbox = el.bbox();
@@ -79,10 +86,12 @@ const SVGAutoRouter = {
             });
           }
         }
-      } catch (e) { /* bbox取得や行列変換の失敗は無視 */ }
+      } catch (e) { 
+        console.log(`[OrthogonalLineTool] SVGAutoRouter error ${node.id}:`, e);
+      }
     });
 
-    console.log(`[SVGAutoRouter] collectObstacles: found ${obstacles.length} obstacles.`, obstacles.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h, id: o.el ? o.el.id() : 'none' })));
+    console.log(`[OrthogonalLineTool] SVGAutoRouter collectObstacles: found ${obstacles.length} obstacles.`, obstacles.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h, id: o.el ? o.el.id() : 'none' })));
     return obstacles;
   },
 
@@ -152,6 +161,9 @@ const SVGAutoRouter = {
       return Math.abs(pt1.x - pt2.x) < eps && Math.abs(pt1.y - pt2.y) < eps;
     };
 
+    const isStartEdge = isSamePoint(p1, start) || isSamePoint(p2, start);
+    const isEndEdge = isSamePoint(p1, end) || isSamePoint(p2, end);
+
     // p1 または p2 が全体経路の始点/終点そのものである場合、
     // それらの点が矩形（障害物の膨張BBox）の内部にあっても、接続元/接続先自身の内部領域であるため衝突とみなさない。
     const checkP1 = !(isSamePoint(p1, start) || isSamePoint(p1, end));
@@ -159,6 +171,22 @@ const SVGAutoRouter = {
 
     if ((checkP1 && this.isPointInsideRect(p1, rect)) || (checkP2 && this.isPointInsideRect(p2, rect))) {
       return true;
+    }
+
+    // 始点または終点がこの障害物の内部に配置されている場合、
+    // その点から繋がる最初の1エッジ（脱出エッジ・進入エッジ）に限り、
+    // この障害物の境界線を越えることを許可する（交差とみなさない）。
+    if (isStartEdge && start && this.isPointInsideRect(start, rect)) {
+        return false;
+    }
+    if (isEndEdge && end && this.isPointInsideRect(end, rect)) {
+        return false;
+    }
+
+    // 貫通チェック: 両端点が境界上（または外部）であっても、中点が内部にあれば貫通している
+    const midP = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    if (this.isPointInsideRect(midP, rect)) {
+        return true;
     }
 
     // 矩形の4つの辺
@@ -172,6 +200,22 @@ const SVGAutoRouter = {
     // いずれかの辺と線分が交差するか
     for (const side of sides) {
       if (this.lineSegmentsIntersect(p1, p2, side.p1, side.p2)) {
+        // T-junction (丁字路) 対策: 
+        // p1 または p2 が内部にないことは既に確認済みなので、
+        // 線分の端点が矩形の辺上にぴったり乗っている場合は、内部を横切っていないため交差とみなさない。
+        const isPointOnSegment = (p, a, b) => {
+            const eps = 1e-3;
+            const cross = (p.y - a.y) * (b.x - a.x) - (p.x - a.x) * (b.y - a.y);
+            if (Math.abs(cross) > eps) return false;
+            const dot = (p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y);
+            if (dot < -eps) return false;
+            const sqLen = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
+            if (dot > sqLen + eps) return false;
+            return true;
+        };
+        if (isPointOnSegment(p1, side.p1, side.p2) || isPointOnSegment(p2, side.p1, side.p2)) {
+            continue; // 接しているだけ
+        }
         return true;
       }
     }

@@ -1420,18 +1420,23 @@ class SvgPolylineHandler {
         if (bz.type === 0) {
             bz.type = 1;
             const pt = points[currentIndex];
+            
+            // ズーム率に基づいて画面上での見かけの長さ（30px）を論理長に変換
+            const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+            const handleLength = 30 * (100 / zoom);
+
             if (isEnd) {
                 bz.type = 2; // 終端は常に cusp (角)
                 if (currentIndex === 0) {
                     const next = points[1] || pt;
                     const dx = pt[0] - next[0]; const dy = pt[1] - next[1];
                     const len = Math.hypot(dx, dy) || 1;
-                    bz.cpOut = [pt[0] + (dx / len) * 30, pt[1] + (dy / len) * 30];
+                    bz.cpOut = [pt[0] + (dx / len) * handleLength, pt[1] + (dy / len) * handleLength];
                 } else {
                     const prev = points[currentIndex - 1] || pt;
                     const dx = pt[0] - prev[0]; const dy = pt[1] - prev[1];
                     const len = Math.hypot(dx, dy) || 1;
-                    bz.cpIn = [pt[0] + (dx / len) * 30, pt[1] + (dy / len) * 30];
+                    bz.cpIn = [pt[0] + (dx / len) * handleLength, pt[1] + (dy / len) * handleLength];
                 }
             } else {
                 let prev, next;
@@ -1463,11 +1468,11 @@ class SvgPolylineHandler {
                     const dy = next[1] - prev[1];
                     const len = Math.hypot(dx, dy) || 1;
                     const udx = dx / len; const udy = dy / len;
-                    bz.cpIn = [pt[0] - udx * 30, pt[1] - udy * 30];
-                    bz.cpOut = [pt[0] + udx * 30, pt[1] + udy * 30];
+                    bz.cpIn = [pt[0] - udx * handleLength, pt[1] - udy * handleLength];
+                    bz.cpOut = [pt[0] + udx * handleLength, pt[1] + udy * handleLength];
                 } else {
-                    bz.cpIn = [pt[0] - 30, pt[1]];
-                    bz.cpOut = [pt[0] + 30, pt[1]];
+                    bz.cpIn = [pt[0] - handleLength, pt[1]];
+                    bz.cpOut = [pt[0] + handleLength, pt[1]];
                 }
             }
         } else if (bz.type === 1 && !isEnd) {

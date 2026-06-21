@@ -9,12 +9,12 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
             id: options.id || 'svg-animation-transform-toolbar',
             container: container,
             borderColor: options.borderColor || '#FF5722',
-            position: options.position || { top: '20px', right: '-45px' },
+            position: options.position || { top: '20px', right: '-36px' },
             isSwapped: true
         });
         this.onValueChange = options.onValueChange || (() => { });
         this.inputs = {};
-        
+
         this.createToolbar();
     }
 
@@ -177,7 +177,7 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
      */
     updateValuesFromSelected() {
         if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
-        
+
         const selectedElements = Array.from(window.currentEditingSVG.selectedElements);
         if (selectedElements.length === 0) return;
 

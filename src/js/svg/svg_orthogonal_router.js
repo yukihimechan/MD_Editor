@@ -75,6 +75,97 @@ const OrthogonalRouter = {
     },
 
     /**
+     * スタブ（引き出し線）を考慮した経路探索
+     * 接続先図形を回避するために、まず法線方向にスタブを引き出してからA*探索を行う
+     * @param {Object} startConn - 始点の接続情報（getConnectorPointsの戻り値） null可
+     * @param {Object} endConn - 終点の接続情報 null可
+     * @param {Object} startWorld - 始点座標
+     * @param {Object} endWorld - 終点座標
+     * @param {Array} obstacles - 障害物配列
+     * @param {Object} options - オプション
+     */
+    routeWithStubs(startConn, endConn, startWorld, endWorld, obstacles, options = {}) {
+        const margin = options.margin !== undefined ? options.margin : this.config.margin;
+        let p1 = startWorld;
+        let p2 = endWorld;
+        const routeStart = [startWorld];
+        const routeEnd = [endWorld];
+
+        // 仮想的なコネクタ情報を生成（ポイントが障害物内部にある場合）
+        const createPseudoConnector = (pt) => {
+            const eps = 2.0;
+            for (const obs of obstacles) {
+                if (pt.x >= obs.x - eps && pt.x <= obs.x2 + eps && pt.y >= obs.y - eps && pt.y <= obs.y2 + eps) {
+                    // 中心からのベクトルで法線を近似
+                    const cx = obs.x + obs.w / 2;
+                    const cy = obs.y + obs.h / 2;
+                    let nx = 0, ny = 0;
+                    if (Math.abs(pt.x - cx) > Math.abs(pt.y - cy)) {
+                        nx = pt.x > cx ? 1 : -1;
+                    } else {
+                        ny = pt.y > cy ? 1 : -1;
+                    }
+                    return { nx, ny, bboxWidth: obs.w, bboxHeight: obs.h };
+                }
+            }
+            return null;
+        };
+
+        const effStartConn = startConn || createPseudoConnector(startWorld);
+        const effEndConn = endConn || createPseudoConnector(endWorld);
+
+        const getStub = (conn, pt) => {
+            if (!conn) return null;
+            // 指定された引き出し長：(w+h)/2 * 0.1 だが、最低20pxを確保（マージンが15pxのため、障害物外へ確実に出す）
+            const stubLen = Math.max(20, (conn.bboxWidth + conn.bboxHeight) / 2 * 0.1);
+            
+            // 法線を直交軸にスナップ（形状が回転している場合でも直交ルートを維持するため）
+            let ox = 0, oy = 0;
+            if (Math.abs(conn.nx) > Math.abs(conn.ny)) {
+                ox = conn.nx > 0 ? 1 : -1;
+            } else {
+                oy = conn.ny > 0 ? 1 : -1;
+            }
+            return {
+                x: pt.x + ox * stubLen,
+                y: pt.y + oy * stubLen
+            };
+        };
+
+        const stub1 = getStub(effStartConn, startWorld);
+        const stub2 = getStub(effEndConn, endWorld);
+
+        if (stub1) {
+            p1 = stub1;
+            routeStart.push(stub1);
+        }
+        if (stub2) {
+            p2 = stub2;
+            routeEnd.unshift(stub2);
+        }
+
+        const route = this.findOrthogonalRoute(p1, p2, obstacles, options);
+
+        if (!route) {
+            // A*が失敗した場合は、スタブを含めた単純なL字や直線をフォールバックとして返す
+            return this.recalculateRoute([...routeStart, { x: p1.x, y: p2.y }, ...routeEnd]);
+        }
+
+        // ルートの結合（重複点の排除）
+        const finalRoute = [...routeStart];
+        const eps = 1e-1;
+        for (let i = 0; i < route.length; i++) {
+            // 先頭や末尾がスタブの端点と完全に一致する場合はスキップ（重複を防ぐため）
+            if (i === 0 && stub1 && Math.abs(route[i].x - stub1.x) < eps && Math.abs(route[i].y - stub1.y) < eps) continue;
+            if (i === route.length - 1 && stub2 && Math.abs(route[i].x - stub2.x) < eps && Math.abs(route[i].y - stub2.y) < eps) continue;
+            finalRoute.push(route[i]);
+        }
+        finalRoute.push(...routeEnd);
+
+        return this.recalculateRoute(finalRoute);
+    },
+
+    /**
      * 直交グラフの構築
      */
     _buildOrthogonalGraph(start, end, obstacles) {
@@ -270,6 +361,7 @@ const OrthogonalRouter = {
             }
         }
 
+        console.log(`[OrthogonalLineTool] A* FAILED in _aStarOrthogonal! start=(${startPt.x},${startPt.y}) end=(${endPt.x},${endPt.y}). iterations: ${iterations}, openSet size: ${openSet.size}, total nodes in graph: ${nodes.length}`);
         return null; // 探索失敗
     },
 

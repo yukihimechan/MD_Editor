@@ -27,8 +27,9 @@ function hideSVGContextMenu() {
  * @param {number} svgIndex - SVGインデックス
  * @param {Object} currentEditingSVG - 現在編集中のSVG情報
  * @param {Object} actions - アクション関数群
+ * @param {boolean} [anchorToTarget=false] - e.target (ボタン) を基準に配置するかどうか
  */
-function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions) {
+function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions, anchorToTarget = false) {
     if (!currentEditingSVG) {
         console.warn('[SVG Context Menu] No currentEditingSVG provided');
         return;
@@ -303,7 +304,13 @@ function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions) 
     activeSVGContextMenu = menu;
 
     // 位置の自動調整
-    adjustMenuPosition(menu, e.clientX, e.clientY);
+    if (anchorToTarget && e.target) {
+        const targetBtn = e.target.closest('.svg-float-btn') || e.target;
+        const rect = targetBtn.getBoundingClientRect();
+        adjustMenuPosition(menu, rect.left, rect.bottom + 4, true); // true = 下方向への展開を優先
+    } else {
+        adjustMenuPosition(menu, e.clientX, e.clientY);
+    }
 
     // クリーンアップ処理（メニュー外クリックで消去）
     const cleanup = (ev) => {
@@ -322,8 +329,12 @@ function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions) 
 
 /**
  * メニューの位置を自動調整
+ * @param {HTMLElement} menu 
+ * @param {number} clickX 
+ * @param {number} clickY 
+ * @param {boolean} [preferBelow=false] - アンカーの下に表示させることを優先するフラグ
  */
-function adjustMenuPosition(menu, clickX, clickY) {
+function adjustMenuPosition(menu, clickX, clickY, preferBelow = false) {
     const menuRect = menu.getBoundingClientRect();
     const menuWidth = menuRect.width;
     const menuHeight = menuRect.height;
@@ -334,9 +345,14 @@ function adjustMenuPosition(menu, clickX, clickY) {
     let top = clickY;
     const spaceBelow = viewportHeight - clickY;
     if (spaceBelow < menuHeight + padding) {
+        // 下にスペースがない場合
         const spaceAbove = clickY;
-        if (spaceAbove > menuHeight + padding) {
+        if (!preferBelow && spaceAbove > menuHeight + padding) {
             top = clickY - menuHeight;
+        } else if (preferBelow) {
+            // フローティングツールバーの上に表示
+            // ※クリック位置がボタンのbottomなので、ボタンの高さを考慮して上に配置する（少し雑ですが）
+            top = clickY - menuHeight - 40; 
         } else {
             top = viewportHeight - menuHeight - padding;
         }

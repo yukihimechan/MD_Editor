@@ -49,6 +49,14 @@ function toggleSvgList(force = null) {
         DOM.svgListPanel.classList.remove('visible');
         document.body.classList.remove('svg-list-visible');
     }
+
+    // [FIX] SVGリストパネル開閉後にグリッド/ルーラーCanvasを再描画する
+    // CSSトランジション完了後(300ms)にサイズ再計算
+    setTimeout(() => {
+        if (window.currentEditingSVG && window.currentEditingSVG.draw) {
+            window.currentEditingSVG.applyZoomPan();
+        }
+    }, 350);
 }
 
 /**

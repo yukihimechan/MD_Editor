@@ -79,6 +79,12 @@ function scheduleSelectionUIUpdate(silent = false) {
             window.animationPathToolbar.updateValuesFromSelected();
         }
 
+        // 5. フローティングツールバーの更新
+        console.log('[scheduleSelectionUIUpdate] updateSVGFloatingToolbar exists?', typeof window.updateSVGFloatingToolbar === 'function');
+        if (typeof window.updateSVGFloatingToolbar === 'function') {
+            window.updateSVGFloatingToolbar();
+        }
+
         // 3. ハイライトとSVG要素リストの同期
         if (typeof window.updateSVGSourceHighlight === 'function') {
             window.updateSVGSourceHighlight();
@@ -543,7 +549,7 @@ window.selectElement = selectElement;
  * Deselect all elements
  */
 function deselectElement(el, silent = false) {
-    if (!window.currentEditingSVG) return;
+    if (!window.currentEditingSVG || !el || !el.node) return;
     try {
         const elId = el && el.id ? (typeof el.id === 'function' ? el.id() : el.id) : (el && el.node ? el.node.getAttribute('id') : 'unknown');
         console.debug(`[deselectElement] Called for ID: ${elId}, currentCount: ${window.currentEditingSVG.selectedElements.size}`);
@@ -551,11 +557,13 @@ function deselectElement(el, silent = false) {
 
     // [FIX] wrapperオブジェクトの参照不一致を防ぐため、DOMノード基準で解除対象を探す
     let existingWrapper = null;
-    window.currentEditingSVG.selectedElements.forEach(sel => {
-        if (sel.node === el.node) {
-            existingWrapper = sel;
-        }
-    });
+    if (window.currentEditingSVG.selectedElements) {
+        window.currentEditingSVG.selectedElements.forEach(sel => {
+            if (sel && sel.node === el.node) {
+                existingWrapper = sel;
+            }
+        });
+    }
 
     if (existingWrapper) {
         // 元 of 要素（または渡された要素）の UI クリーンアップを実行

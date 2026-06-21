@@ -198,39 +198,6 @@ window.showPropertyEditor = showPropertyEditor;
 // --- Done Button UI ---
 
 function showDoneButton(container) {
-    let btn = document.getElementById('svg-editor-done-btn');
-    if (!btn) {
-        btn = document.createElement('button');
-        btn.id = 'svg-editor-done-btn';
-        btn.textContent = typeof I18n !== 'undefined' ? I18n.translate('editor.done') || '' : '';
-        btn.className = 'inline-done-btn'; // Reuse inline editor style
-        btn.onclick = (e) => {
-            e.stopPropagation();
-            if (window.currentEditingSVG) {
-                console.log(`[svg_properties] Done Click - Current Zoom: ${window.currentEditingSVG.zoom}%`);
-            }
-            if (typeof stopSVGEdit === 'function') stopSVGEdit();
-        };
-        document.body.appendChild(btn);
-    }
-
-    let expandBtn = document.getElementById('svg-editor-expand-btn');
-    if (!expandBtn) {
-        expandBtn = document.createElement('button');
-        expandBtn.id = 'svg-editor-expand-btn';
-        expandBtn.textContent = t('editor.expandView') || '拡大画面';
-        expandBtn.className = 'inline-done-btn'; // Reuse inline editor style class
-        expandBtn.onclick = (e) => {
-            e.stopPropagation();
-            if (typeof showSVGExpandedView === 'function') showSVGExpandedView();
-        };
-        document.body.appendChild(expandBtn);
-    }
-
-    // Show buttons
-    btn.style.display = 'block';
-    expandBtn.style.display = 'block';
-
     // [NEW] リサイズハンドルも初期化
     if (typeof showResizeHandle === 'function') showResizeHandle(container);
 
@@ -238,9 +205,6 @@ function showDoneButton(container) {
     updateDoneButtonPosition();
 
     // Add scroll/resize listeners for sticky positioning
-    // We store the handler on the button element to remove it later easily, 
-    // or just use a named function if we could, but closure is easier here.
-    // Let's attach it to window.currentEditingSVG to be clean.
     if (window.currentEditingSVG) {
         window.currentEditingSVG.doneDetailHandler = () => updateDoneButtonPosition();
         window.addEventListener('scroll', window.currentEditingSVG.doneDetailHandler, { capture: true, passive: true });
@@ -252,10 +216,6 @@ window.showDoneButton = showDoneButton;
 function hideDoneButton() {
     const btn = document.getElementById('svg-editor-done-btn');
     if (btn) btn.remove();
-
-    // [NEW] 拡大画面ボタンも削除
-    const expandBtn = document.getElementById('svg-editor-expand-btn');
-    if (expandBtn) expandBtn.remove();
 
     // [NEW] リサイズハンドルも削除
     const resizer = document.getElementById('svg-editor-resizer');
@@ -270,68 +230,19 @@ function hideDoneButton() {
 window.hideDoneButton = hideDoneButton;
 
 function updateDoneButtonPosition() {
-    const btn = document.getElementById('svg-editor-done-btn');
-    const expandBtn = document.getElementById('svg-editor-expand-btn');
     const resizer = document.getElementById('svg-editor-resizer');
-    if (!btn || !window.currentEditingSVG || !window.currentEditingSVG.container) return;
+    if (!window.currentEditingSVG || !window.currentEditingSVG.container) return;
 
     // 拡大画面表示中はボタンを隠す
     const expandedDialog = document.getElementById('svg-expanded-dialog');
     if (expandedDialog) {
-        btn.style.display = 'none';
-        if (expandBtn) expandBtn.style.display = 'none';
         if (resizer) resizer.style.display = 'none';
         return;
     } else {
-        btn.style.display = 'block';
-        if (expandBtn) expandBtn.style.display = 'block';
         if (resizer) resizer.style.display = 'block';
     }
 
-    // Use logic similar to table_editor.js
-    btn.style.position = 'fixed';
-    btn.style.right = 'auto';
-    btn.style.width = 'auto';
-    if (expandBtn) {
-        expandBtn.style.position = 'fixed';
-        expandBtn.style.right = 'auto';
-        expandBtn.style.width = 'auto';
-    }
-
     const containerRect = window.currentEditingSVG.container.getBoundingClientRect();
-    const btnRect = btn.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-
-    // Vertical Position: Sticky to Top of visible Container area
-    // Just a bit of padding from the top (e.g. 60px to clear header if any)
-    let top = Math.max(containerRect.top, 60);
-    const limitBottom = containerRect.bottom - btnRect.height - 10;
-
-    // If container is scrolled out of view, hide or limit?
-    if (top > limitBottom) top = limitBottom;
-
-    // Horizontal Position: Sticky to Right
-    const padding = 20;
-    const visibleRight = Math.min(containerRect.right, viewportWidth);
-    let left = visibleRight - btnRect.width - padding;
-
-    // Safety
-    if (left < containerRect.left + padding) {
-        left = Math.max(left, containerRect.left + padding);
-    }
-
-    // Apply to done button
-    btn.style.top = top + 'px';
-    btn.style.left = left + 'px';
-    btn.style.zIndex = '10005'; // Ensure above context menu or others
-
-    // [NEW] 拡大画面ボタンは完了ボタンの下に配置
-    if (expandBtn) {
-        const buttonGap = 10; // ボタン間の間隔
-        expandBtn.style.top = (top + btnRect.height + buttonGap) + 'px';
-        expandBtn.style.left = left + 'px';
-        expandBtn.style.zIndex = '10005';
-    }
 
     // [NEW] リサイズハンドルの位置更新
     if (resizer) {

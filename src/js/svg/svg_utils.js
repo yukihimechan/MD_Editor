@@ -159,6 +159,16 @@ const SVGUtils = {
                 el.style.top = ((rect.top - parentRect.top) / scale) + 'px';
             }
 
+            // [FIX] left がインラインスタイルに設定されておらず、かつ right が設定されている場合（初期位置が右配置のツールバーなど）、
+            // 現在の物理的な相対位置を計算して left に変換・設定します。
+            // これにより、ドラッグ開始時にツールバーが左端（left = 0）にジャンプして表示が崩れるバグを完全に防ぎます。
+            if (!el.style.left) {
+                const rect = el.getBoundingClientRect();
+                const parentRect = el.offsetParent ? el.offsetParent.getBoundingClientRect() : { left: 0, top: 0 };
+                el.style.left = ((rect.left - parentRect.left) / scale) + 'px';
+                el.style.right = 'auto';
+            }
+
             initialLeft = parseFloat(el.style.left) || 0;
             initialTop = parseFloat(el.style.top) || 0;
 
@@ -661,47 +671,39 @@ const SVGUtils = {
         const node = handle.node || handle;
         if (!node || typeof node.setAttribute !== 'function') return false;
 
-        const zoomVal = zoom || (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
-        let s = 100 / zoomVal;
-        let s_x = s;
-        let s_y = s;
-        let success = false;
-        let ctmData = null;
+        const ownerSvg = node.ownerSVGElement;
+        if (!ownerSvg) return false;
 
+        // ① 強制リフロー（DOM未確定対策）
         try {
-            const parentNode = node.parentNode;
-            if (parentNode && typeof parentNode.getScreenCTM === 'function') {
-                // [FIX] DOMマウント直後等でgetScreenCTMがnullを返すのを防ぐため、強制的にリフローを実行する
-                if (node.ownerSVGElement && typeof node.ownerSVGElement.getBoundingClientRect === 'function') {
-                    node.ownerSVGElement.getBoundingClientRect();
-                } else if (typeof parentNode.getBoundingClientRect === 'function') {
-                    parentNode.getBoundingClientRect();
-                }
-                const pCTM = parentNode.getScreenCTM();
-                if (pCTM) {
-                    const sx = Math.sqrt(pCTM.a * pCTM.a + pCTM.b * pCTM.b);
-                    const sy = Math.sqrt(pCTM.c * pCTM.c + pCTM.d * pCTM.d);
-                    ctmData = { a: pCTM.a, b: pCTM.b, c: pCTM.c, d: pCTM.d, sx, sy };
-                    if (sx > 0 && sy > 0) {
-                        s_x = 1 / sx;
-                        s_y = 1 / sy;
-                        s = s_x;
-                        success = true;
-                    }
-                }
+            ownerSvg.getBoundingClientRect();
+        } catch (e) {}
+
+        // ② 実視倍率を直接計測（CSS transformも含む）
+        let realScale = 1;
+        try {
+            const rect = ownerSvg.getBoundingClientRect();
+            const vb = ownerSvg.viewBox && ownerSvg.viewBox.baseVal;
+            if (vb && vb.width > 0 && rect.width > 0) {
+                realScale = rect.width / vb.width;
+            } else {
+                // viewBox が無い場合は祖先 transform を辿る
+                realScale = SVGUtils.getTransformScale(ownerSvg) || 1;
             }
         } catch (e) {
-            // 例外時はフォールバック
+            realScale = 0;
         }
 
-        console.log(`[DEBUG updateHandleScaling] Element: ${node.tagName}.${node.className.baseVal || node.className}, success: ${success}, s_x: ${s_x}, s_y: ${s_y}, parentCTM: ${JSON.stringify(ctmData)}`);
-
-        // [FIX] CTMの取得に失敗（success: false）した場合は、既存のtransform属性をクリアしてscale(1 1)にリセットされるのを防ぐため、
-        // 何も変更せずに早期リターン（false）する
-        if (!success) {
-            return false;
+        if (realScale <= 0 || !isFinite(realScale)) {
+            // 最終フォールバック
+            const zoomVal = zoom || (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+            realScale = zoomVal / 100;
         }
 
+        const s = 1 / realScale;
+        const s_x = s, s_y = s;
+
+        // ③ 中心保持スケーリングの座標計算
         let tx, ty;
         const tagName = node.tagName.toLowerCase();
 
@@ -721,7 +723,13 @@ const SVGUtils = {
                 const dashedArray = dash.split(/[\s,]+/).map(v => parseFloat(v) * s);
                 node.setAttribute('stroke-dasharray', dashedArray.join(' '));
             }
-            return success;
+            if (node.classList && typeof node.classList.remove === 'function') {
+                node.classList.remove('scaling-applied');
+            }
+            if (node.classList && typeof node.classList.add === 'function') {
+                node.classList.add('scaling-applied');
+            }
+            return true;
         }
 
         if (tagName === 'rect') {
@@ -752,10 +760,18 @@ const SVGUtils = {
             node.style.transformOrigin = '';
         }
 
+        // プラグインが transform を上書きした可能性に備え、一旦クラスを外す
+        if (node.classList && typeof node.classList.remove === 'function') {
+            node.classList.remove('scaling-applied');
+        }
+
         const transVal = `translate(${dx} ${dy}) scale(${s_x} ${s_y})`;
         node.setAttribute('transform', transVal);
-        console.log(`[DEBUG updateHandleScaling] Set transform on ${node.tagName}.${node.className.baseVal || node.className} to: ${transVal}`);
-        return success;
+        // console.log(`[DEBUG updateHandleScaling] Set transform on ${node.tagName}.${node.className.baseVal || node.className} to: ${transVal}, realScale: ${realScale}`);
+        if (node.classList && typeof node.classList.add === 'function') {
+            node.classList.add('scaling-applied');
+        }
+        return true;
     },
 
     /**
@@ -951,8 +967,8 @@ const SVGUtils = {
             }];
         }
 
-        // data-poly-pointsからポイントを取得
-        let pointsStr = node.getAttribute('data-poly-points') || node.getAttribute('points');
+        // data-poly-points または data-ortho-points からポイントを取得
+        let pointsStr = node.getAttribute('data-poly-points') || node.getAttribute('data-ortho-points') || node.getAttribute('points');
         if (!pointsStr && tagName === 'path') {
             // pathの場合はd属性からパース（フォールバック）
             try {
@@ -1269,7 +1285,133 @@ const SVGUtils = {
                 }
             });
         });
+    },
+
+    /**
+     * 指定ルート配下の全ハンドルに対し、毎フレーム updateHandleScaling を実行する
+     * rAFループを開始する。既に動作中なら何もしない。
+     * @param {SVGElement} rootNode SVGルートノード
+     * @param {string} reason デバッグ用（'resize' / 'rotate' / 'drag' など）
+     */
+    startHandleScaleLoop(rootNode, reason) {
+        if (!rootNode) return;
+
+        // === [NEW] クールダウン中なら中断して通常ループに復帰 ===
+        if (rootNode._handleScaleCooldownRAFId) {
+            cancelAnimationFrame(rootNode._handleScaleCooldownRAFId);
+            rootNode._handleScaleCooldownRAFId = null;
+            rootNode._handleScaleCooldown = undefined;
+        }
+
+        if (rootNode._handleScaleRAFId) return; // 既に通常ループ中
+
+        const HANDLE_SELECTOR =
+            '.svg_select_handle, .svg-select-handle, ' +
+            '.rotation-handle-group circle, .rotation-handle-group line, ' +
+            '.radius-handle, .bez-control-point, .svg-control-marker';
+
+        const self = this;
+        const loop = () => {
+            // ループが停止指示されていたら抜ける
+            if (!rootNode._handleScaleRAFId) return;
+
+            try {
+                const handles = rootNode.querySelectorAll(HANDLE_SELECTOR);
+                handles.forEach(h => {
+                    if (h && h.isConnected) {
+                        self.updateHandleScaling(h);
+                    }
+                });
+            } catch (e) {
+                console.warn('[startHandleScaleLoop] iteration failed:', e);
+            }
+
+            // 次フレームを予約
+            rootNode._handleScaleRAFId = requestAnimationFrame(loop);
+        };
+
+        rootNode._handleScaleRAFId = requestAnimationFrame(loop);
+        rootNode._handleScaleReason = reason;
+    },
+
+    /**
+     * rAFループを「クールダウン期間つき」で停止する。
+     * 即座に止めず、指定フレーム数だけ追加で回してから停止する。
+     * これにより、プラグインの遅延発火による属性書き換えにも追従できる。
+     *
+     * @param {SVGElement} rootNode SVGルート
+     * @param {number} cooldownFrames 追加で回すフレーム数（デフォルト30 ≒ 500ms）
+     */
+    stopHandleScaleLoop(rootNode, cooldownFrames = 30) {
+        if (!rootNode) return;
+
+        // すでにクールダウン中なら、フレーム数をリセット（最長を採用）
+        if (rootNode._handleScaleCooldown !== undefined &&
+            rootNode._handleScaleCooldown < cooldownFrames) {
+            rootNode._handleScaleCooldown = cooldownFrames;
+            return;
+        }
+
+        // クールダウンカウンタを設定
+        rootNode._handleScaleCooldown = cooldownFrames;
+
+        const SEL = '.svg_select_handle, .svg-select-handle, ' +
+            '.rotation-handle-group circle, .rotation-handle-group line, ' +
+            '.radius-handle, .bez-control-point, .svg-control-marker';
+
+        const self = this;
+        const cooldownLoop = () => {
+            if (rootNode._handleScaleCooldown === undefined ||
+                rootNode._handleScaleCooldown <= 0) {
+                // クールダウン終了
+                rootNode._handleScaleCooldown = undefined;
+                rootNode._handleScaleCooldownRAFId = null;
+
+                // 最後にもう1回補正
+                try {
+                    rootNode.querySelectorAll(SEL).forEach(h => {
+                        if (h && h.isConnected) self.updateHandleScaling(h);
+                    });
+                } catch (e) {}
+                return;
+            }
+
+            // 通常のループ処理
+            try {
+                rootNode.querySelectorAll(SEL).forEach(h => {
+                    if (h && h.isConnected) self.updateHandleScaling(h);
+                });
+            } catch (e) {
+                console.warn('[cooldownLoop] iter failed:', e);
+            }
+
+            rootNode._handleScaleCooldown--;
+            rootNode._handleScaleCooldownRAFId = requestAnimationFrame(cooldownLoop);
+        };
+
+        // メインループを止めて、クールダウンループへバトンタッチ
+        if (rootNode._handleScaleRAFId) {
+            cancelAnimationFrame(rootNode._handleScaleRAFId);
+            rootNode._handleScaleRAFId = null;
+        }
+        rootNode._handleScaleReason = 'cooldown';
+        rootNode._handleScaleCooldownRAFId = requestAnimationFrame(cooldownLoop);
     }
 };
 
 window.SVGUtils = SVGUtils;
+
+window._emergencyStopHandleLoop = function() {
+    document.querySelectorAll('svg').forEach(svg => {
+        if (svg._handleScaleRAFId) {
+            cancelAnimationFrame(svg._handleScaleRAFId);
+            svg._handleScaleRAFId = null;
+        }
+        if (svg._handleScaleCooldownRAFId) {
+            cancelAnimationFrame(svg._handleScaleCooldownRAFId);
+            svg._handleScaleCooldownRAFId = null;
+        }
+        svg._handleScaleCooldown = undefined;
+        console.warn('[EMERGENCY] Stopped all loops on', svg);
+    });
+};

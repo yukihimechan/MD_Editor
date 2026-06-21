@@ -10,7 +10,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
             id: options.id || 'svg-animation-path-toolbar',
             container: container,
             borderColor: options.borderColor || '#FF5722',
-            position: options.position || { top: '100px', right: '-45px' },
+            position: options.position || { top: '100px', right: '-36px' },
             isSwapped: true
         });
         this.onValueChange = options.onValueChange || (() => { });
@@ -155,10 +155,10 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
             this._canvasClickHandler = (e) => this.handleCanvasClick(e);
             svg.addEventListener('mousedown', this._canvasClickHandler, true);
             svg.addEventListener('click', this._canvasClickHandler, true);
-            
+
             // CSSによるホバーハイライト用のクラスを付与
             svg.classList.add('selecting-motion-path');
-            
+
             // ユーザービリティ向上のためにカーソルを変更
             svg.style.cursor = 'cell';
             if (window.currentEditingSVG.container) {
@@ -170,10 +170,10 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
                 svg.removeEventListener('click', this._canvasClickHandler, true);
                 this._canvasClickHandler = null;
             }
-            
+
             // ホバーハイライト用クラスの削除
             svg.classList.remove('selecting-motion-path');
-            
+
             svg.style.cursor = '';
             if (window.currentEditingSVG && window.currentEditingSVG.container) {
                 window.currentEditingSVG.container.style.cursor = '';
@@ -194,7 +194,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
 
         // パス要素（且つアニメーション対象自身や内部要素でないもの）がクリックされたか判定
         let target = e.target;
-        
+
         // 階層を上にたどってpathタグを探す
         while (target && target !== e.currentTarget) {
             const tagName = target.tagName ? target.tagName.toLowerCase() : '';
@@ -227,7 +227,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
             // 同一クリック操作に伴うすべてのmousedown / clickイベントが通常エディタに伝播するのを防ぐ
             setTimeout(() => {
                 this.togglePathSelectionMode(false);
-                
+
                 // 選択状態の同期 (ラップによって親子構造が変わっているため、DOM Node自体を渡して再選択させる)
                 if (window.selectElement && activeEl) {
                     const domNode = activeEl.node || activeEl;
@@ -294,7 +294,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
      */
     updateValuesFromSelected() {
         if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
-        
+
         let foundPath = t('svgEditor.animPath.notSet') || '(未設定)';
         let foundDur = '4.0';
         let foundRotate = true;

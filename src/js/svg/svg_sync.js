@@ -311,6 +311,12 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
         }
     }
 
+    // [FIX] addToHistory=false (ドラッグ中や選択時) は Undo履歴を破壊するため、CodeMirrorへのテキスト書き戻しをスキップする
+    if (!addToHistory) {
+        if (typeof updateSVGSourceHighlight === 'function') updateSVGSourceHighlight();
+        return true;
+    }
+
     // 5. CodeMirror へ行範囲を指定して差分適用
     DOM.editor.replaceLines(startLine + 1, endLine + 1, newBlock, addToHistory, isolateHistory);
 
@@ -382,7 +388,7 @@ const IGNORE_CLASSES = new Set([
     'svg-canvas-border', 'svg-ruler', 'svg-select-handle', 'svg_select_handle',
     'svg_select_shape', 'rotation-handle', 'svg_select_handle_rot',
     'svg-grad-control-ui', 'svg-grad-control-handle',
-    'container-glow'
+    'container-glow', 'svg-connector-overlay'
 ]);
 
 function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
@@ -633,6 +639,12 @@ function syncSVGToEditor(container, svgIndex, silent = true, overrideDims = null
             }
         }
 
+        // [FIX] addToHistory=false (ドラッグ中や選択時) は Undo履歴を破壊するため、CodeMirrorへのテキスト書き戻しをスキップする
+        if (!addToHistory) {
+            if (typeof updateSVGSourceHighlight === 'function') updateSVGSourceHighlight();
+            return;
+        }
+
         // Replace using lines (0-based to 1-based)
         DOM.editor.replaceLines(info.startLine + 1, info.endLine + 1, newBlock, addToHistory, isolateHistory);
         if (!silent) DOM.editor.dispatchEvent(new Event('input'));
@@ -795,7 +807,7 @@ function updateSVGFromEditor() {
         // パースエラーチェック
         const parseError = doc.querySelector('parsererror');
         if (parseError) {
-            console.warn('[updateSVGFromEditor] SVG parse error, skipping update.');
+            console.warn('[updateSVGFromEditor] SVG parse error, skipping update.', parseError.textContent || parseError.innerHTML);
             return;
         }
 
@@ -1061,12 +1073,21 @@ function updateSVGFromEditor() {
             [50, 150, 350, 700].forEach(delay => {
                 setTimeout(() => {
                     if (window.currentEditingSVG && window.currentEditingSVG.selectedElements) {
+                        // [FIX] ディレイ実行中のDOM変更がエディタへ逆同期（Echo）されるのを防ぐ
+                        const prev = window.currentEditingSVG._updatingFromEditor;
+                        window.currentEditingSVG._updatingFromEditor = true;
+
                         window.currentEditingSVG.selectedElements.forEach(el => {
                             const shape = el.remember('_shapeInstance');
                             if (shape && typeof shape.syncSelectionHandlers === 'function') {
                                 shape.syncSelectionHandlers(null, true);
                             }
                         });
+
+                        if (window.currentEditingSVG.syncObserver) {
+                            window.currentEditingSVG.syncObserver.takeRecords();
+                        }
+                        window.currentEditingSVG._updatingFromEditor = prev;
                     }
                 }, delay);
             });

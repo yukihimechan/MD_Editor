@@ -81,6 +81,38 @@ class SVGGridToolbar extends SVGToolbarBase {
         if (AppState.config.grid.showH) btnH.classList.add('active');
         contentArea.appendChild(btnH);
 
+        // Smart Snap section
+        const snapSeparator = document.createElement('div');
+        snapSeparator.className = 'svg-toolbar-separator';
+        contentArea.appendChild(snapSeparator);
+
+        const snapLabel = document.createElement('span');
+        snapLabel.textContent = 'Smart Snap:';
+        snapLabel.style.fontSize = '10px';
+        snapLabel.style.color = 'var(--svg-toolbar-fg)';
+        snapLabel.style.opacity = '0.7';
+        contentArea.appendChild(snapLabel);
+
+        const smartSnapConfig = AppState.config.smartSnap || { edges: true, equalSpacing: true };
+        AppState.config.smartSnap = smartSnapConfig;
+
+        // Edge Snap Toggle
+        const btnEdgeSnap = document.createElement('button');
+        btnEdgeSnap.innerHTML = 'Edge';
+        btnEdgeSnap.style.fontSize = '9px';
+        btnEdgeSnap.title = t('svgEditor.grid.toggleEdgeSnap') || '端・中心スナップ (Edge/Center Snap)';
+        if (smartSnapConfig.edges !== false) btnEdgeSnap.classList.add('active');
+        contentArea.appendChild(btnEdgeSnap);
+
+        // Equal Spacing Snap Toggle
+        const btnEqSnap = document.createElement('button');
+        btnEqSnap.innerHTML = '=';
+        btnEqSnap.style.fontSize = '12px';
+        btnEqSnap.style.fontWeight = 'bold';
+        btnEqSnap.title = t('svgEditor.grid.toggleEqSnap') || '等間隔スナップ (Equal-Spacing Snap)';
+        if (smartSnapConfig.equalSpacing !== false) btnEqSnap.classList.add('active');
+        contentArea.appendChild(btnEqSnap);
+
         const zoomSeparator = document.createElement('div');
         zoomSeparator.className = 'svg-toolbar-separator';
         contentArea.appendChild(zoomSeparator);
@@ -181,6 +213,18 @@ class SVGGridToolbar extends SVGToolbarBase {
             btnH.classList.toggle('active', AppState.config.grid.showH);
             if (typeof saveSettings === 'function') saveSettings();
             this.onConfigChange();
+        });
+
+        btnEdgeSnap.addEventListener('click', () => {
+            AppState.config.smartSnap.edges = !AppState.config.smartSnap.edges;
+            btnEdgeSnap.classList.toggle('active', AppState.config.smartSnap.edges);
+            if (typeof saveSettings === 'function') saveSettings();
+        });
+
+        btnEqSnap.addEventListener('click', () => {
+            AppState.config.smartSnap.equalSpacing = !AppState.config.smartSnap.equalSpacing;
+            btnEqSnap.classList.toggle('active', AppState.config.smartSnap.equalSpacing);
+            if (typeof saveSettings === 'function') saveSettings();
         });
     }
 

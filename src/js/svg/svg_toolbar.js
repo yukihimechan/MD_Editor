@@ -24,13 +24,21 @@ class BaseTool {
         }
     }
     finalize() {
-        if (!this.activeElement) return;
+        if (!this.activeElement) {
+            if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
+            return;
+        }
         const box = this.activeElement.bbox();
-        
+
         // ドラッグ移動距離がしきい値未満でクリック配置された場合は、削除対象としない
         const isClickPlacement = this.isDragging === false;
-        
-        if (!isClickPlacement && box.width < 2 && box.height < 2 && this.toolbar.currentTool !== 'freehand') {
+
+        // 現在のズーム倍率（%）を取得（デフォルトは100%）
+        const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+        // 画面上での2ピクセルに相当するSVGワールド座標上のしきい値を計算
+        const sizeThreshold = 2 * (100 / zoomVal);
+
+        if (!isClickPlacement && box.width < sizeThreshold && box.height < sizeThreshold && this.toolbar.currentTool !== 'freehand') {
             this.activeElement.remove();
         } else {
             // [NEW] メタデータの付与
@@ -38,8 +46,14 @@ class BaseTool {
 
             if (window.makeInteractive) window.makeInteractive(this.activeElement);
             if (window.selectElement) window.selectElement(this.activeElement);
+
+            // [FIX] 保存を1回にまとめるため、同期処理の前にドラッグ中フラグを解除する
+            if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
             if (window.syncChanges) window.syncChanges();
         }
+
+        // [FIX] removeされた場合などのため、念のため確実なフラグ解除を行う
+        if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
         this.activeElement = null;
         this.toolbar.setTool('select');
     }
@@ -50,21 +64,34 @@ class BaseTool {
      * ベジェ曲線による飛び越え弧を挿入する。
      */
     applyLineBridge() {
-        if (!this.activeElement || !window.SVGUtils) return;
+        if (!this.activeElement || !window.SVGUtils) {
+            console.log("[DEBUG] applyLineBridge early return 1: !activeElement || !SVGUtils");
+            return;
+        }
         const node = this.activeElement.node || this.activeElement;
         const tagName = node.tagName ? node.tagName.toLowerCase() : '';
-        if (tagName !== 'path' && tagName !== 'polyline' && tagName !== 'line') return;
+        if (tagName !== 'path' && tagName !== 'polyline' && tagName !== 'line') {
+            console.log("[DEBUG] applyLineBridge early return 2: wrong tagName", tagName);
+            return;
+        }
 
         // 新しい線のセグメントを取得
         const newSegments = SVGUtils.getLineSegments(node);
-        if (newSegments.length === 0) return;
+        if (newSegments.length === 0) {
+            console.log("[DEBUG] applyLineBridge early return 3: newSegments empty");
+            return;
+        }
 
         // SVGルート要素を取得
         const svgRoot = node.ownerSVGElement;
-        if (!svgRoot) return;
+        if (!svgRoot) {
+            console.log("[DEBUG] applyLineBridge early return 4: !svgRoot");
+            return;
+        }
 
         // 候補線をバウンディングボックスでフィルタリング
         const candidates = SVGUtils.filterCandidateLines(svgRoot, newSegments, node);
+        console.log(`[DEBUG] applyLineBridge: found ${candidates.length} candidates.`, candidates);
         if (candidates.length === 0) return;
 
         // 全候補線との交差点を集約
@@ -76,7 +103,10 @@ class BaseTool {
             allIntersections = allIntersections.concat(hits);
         });
 
-        if (allIntersections.length === 0) return;
+        if (allIntersections.length === 0) {
+            console.log("[DEBUG] applyLineBridge early return 5: no intersections found");
+            return;
+        }
 
         // 同一セグメント上のtでソート
         allIntersections.sort((a, b) => {
@@ -86,14 +116,22 @@ class BaseTool {
 
         // ポイントとベジェデータを取得
         let points, bezData;
-        if (typeof SvgPolylineHandler !== 'undefined') {
+        const toolId = node.getAttribute('data-tool-id');
+        if (toolId === 'orthogonal_line' && typeof SvgOrthogonalHandler !== 'undefined') {
+            const handler = new SvgOrthogonalHandler(node, null);
+            points = handler.getPoints().map(p => [p.x, p.y]);
+            bezData = [];
+        } else if (typeof SvgPolylineHandler !== 'undefined') {
             const handler = new SvgPolylineHandler(null, null);
             points = handler.getPoints(node);
             bezData = (tagName === 'path') ? handler.getBezData(node) : [];
         } else {
             // フォールバック: data-poly-pointsから直接取得
             const polyPts = node.getAttribute('data-poly-points');
-            if (!polyPts) return;
+            if (!polyPts) {
+                console.log("[DEBUG] applyLineBridge early return 6: no polyPts fallback");
+                return;
+            }
             points = polyPts.split(/\s+/).filter(s => s).map(p => {
                 const isM = p.startsWith('M');
                 const coord = (isM ? p.substring(1) : p).split(',');
@@ -102,7 +140,10 @@ class BaseTool {
             bezData = [];
         }
 
-        if (points.length < 2) return;
+        if (points.length < 2) {
+            console.log("[DEBUG] applyLineBridge early return 7: points < 2");
+            return;
+        }
 
         // bezData を points の長さに合わせる
         while (bezData.length < points.length) {
@@ -115,14 +156,32 @@ class BaseTool {
 
         // 結果を要素に反映
         const pointsStr = result.points.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
-        node.setAttribute('data-poly-points', pointsStr);
-        node.setAttribute('data-bez-points', JSON.stringify(result.bezData));
 
-        // パスのd属性を再生成
-        if (typeof SvgPolylineHandler !== 'undefined') {
-            const handler = new SvgPolylineHandler(null, null);
-            handler.activeNode = node;
-            handler.generatePath(node);
+        if (toolId === 'orthogonal_line') {
+            // 直角折れ線の場合は元の data-ortho-points はそのまま維持し、d属性のみを更新する
+            if (typeof SvgPolylineHandler !== 'undefined') {
+                const handler = new SvgPolylineHandler(null, null);
+                handler.activeNode = node;
+                // SvgPolylineHandlerのパス生成ロジックを利用するため一時的に属性を設定
+                node.setAttribute('data-poly-points', pointsStr);
+                node.setAttribute('data-bez-points', JSON.stringify(result.bezData));
+                handler.generatePath(node);
+                // ドラッグ時に誤認されないよう一時属性を削除
+                node.removeAttribute('data-poly-points');
+                node.removeAttribute('data-bez-points');
+                // 直角折れ線にブリッジが適用された印
+                node.setAttribute('data-has-bridge', 'true');
+            }
+        } else {
+            node.setAttribute('data-poly-points', pointsStr);
+            node.setAttribute('data-bez-points', JSON.stringify(result.bezData));
+
+            // パスのd属性を再生成
+            if (typeof SvgPolylineHandler !== 'undefined') {
+                const handler = new SvgPolylineHandler(null, null);
+                handler.activeNode = node;
+                handler.generatePath(node);
+            }
         }
 
         console.log(`[LineBridge] ${allIntersections.length}箇所の交差にブリッジを適用しました`);
@@ -173,14 +232,16 @@ class ShapeTool extends BaseTool {
     }
     mousemove(e, pt) {
         if (!this.activeElement) return;
-        
+
         // わずかな手ぶれをクリックとみなすため、移動距離のしきい値（3px）を設ける
+        const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+        const dragThreshold = 3 * (100 / zoomVal);
         const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
-        if (dist > 3) {
+        if (dist > dragThreshold) {
             this.isDragging = true;
         }
         if (!this.isDragging) return;
-        
+
         const isAlt = SVGUtils.isSnapEnabled(e);
         const targetPt = SVGUtils.snapPointToGrid(pt, isAlt);
 
@@ -195,7 +256,7 @@ class ShapeTool extends BaseTool {
             const r = Math.max(w, h);
             w = h = r;
         }
-        
+
         if (this.toolbar.currentTool === 'capsule') {
             const minR = Math.min(w, h) / 2;
             this.activeElement.move(x, y).size(w, h).radius(minR);
@@ -211,7 +272,7 @@ class ShapeTool extends BaseTool {
             const x = this.startPoint.x - defaults.w / 2;
             const y = this.startPoint.y - defaults.h / 2;
             // console.log(`[SVG Lib Call] ${this.activeElement.id()}.move(${x}, ${y}).size(${defaults.w}, ${defaults.h})`);
-            
+
             if (this.toolbar.currentTool === 'capsule') {
                 const minR = Math.min(defaults.w, defaults.h) / 2;
                 this.activeElement.move(x, y).size(defaults.w, defaults.h).radius(minR);
@@ -257,14 +318,16 @@ class PolyTool extends BaseTool {
     }
     mousemove(e, pt) {
         if (!this.activeElement) return;
-        
+
         // わずかな手ぶれをクリックとみなすため、移動距離のしきい値（3px）を設ける
+        const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+        const dragThreshold = 3 * (100 / zoomVal);
         const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
-        if (dist > 3) {
+        if (dist > dragThreshold) {
             this.isDragging = true;
         }
         if (!this.isDragging) return;
-        
+
         const dx = pt.x - this.startPoint.x;
         const dy = pt.y - this.startPoint.y;
         const w = Math.abs(dx);
@@ -400,8 +463,10 @@ class LineTool extends BaseTool {
         }
 
         // わずかな手ぶれをクリックとみなすため、移動距離のしきい値（3px）を設ける
+        const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+        const dragThreshold = 3 * (100 / zoomVal);
         const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
-        if (dist > 3) {
+        if (dist > dragThreshold) {
             this.isDragging = true;
         }
         if (!this.isDragging) return;
@@ -534,7 +599,7 @@ class LineTool extends BaseTool {
                     const startCoord = coords[0].replace('M', '').split(',');
                     const endCoord = coords[coords.length - 1].split(',');
                     const startPtLocal = { x: parseFloat(startCoord[0]), y: parseFloat(startCoord[1]) };
-                    const endPtLocal   = { x: parseFloat(endCoord[0]),   y: parseFloat(endCoord[1]) };
+                    const endPtLocal = { x: parseFloat(endCoord[0]), y: parseFloat(endCoord[1]) };
 
                     // ローカル座標からワールド座標への変換行列を取得
                     const rootNode = this.draw.node;
@@ -820,7 +885,7 @@ class OrthogonalLineTool extends LineTool {
     mousedown(e, pt) {
         this._hoverConnectorCache = null;
         this.isDragging = false;
-        
+
         // 1. スナップ判定
         const isAlt = SVGUtils.isSnapEnabled(e);
         if (!isAlt && window.SVGConnectorManager) {
@@ -847,7 +912,10 @@ class OrthogonalLineTool extends LineTool {
 
         // 開始点のコネクタ接続
         if (pt.connector && window.SVGConnectorManager) {
-            window.SVGConnectorManager.connect(this.activeElement, 'start', pt.connector.id, pt.connector.index);
+            const success = window.SVGConnectorManager.connect(this.activeElement, 'start', pt.connector.id, pt.connector.index);
+            console.log(`[OrthogonalLineTool] connect start: target=${pt.connector.id}, index=${pt.connector.index}, success=${success}`);
+        } else {
+            console.log(`[OrthogonalLineTool] NO start connector found for pt: (${pt.x}, ${pt.y})`);
         }
 
         // コネクタ表示
@@ -875,8 +943,10 @@ class OrthogonalLineTool extends LineTool {
             return;
         }
 
+        const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+        const dragThreshold = 3 * (100 / zoomVal);
         const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
-        if (dist > 3) {
+        if (dist > dragThreshold) {
             this.isDragging = true;
         }
 
@@ -897,7 +967,7 @@ class OrthogonalLineTool extends LineTool {
         let targetConnector = null;
         if (!isAlt && window.SVGConnectorManager) {
             const nearest = window.SVGConnectorManager.findNearestConnector(this.draw, pt, 20, this.activeElement);
-            
+
             let skipSnap = false;
             if (nearest) {
                 const existingData = this.activeElement.attr('data-connections');
@@ -937,7 +1007,7 @@ class OrthogonalLineTool extends LineTool {
 
         // 経路探索
         const startPtLocal = this.startPoint;
-        const endPtLocal   = targetPt;
+        const endPtLocal = targetPt;
 
         // ワールド座標に変換して障害物迂回計算
         const rootNode = this.draw.node;
@@ -947,27 +1017,38 @@ class OrthogonalLineTool extends LineTool {
         const endWorld = new SVG.Point(endPtLocal.x, endPtLocal.y).transform(mLine);
 
         const excludeEls = [this.activeElement];
+        let startConnPt = null;
+        let endConnPt = null;
+
         if (targetConnector) {
-            const targetEl = this.draw.findOne('#' + targetConnector.id);
-            if (targetEl) excludeEls.push(targetEl);
+            endConnPt = targetConnector;
         }
-        const startConn = this.activeElement.attr('data-connections');
-        if (startConn) {
+
+        const startConnAttr = this.activeElement.attr('data-connections');
+        if (startConnAttr) {
             try {
-                const conn = JSON.parse(startConn).find(c => c.endType === 'start');
+                const conn = JSON.parse(startConnAttr).find(c => c.endType === 'start');
                 if (conn) {
                     const targetEl = this.draw.findOne('#' + conn.targetId);
-                    if (targetEl) excludeEls.push(targetEl);
+                    if (targetEl) {
+                        const pts = window.SVGConnectorManager.getConnectorPoints(targetEl);
+                        startConnPt = pts[conn.pointIndex];
+                    }
                 }
-            } catch (err) {}
+            } catch (err) { }
         }
 
         const obstacles = window.SVGAutoRouter ? window.SVGAutoRouter.collectObstacles(this.draw, excludeEls) : [];
-        const routeWorld = OrthogonalRouter.findOrthogonalRoute(
+        const routeWorld = OrthogonalRouter.routeWithStubs(
+            startConnPt, endConnPt,
             { x: startWorld.x, y: startWorld.y },
             { x: endWorld.x, y: endWorld.y },
             obstacles
         );
+
+        console.log(`[OrthogonalLineTool] routeWorld (${routeWorld.length} points):`, routeWorld.map(p => `${p.x},${p.y}`).join(' '));
+        console.log(`[OrthogonalLineTool] startConnPt:`, startConnPt ? `yes (${startConnPt.nx},${startConnPt.ny})` : 'no');
+        console.log(`[OrthogonalLineTool] endConnPt:`, endConnPt ? `yes (${endConnPt.nx},${endConnPt.ny})` : 'no');
 
         // ローカル座標に逆変換
         const mInv = mLine.inverse();
@@ -1094,7 +1175,7 @@ class FreehandTool extends BaseTool {
 
         if (!isAlt && window.SVGConnectorManager) {
             const nearest = window.SVGConnectorManager.findNearestConnector(this.draw, pt, 20, this.activeElement);
-            
+
             let skipSnap = false;
             if (nearest) {
                 const existingData = this.activeElement.attr('data-connections');
@@ -1105,7 +1186,7 @@ class FreehandTool extends BaseTool {
                         if (startConn && nearest.id === startConn.targetId && nearest.index === startConn.pointIndex) {
                             skipSnap = true;
                         }
-                    } catch (err) {}
+                    } catch (err) { }
                 }
             }
 
@@ -1178,8 +1259,10 @@ class ContainerTool extends BaseTool {
     }
     mousemove(e, pt) {
         if (!this.activeElement) return;
+        const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+        const dragThreshold = 3 * (100 / zoomVal);
         const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
-        if (dist > 3) this.isDragging = true;
+        if (dist > dragThreshold) this.isDragging = true;
         if (!this.isDragging) return;
 
         const x = Math.min(pt.x, this.startPoint.x);
@@ -1257,14 +1340,16 @@ class BubbleTool extends BaseTool {
     }
     mousemove(e, pt) {
         if (!this.activeElement) return;
-        
+
         // わずかな手ぶれをクリックとみなすため、移動距離のしきい値（3px）を設ける
+        const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+        const dragThreshold = 3 * (100 / zoomVal);
         const dist = Math.hypot(pt.x - this.startPoint.x, pt.y - this.startPoint.y);
-        if (dist > 3) {
+        if (dist > dragThreshold) {
             this.isDragging = true;
         }
         if (!this.isDragging) return;
-        
+
         const dx = pt.x - this.startPoint.x;
         const dy = pt.y - this.startPoint.y;
         const w = Math.max(70, Math.abs(dx));
@@ -1321,7 +1406,7 @@ class TextTool extends BaseTool {
         const size = parseFloat(this.getProp('fontSize', 20)) || 20;
         const fill = this.getProp('fill', '#000000');
         console.log(`[TextTool] テキスト作成座標 (クリック位置): x=${pt.x}, y=${pt.y}`);
-        
+
         // [FIX] SVGテキスト(baseline: alphabetic)とインラインエディタ(top基準)のズレを解消するため、
         // クリックした y座標(pt.y)を文字の「上端」とし、ベースラインのyをフォントサイズ分(約0.88)下げる
         const targetY = pt.y + (size * 0.88);
@@ -1378,7 +1463,7 @@ class CustomTool extends BaseTool {
                     }
                 });
             }
-        } catch(err) {
+        } catch (err) {
             console.warn('[CustomTool] Parse content error:', err);
         }
 
@@ -1410,7 +1495,9 @@ class CustomTool extends BaseTool {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         // 5px以上の移動があればドラッグとみなす
-        if (dist > 5) {
+        const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
+        const dragThreshold = 5 * (100 / zoomVal);
+        if (dist > dragThreshold) {
             const origBbox = this.originalBbox;
             if (origBbox.width > 0 && origBbox.height > 0) {
                 // アスペクト比を維持してサイズ変更
@@ -1484,10 +1571,11 @@ class LassoTool extends BaseTool {
         if (window.deselectAll) window.deselectAll();
 
         // 範囲選択用のガイド矩形（点線）を作成
-        this.activeElement = this.draw.rect(0, 0)
+        this.activeElement = this.draw.rect(1, 1)
             .move(pt.x, pt.y)
             .fill('none')
             .stroke({ color: '#0366d6', width: 1, dasharray: '4,4' })
+            .attr('vector-effect', 'non-scaling-stroke')
             .addClass('svg-lasso-rect');
     }
 
@@ -1673,7 +1761,7 @@ class GradientTool extends BaseTool {
 
         if (window.syncChanges) window.syncChanges();
     }
-    
+
     finalize() {
         // gradient_add ツールのままにするため、select に戻さない
     }
@@ -2009,7 +2097,27 @@ class SVGMainToolbar extends SVGToolbarBase {
     onMouseDown(e) {
         if (e.button === 2) return;
 
-        console.log('[SVG Toolbar Debug] onMouseDown: currentTool =', this.currentTool);
+        // [NEW] Shift+Drag on background should start Lasso selection
+        if (this.currentTool === 'select' && e.shiftKey) {
+            console.log('[SVG Toolbar] onMouseDown shiftKey=', e.shiftKey);
+            const target = e.target;
+            const isBackground = target.tagName.toLowerCase() === 'svg' ||
+                target.classList.contains('svg-canvas-proxy') ||
+                target.id === 'svg-main-canvas' ||
+                (target.closest && target.closest('.svg-grid-lines, .svg-grid-line, .svg-snap-guides, .svg-canvas-proxy'));
+
+            if (isBackground && !window.currentEditingSVG?.isSpacePressed && !window.currentEditingSVG?.isPanning) {
+                this.setTool('lasso');
+                e.preventDefault();
+                e.stopPropagation();
+                const pt = this.draw.point(e.clientX, e.clientY);
+                if (this.activeToolInstance) {
+                    console.log('[LassoTool] mousedown shiftKey=', e.shiftKey);
+                    this.activeToolInstance.mousedown(e, pt);
+                }
+                return;
+            }
+        }
 
         if (this.currentTool === 'select') {
             return;
@@ -2020,6 +2128,8 @@ class SVGMainToolbar extends SVGToolbarBase {
         const pt = this.draw.point(e.clientX, e.clientY);
         if (this.activeToolInstance) {
             console.log('[SVG Toolbar Debug] activeToolInstance.mousedown is called for', this.currentTool);
+            // [FIX] 新規図形描画中の部分同期（途中保存）を抑止するため、操作中フラグを立てる
+            if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = true;
             this.activeToolInstance.mousedown(e, pt);
         }
     }
@@ -2064,7 +2174,7 @@ class SVGMainToolbar extends SVGToolbarBase {
                 try {
                     this.activeToolInstance.activeElement.remove();
                     this.activeToolInstance.activeElement = null;
-                } catch (e) {}
+                } catch (e) { }
             }
             this.activeToolInstance._connectorCache = null;
         }

@@ -838,9 +838,12 @@ function initEditor() {
                     // [SYNC] ただしエディタ側の変更をSVGキャンバスへ反映する（エディタ→SVG方向の同期）
                     if (typeof window.isSVGEditing === 'function' && window.isSVGEditing()) {
                         // SVGキャンバスからの同期（syncSVGToEditor）による更新の場合はスキップ
-                        if (window.currentEditingSVG && window.currentEditingSVG._syncingToEditor) {
-                            return;
-                        }
+                        // [FIX] ここのreturnは不要かつ有害。isFromSvgSync && !isUndoRedo で既に弾いており、
+                        // ここで再度弾くと、直前のSVG同期のロック(400ms)が残っている間に発生した
+                        // 正当なユーザー操作（UNDO等）のSVGキャンバスへの反映が永久にロストしてしまう。
+                        // if (window.currentEditingSVG && window.currentEditingSVG._syncingToEditor) {
+                        //     return;
+                        // }
 
                         if (typeof updateSVGFromEditor === 'function') {
                             clearTimeout(window._svgSyncFromEditorTimer);
@@ -848,8 +851,13 @@ function initEditor() {
                                 updateSVGFromEditor();
                             }, 300);
                         }
+                        // [FIX] SVG編集中にUNDO/REDOが実行された場合は、プレビュー全体の再構築(render)を行うと
+                        // UIが破壊されて閉じてしまうため、updateSVGFromEditorのみを実行して終了する。
+                        if (isUndoRedo) {
+                            return;
+                        }
                         // [FIX] SVGエディタ起動中も、他の見出し等の変更をプレビューへ反映させるため、
-                        // ここでのreturn（強制終了）は行わず、後続のrender()を実行させる。
+                        // 通常時はここでのreturn（強制終了）は行わず、後続のrender()を実行させる。
                         // renderer.js側でSVGエディタノードを一時退避・復元してUIの破壊を防ぐ仕組みが導入されている。
                     }
 
@@ -1465,6 +1473,13 @@ function initEditor() {
 
             const startLineObj = editorView.state.doc.line(safeFrom);
             const endLineObj = editorView.state.doc.line(safeTo);
+
+            // [FIX] 変更が全くない場合はスキップしてUNDO履歴の破壊を防ぐ
+            const currentText = editorView.state.sliceDoc(startLineObj.from, endLineObj.to);
+            if (currentText === text) {
+                console.log(`[editor_core] replaceLines skipped: text is identical`);
+                return;
+            }
 
             const spec = {
                 changes: { from: startLineObj.from, to: endLineObj.to, insert: text }

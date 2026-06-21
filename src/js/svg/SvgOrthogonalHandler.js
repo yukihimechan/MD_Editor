@@ -336,20 +336,43 @@ class SvgOrthogonalHandler {
                 pEnd.x = endPt.x; pEnd.y = endPt.y;
                 const endWorld = pEnd.matrixTransform(mLine);
 
-                const excludeEls = [this.activeNode];
-                // 接続先の図形を除外
-                const connData = this.activeNode.getAttribute('data-connections');
-                if (connData) {
-                    try {
-                        JSON.parse(connData).forEach(c => {
-                            const target = draw.findOne('#' + c.targetId);
-                            if (target) excludeEls.push(target);
-                        });
-                    } catch (err) {}
+                // 接続情報の取得（両端のコネクタ情報を取得）
+                let startConn = null;
+                let endConn = null;
+                const connDataStr = this.activeNode.getAttribute('data-connections');
+                let connectData = [];
+                if (connDataStr) {
+                    try { connectData = JSON.parse(connDataStr); } catch (e) {}
                 }
 
+                // 自身がドラッグ中のコネクタ
+                if (isStart && targetConnector) startConn = targetConnector;
+                if (!isStart && targetConnector) endConn = targetConnector;
+
+                // もう一方の端点のコネクタを検索
+                if (window.SVGConnectorManager) {
+                    if (isStart) {
+                        const otherConnData = connectData.find(c => c.endType === 'end');
+                        if (otherConnData) {
+                            const target = draw.findOne('#' + otherConnData.targetId);
+                            if (target) endConn = window.SVGConnectorManager.getConnectorPoints(target)[otherConnData.pointIndex];
+                        }
+                    } else {
+                        const otherConnData = connectData.find(c => c.endType === 'start');
+                        if (otherConnData) {
+                            const target = draw.findOne('#' + otherConnData.targetId);
+                            if (target) startConn = window.SVGConnectorManager.getConnectorPoints(target)[otherConnData.pointIndex];
+                        }
+                    }
+                }
+
+                // 接続先の図形は障害物として扱うため除外しない
+                const excludeEls = [this.activeNode];
                 const obstacles = window.SVGAutoRouter ? window.SVGAutoRouter.collectObstacles(draw, excludeEls) : [];
-                const routeWorld = OrthogonalRouter.findOrthogonalRoute(
+                
+                // スタブ付きの経路探索
+                const routeWorld = OrthogonalRouter.routeWithStubs(
+                    startConn, endConn,
                     { x: startWorld.x, y: startWorld.y },
                     { x: endWorld.x, y: endWorld.y },
                     obstacles
@@ -382,11 +405,32 @@ class SvgOrthogonalHandler {
                 const pt1 = points[i];
                 const pt2 = points[i + 1];
                 const isHorizontal = Math.abs(pt1.y - pt2.y) < 1e-2;
+                const zoomScale = (window.currentEditingSVG && window.currentEditingSVG.zoom) ? window.currentEditingSVG.zoom / 100 : 1;
+                const snapThreshold = 20 / zoomScale; // 直線を簡単に戻すためのスナップ閾値（ズームに応じる）
 
                 if (isHorizontal) {
                     // 水平セグメント: 上下移動 (dy)
-                    pt1.y += dy;
-                    pt2.y += dy;
+                    let targetY = pt1.y + dy;
+
+                    // まず隣接セグメントへのスナップ判定を優先 (直角を消して直線にするため)
+                    let snapped = false;
+                    if (i > 0 && Math.abs(targetY - this.draggedPoints[i - 1].y) < snapThreshold) {
+                        targetY = this.draggedPoints[i - 1].y;
+                        snapped = true;
+                    } else if (i < points.length - 2 && Math.abs(targetY - this.draggedPoints[i + 2].y) < snapThreshold) {
+                        targetY = this.draggedPoints[i + 2].y;
+                        snapped = true;
+                    } 
+                    
+                    if (!snapped && isAlt) {
+                        // isAlt が true の場合（実際は Alt非押下でグリッドスナップ有効の意）
+                        const gridConfig = (typeof AppState !== 'undefined' && AppState.config && AppState.config.grid) || { size: 15 };
+                        const snapSize = gridConfig.size || 15;
+                        if (snapSize > 0) targetY = Math.round(targetY / snapSize) * snapSize;
+                    }
+
+                    pt1.y = targetY;
+                    pt2.y = targetY;
 
                     // 境界条件（端点固定とセグメント分割）
                     if (i === 0) {
@@ -401,8 +445,27 @@ class SvgOrthogonalHandler {
                     }
                 } else {
                     // 垂直セグメント: 左右移動 (dx)
-                    pt1.x += dx;
-                    pt2.x += dx;
+                    let targetX = pt1.x + dx;
+
+                    // 隣接セグメントへのスナップを優先
+                    let snapped = false;
+                    if (i > 0 && Math.abs(targetX - this.draggedPoints[i - 1].x) < snapThreshold) {
+                        targetX = this.draggedPoints[i - 1].x;
+                        snapped = true;
+                    } else if (i < points.length - 2 && Math.abs(targetX - this.draggedPoints[i + 2].x) < snapThreshold) {
+                        targetX = this.draggedPoints[i + 2].x;
+                        snapped = true;
+                    }
+                    
+                    if (!snapped && isAlt) {
+                        // グリッドスナップ
+                        const gridConfig = (typeof AppState !== 'undefined' && AppState.config && AppState.config.grid) || { size: 15 };
+                        const snapSize = gridConfig.size || 15;
+                        if (snapSize > 0) targetX = Math.round(targetX / snapSize) * snapSize;
+                    }
+
+                    pt1.x = targetX;
+                    pt2.x = targetX;
 
                     // 境界条件
                     if (i === 0) {

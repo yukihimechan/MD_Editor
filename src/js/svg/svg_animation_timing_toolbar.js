@@ -10,7 +10,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
             id: options.id || 'svg-animation-timing-toolbar',
             container: container,
             borderColor: options.borderColor || '#FF5722',
-            position: options.position || { top: '60px', right: '-45px' },
+            position: options.position || { top: '60px', right: '-36px' },
             isSwapped: true
         });
         this.onValueChange = options.onValueChange || (() => { });
@@ -146,7 +146,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
 
         // アニメーションラッパーがあればそれを対象とする
         let wrapper = domNode.closest('[class*="anim-wrapper-"]');
-        
+
         let originX, originY;
         if (wrapper && wrapper.getAttribute('data-origin-x') !== null) {
             originX = parseFloat(wrapper.getAttribute('data-origin-x'));
@@ -160,7 +160,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
                 const bbox = domNode.getBBox();
                 originX = bbox.x + bbox.width / 2;
                 originY = bbox.y + bbox.height / 2;
-                
+
                 // 丸め処理
                 originX = Math.round(originX * 10) / 10;
                 originY = Math.round(originY * 10) / 10;
@@ -194,7 +194,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
             .stroke({ color: '#FF5722', width: 2 });
         this.markerLineV = this.markerGroup.line(worldPt.x, worldPt.y - size, worldPt.x, worldPt.y + size)
             .stroke({ color: '#FF5722', width: 2 });
-        
+
         // 見た目のオレンジ色の円
         this.markerVisual = this.markerGroup.circle(10).center(worldPt.x, worldPt.y)
             .fill('#FF5722').stroke({ color: '#ffffff', width: 1.5 })
@@ -342,7 +342,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
         const ox = parseFloat(this.inputs['originX'].value) || 0;
         const oy = parseFloat(this.inputs['originY'].value) || 0;
         this.applyOriginChange(ox, oy);
-        
+
         // 十字マーカーが表示されていれば再描画して位置更新
         if (this.isSettingOrigin) {
             this.showOriginMarker();
@@ -357,7 +357,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
 
         window.currentEditingSVG.selectedElements.forEach(el => {
             const domNode = el.node || el;
-            
+
             // 適用されているアニメーションラッパーすべてに対して transform-origin を設定
             let foundWrapper = false;
             let curr = domNode;
@@ -390,7 +390,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
 
         window.currentEditingSVG.selectedElements.forEach(el => {
             const domNode = el.node || el;
-            
+
             // すべてのアニメーションラッパーを走査して遅延を設定
             let curr = domNode;
             while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
@@ -412,7 +412,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
      */
     updateValuesFromSelected() {
         if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
-        
+
         let foundX = '';
         let foundY = '';
         let foundDelay = '0';
@@ -421,7 +421,7 @@ class SVGAnimationTimingToolbar extends SVGToolbarBase {
         if (selected) {
             this.activeElement = selected;
             const domNode = selected.node || selected;
-            
+
             // 1. 基準点の復元
             let curr = domNode;
             while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {

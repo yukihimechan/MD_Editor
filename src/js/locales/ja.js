@@ -749,6 +749,17 @@ I18n.register('ja', '日本語', {
         "inactiveTitle": "アノテーション（注釈描画）"
     },
     "svgEditor": {
+        "grid": {
+            "sizeTitle": "グリッドのピクセル数",
+            "majorIntervalTitle": "強調線の間隔（本数）",
+            "toggleV": "垂直グリッド線を切り替え",
+            "toggleH": "水平グリッド線を切り替え",
+            "toggleEdgeSnap": "端・中央スナップ (Edge/Center Snap)",
+            "toggleEqSnap": "等間隔スナップ (Equal-Spacing Snap)",
+            "zoomOut": "縮小 (Zoom Out)",
+            "zoomIn": "拡大 (Zoom In)",
+            "zoomReset": "ズームリセット (100%)"
+        },
         "airbrush": {
             "toggleTitle": "エアブラシモード ON/OFF",
             "colorTitle": "描画色",
@@ -879,6 +890,8 @@ I18n.register('ja', '日本語', {
             "majorIntervalTitle": "強調線の間隔（本）",
             "toggleV": "垂直グリッド線の切り替え",
             "toggleH": "水平グリッド線の切り替え",
+            "toggleEdgeSnap": "端・中心スナップ (Edge/Center Snap)",
+            "toggleEqSnap": "等間隔スナップ (Equal-Spacing Snap)",
             "zoomOut": "縮小",
             "zoomIn": "拡大",
             "zoomReset": "ズームリセット (100%)"

@@ -975,4 +975,12 @@ function applyViewMode() {
                 break;
         }
     }
+
+    // [FIX] 表示モード変更後にSVGグリッド/ルーラーを再描画
+    // レイアウト変更でコンテナサイズが変わるため、Canvasサイズも追従させる
+    setTimeout(() => {
+        if (window.currentEditingSVG && window.currentEditingSVG.draw) {
+            window.currentEditingSVG.applyZoomPan();
+        }
+    }, 100);
 }

@@ -72,9 +72,26 @@ const SVGConnectorManager = {
         // ワールド座標に変換して返す
         return projectedPoints.map((pt, index) => {
             const worldPt = new SVG.Point(pt.x, pt.y).transform(m);
+
+            // 法線ベクトル（ローカル）の定義
+            let nx = 0, ny = 0;
+            if (index >= 0 && index < 4) { ny = -1; }
+            else if (index >= 4 && index < 8) { nx = 1; }
+            else if (index >= 8 && index < 12) { ny = 1; }
+            else if (index >= 12 && index < 16) { nx = -1; }
+
+            // 法線ベクトルをワールド座標系に変換（回転のみ適用）
+            const normWorldX = m.a * nx + m.c * ny;
+            const normWorldY = m.b * nx + m.d * ny;
+            const len = Math.hypot(normWorldX, normWorldY) || 1;
+
             return {
                 x: worldPt.x,
                 y: worldPt.y,
+                nx: normWorldX / len,
+                ny: normWorldY / len,
+                bboxWidth: w,
+                bboxHeight: h,
                 index: index,
                 id: elId
             };
@@ -113,7 +130,7 @@ const SVGConnectorManager = {
             'clippath', 'filter', 'lineargradient', 'radialgradient', 'fegaussianblur', 'fe-gaussian-blur'
         ];
         if (excludedTags.includes(tagName)) {
-            if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: tagName "${tagName}" in excludedTags`);
+            console.log(`[OrthogonalLineTool] shouldShowConnectorsFor false: tagName ${tagName}`);
             return false;
         }
 
@@ -121,9 +138,7 @@ const SVGConnectorManager = {
         if (tagName === 'path') {
             const d = el.attr('d') || '';
             if (d.length > 100000) {
-                if (this.debug || d.length > 150000) {
-                    console.log(`[SVG Connector] Path excluded completely: d.length = ${d.length} (> 100000) on #${elId}`);
-                }
+                console.log(`[OrthogonalLineTool] shouldShowConnectorsFor false: huge path`);
                 return false;
             }
         }
@@ -131,9 +146,9 @@ const SVGConnectorManager = {
 
         // 3. クラス名による除外 (UI/ハンドル/ツール関連を徹底排除)
         const classStr = (el.attr('class') || '').toLowerCase();
-        const excludedKeywords = ['handle', 'hitarea', 'select', 'overlay', 'interaction', 'proxy', 'grid', 'border', 'canvas'];
+        // 'select' キーワードを削除（'svg-edit-selected' などの選択状態クラスを持つ図形が除外されないようにするため）
+        const excludedKeywords = ['handle', 'hitarea', 'overlay', 'interaction', 'proxy', 'grid', 'border', 'canvas'];
         if (excludedKeywords.some(key => classStr.includes(key))) {
-            if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: class contains excluded keyword. class="${classStr}"`);
             return false;
         }
 
@@ -142,14 +157,13 @@ const SVGConnectorManager = {
         while (parent && parent.type !== 'svg') {
             const pClass = (parent.attr('class') || '').toLowerCase();
             if (excludedKeywords.some(key => pClass.includes(key))) {
-                if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: parent class contains excluded keyword. parent class="${pClass}"`);
                 return false;
             }
 
             // [FIX] 親がグループ(g)の場合、その親が代表してコネクタを持つべきなので子は除外する
             // これにより、グループ化されたオブジェクト（カスタムツール等）は外枠にのみコネクタが表示される
             if (parent.node.tagName.toLowerCase() === 'g') {
-                if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: parent is group (g), parent is representative`);
+                console.log(`[OrthogonalLineTool] shouldShowConnectorsFor false: parent is group (g)`);
                 return false;
             }
 
@@ -158,7 +172,7 @@ const SVGConnectorManager = {
 
         // 5. 属性による除外
         if (el.attr('data-is-canvas') === 'true' || el.attr('data-is-proxy') === 'true' || el.attr('data-no-connector') === 'true') {
-            if (this.debug) console.log(`[SVG Connector] Excluded #${elId}: data-is-canvas/proxy/no-connector is true`);
+            console.log(`[OrthogonalLineTool] shouldShowConnectorsFor false: data attributes`);
             return false;
         }
 
@@ -615,18 +629,28 @@ const SVGConnectorManager = {
                 });
 
                 if (changed) {
-                    const excludeEls = [line];
+                    let startConn = null;
+                    let endConn = null;
                     connectData.forEach(conn => {
                         const target = draw.findOne('#' + conn.targetId);
-                        if (target) excludeEls.push(target);
+                        if (target) {
+                            const pts = this.getConnectorPoints(target);
+                            if (conn.endType === 'start') startConn = pts[conn.pointIndex];
+                            if (conn.endType === 'end') endConn = pts[conn.pointIndex];
+                        }
                     });
+
+                    // 接続先図形は障害物として扱う
+                    const excludeEls = [line];
 
                     const mLine = draw.node.getScreenCTM().inverse().multiply(line.node.getScreenCTM());
                     const startWorld = new SVG.Point(points[0].x, points[0].y).transform(mLine);
                     const endWorld = new SVG.Point(points[points.length - 1].x, points[points.length - 1].y).transform(mLine);
 
                     const obstacles = window.SVGAutoRouter ? window.SVGAutoRouter.collectObstacles(draw, excludeEls) : [];
-                    const routeWorld = window.OrthogonalRouter ? window.OrthogonalRouter.findOrthogonalRoute(
+                    console.log(`[OrthogonalLineTool] updateLinePath: startWorld=${startWorld.x},${startWorld.y} endWorld=${endWorld.x},${endWorld.y} obstacles.length=${obstacles.length} ids=${obstacles.map(o => o.el ? o.el.id() : 'none').join(',')}`);
+                    const routeWorld = window.OrthogonalRouter ? window.OrthogonalRouter.routeWithStubs(
+                        startConn, endConn,
                         { x: startWorld.x, y: startWorld.y },
                         { x: endWorld.x, y: endWorld.y },
                         obstacles

@@ -1098,6 +1098,11 @@ function bindResize() {
         if (window.editorInstance && typeof window.editorInstance.requestMeasure === 'function') {
             setTimeout(() => window.editorInstance.requestMeasure(), 10);
         }
+
+        // [FIX] エディタ/プレビュー間のリサイズ後にSVGグリッド/ルーラーを再描画
+        if (window.currentEditingSVG && window.currentEditingSVG.draw) {
+            setTimeout(() => window.currentEditingSVG.applyZoomPan(), 50);
+        }
     });
 }
 

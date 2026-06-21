@@ -701,6 +701,17 @@ I18n.register('en', 'English', {
         "inactiveTitle": "Annotation (Draw Notes)"
     },
     "svgEditor": {
+        "grid": {
+            "sizeTitle": "Grid Size (px)",
+            "majorIntervalTitle": "Major Grid Lines Interval",
+            "toggleV": "Toggle Vertical Grid Lines",
+            "toggleH": "Toggle Horizontal Grid Lines",
+            "toggleEdgeSnap": "Toggle Edge/Center Snap",
+            "toggleEqSnap": "Toggle Equal-Spacing Snap",
+            "zoomOut": "Zoom Out",
+            "zoomIn": "Zoom In",
+            "zoomReset": "Reset Zoom (100%)"
+        },
         "airbrush": {
             "toggleTitle": "Airbrush Mode ON/OFF",
             "colorTitle": "Color",
@@ -831,6 +842,8 @@ I18n.register('en', 'English', {
             "majorIntervalTitle": "Major grid line interval (lines)",
             "toggleV": "Toggle Vertical Grid Lines",
             "toggleH": "Toggle Horizontal Grid Lines",
+            "toggleEdgeSnap": "Toggle Edge/Center Snap",
+            "toggleEqSnap": "Toggle Equal-Spacing Snap",
             "zoomOut": "Zoom Out",
             "zoomIn": "Zoom In",
             "zoomReset": "Reset Zoom (100%)"

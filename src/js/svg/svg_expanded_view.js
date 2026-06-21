@@ -27,7 +27,7 @@ function showSVGExpandedView() {
 
     // 閉じるボタンを作成
     const closeBtn = document.createElement('button');
-    closeBtn.className = 'svg-expanded-close-btn';
+    closeBtn.className = 'code-edit-btn svg-expanded-close-btn';
     closeBtn.textContent = typeof I18n !== 'undefined' ? I18n.translate('editor.close') || '閉じる' : '閉じる';
     closeBtn.onclick = (e) => {
         e.stopPropagation();
@@ -55,7 +55,7 @@ function showSVGExpandedView() {
     // SVGコンテナをダイアログ内に移動
     contentWrapper.appendChild(svgContainer);
     dialog.appendChild(contentWrapper);
-    dialog.appendChild(closeBtn);
+    svgContainer.appendChild(closeBtn);
     document.body.appendChild(dialog);
     document.body.classList.add('svg-expanded-active');
 
@@ -65,22 +65,28 @@ function showSVGExpandedView() {
     window.currentEditingSVG.expandedViewData.naturalWidth = svgContainer.offsetWidth;
     window.currentEditingSVG.expandedViewData.naturalHeight = svgContainer.offsetHeight;
 
-    // --- 診断: ツールバーがコンテナ左外にどれだけはみ出しているか計測 ---
+    // --- 診断: ツールバーがコンテナ左右外にどれだけはみ出しているか計測 ---
     {
         const cRect = svgContainer.getBoundingClientRect();
-        let toolbarMinLeft = 0; // コンテナ左端(0)からの相対位置（負なら外にはみ出し）
+        let toolbarMinLeft = 0;  // コンテナ左端(0)からの相対位置（負なら左外にはみ出し）
+        let toolbarMaxRight = 0; // コンテナ右端(width)からの相対位置（正なら右外にはみ出し）
         svgContainer.querySelectorAll('.svg-toolbar').forEach(tb => {
             const tbRect = tb.getBoundingClientRect();
-            const rel = tbRect.left - cRect.left;
-            if (rel < toolbarMinLeft) toolbarMinLeft = rel;
+            const relLeft = tbRect.left - cRect.left;
+            if (relLeft < toolbarMinLeft) toolbarMinLeft = relLeft;
+
+            const relRight = tbRect.right - cRect.right;
+            if (relRight > toolbarMaxRight) toolbarMaxRight = relRight;
         });
-        const fullVisualWidth = cRect.width + Math.abs(toolbarMinLeft);
         window.currentEditingSVG.expandedViewData.toolbarMinLeft = toolbarMinLeft;
+        window.currentEditingSVG.expandedViewData.toolbarMaxRight = toolbarMaxRight;
+        const fullVisualWidth = cRect.width + Math.abs(toolbarMinLeft) + Math.max(0, toolbarMaxRight);
         console.log(
             `[SVG Expand 診断] window.innerWidth: ${window.innerWidth}px` +
             ` / container.offsetWidth (naturalWidth): ${svgContainer.offsetWidth}px` +
             ` / container.getBCR.width: ${cRect.width.toFixed(0)}px` +
             ` / toolbarの左端オーバーフロー: ${toolbarMinLeft.toFixed(0)}px` +
+            ` / toolbarの右端オーバーフロー: ${toolbarMaxRight.toFixed(0)}px` +
             ` / フル視覚幅(枠+ドラッグアイコン): ${fullVisualWidth.toFixed(0)}px`
         );
     }
@@ -144,6 +150,10 @@ function closeSVGExpandedView() {
     // SVGコンテナを元の位置に戻す
     const svgContainer = window.currentEditingSVG.container;
 
+    // 枠内の閉じるボタンを削除
+    const closeBtn = svgContainer.querySelector('.svg-expanded-close-btn');
+    if (closeBtn) closeBtn.remove();
+
     // スケールをリセット
     svgContainer.style.transform = '';
     svgContainer.style.transformOrigin = '';
@@ -180,6 +190,14 @@ function closeSVGExpandedView() {
         updateDoneButtonPosition();
     }
 
+    // [FIX] 拡大表示から戻った後、コンテナサイズに合わせてグリッド/ルーラーを再描画する
+    // rAFで遅延させることで、コンテナが元のDOMに再配置された後の正しいサイズが取得される
+    requestAnimationFrame(() => {
+        if (window.currentEditingSVG && window.currentEditingSVG.draw) {
+            window.currentEditingSVG.applyZoomPan();
+        }
+    });
+
     console.log('[SVG Expand] Expanded view closed');
 }
 window.closeSVGExpandedView = closeSVGExpandedView;
@@ -208,9 +226,9 @@ function updateExpandedViewScale() {
         ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-svg-list-width')) || 280)
         : 0;
 
-    // 利用可能なサイズを計算（閉じるボタン分・余白を除く）
-    const closeBtnHeight = 50; // 閉じるボタンの高さ + 余白
-    const padding = 40;        // 余白
+    // 利用可能なサイズを計算（余白を除く）
+    const closeBtnHeight = 0; // 閉じるボタンは枠内にあるため差し引かない
+    const padding = 0;        // 余白
 
     // 横幅はウィンドウ幅からSVGリストパネル幅とパディングを引く
     const availableWidth = window.innerWidth - svgListWidth - padding * 2;
@@ -236,12 +254,12 @@ function updateExpandedViewScale() {
 
     if (!naturalWidth || !naturalHeight) return;
 
-    // ツールバーのコンテナ外オーバーフロー量を取得（初回計測済み）
-    // 正の値に変換: ツールバーが左に38pxはみ出している → toolbarOverflow = 38
-    const toolbarOverflow = expandedData ? Math.abs(expandedData.toolbarMinLeft || 0) : 0;
+    // ツールバーの左右のオーバーフロー量を取得
+    const leftOverflow = expandedData ? Math.abs(expandedData.toolbarMinLeft || 0) : 0;
+    const rightOverflow = expandedData ? Math.max(0, expandedData.toolbarMaxRight || 0) : 0;
 
-    // フル視覚幅（SVGキャンバス + コンテナ左外のツールバー分）
-    const fullVisualWidth = naturalWidth + toolbarOverflow;
+    // フル視覚幅（SVGキャンバス + コンテナ左右外のツールバー分）
+    const fullVisualWidth = naturalWidth + leftOverflow + rightOverflow;
 
     // フル視覚幅を基準にスケール計算（上限なし）
     const totalWidth = window.innerWidth - svgListWidth;
@@ -256,9 +274,9 @@ function updateExpandedViewScale() {
 
     // 視覚コンテンツ全体を画面中央に配置する
     // ・視覚的な左マージン = (totalWidth - scaledFullWidth) / 2
-    // ・コンテナ自体はツールバーより右にあるため toolbarOverflow*scale だけ加算
+    // ・コンテナ自体は左側ツールバーのはみ出し分だけ右にシフトする
     const visualLeftMargin = (totalWidth - scaledFullWidth) / 2;
-    const tx = visualLeftMargin + toolbarOverflow * scale;
+    const tx = visualLeftMargin + leftOverflow * scale;
     const ty = (totalHeight - scaledHeight) / 2;
 
     svgContainer.style.transformOrigin = '0 0';
@@ -267,7 +285,7 @@ function updateExpandedViewScale() {
     console.log(
         `[SVG Expand] Scale: ${scale.toFixed(2)}x` +
         `, Translate: (${tx.toFixed(0)}, ${ty.toFixed(0)})` +
-        `, FullVisualWidth: ${fullVisualWidth}(${naturalWidth}+${toolbarOverflow})` +
+        `, FullVisualWidth: ${fullVisualWidth}(${naturalWidth}+L:${leftOverflow}+R:${rightOverflow})` +
         `, ScaledFull: ${scaledFullWidth.toFixed(0)}x${scaledHeight.toFixed(0)}` +
         `, SVGList: ${svgListVisible ? svgListWidth + 'px' : 'hidden'}`
     );

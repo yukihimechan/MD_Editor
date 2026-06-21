@@ -95,7 +95,7 @@ class SVGToolbarBase {
 
         // 状態の復元
         const savedWidth = localStorage.getItem(widthKey);
-        if (savedWidth) {
+        if (savedWidth && parseInt(savedWidth) >= 100) { // 100px未満の極小幅は表示崩れを防ぐため無視
             toolbar.style.width = savedWidth + 'px';
         }
 
@@ -262,7 +262,7 @@ class SVGToolbarBase {
             toolbar.classList.add('is-swapped');
             toolbar.style.flexDirection = 'row-reverse';
         }
-        if (width) {
+        if (width && parseInt(width) >= 100) { // 100px未満の極小幅は表示崩れを防ぐため無視
             toolbar.style.width = width + 'px';
         }
     }
