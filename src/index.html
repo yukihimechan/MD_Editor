@@ -37,6 +37,9 @@
             z-index: 100010 !important;
         }
     </style>
+    <!-- Dynamic Theme Data & Style -->
+    <script id="bundled-themes" type="application/json">{"light":"", "dark":""}</script>
+    <style id="dynamic-theme"></style>
 </head>
 
 <body>
@@ -405,7 +408,7 @@
         </div>
     </main>
 
-    <div id="toast"></div>
+    <div id="toast" popover="manual"></div>
 
     <dialog id="dialog-help" style="width: 500px;">
         <h3 style="margin-top: 0;" data-i18n="help.title">ヘルプ</h3>
@@ -414,6 +417,7 @@
             <button class="help-tab-btn active" data-tab="cheat-sheet"
                 data-i18n="help.tabCheatSheet">Markdown記法</button>
             <button class="help-tab-btn" data-tab="license" data-i18n="help.tabLicense">ライセンス</button>
+            <button class="help-tab-btn" data-tab="initialize" data-i18n="help.tabInitialize">初期化</button>
         </div>
 
         <div id="help-tab-cheat-sheet" class="help-tab-content active">
@@ -718,6 +722,11 @@ The above copyright notice and this permission notice shall be included in all c
             </div>
         </div>
 
+        <div id="help-tab-initialize" class="help-tab-content">
+            <p data-i18n="help.initDesc">使い初めの状態に戻す。</p>
+            <button id="btn-initialize-app" style="padding: 6px 16px; border: 1px solid #0366d6; background: #0366d6; color: white; border-radius: 4px; cursor: pointer; font-size: 14px;" data-i18n="help.initBtn">実行</button>
+        </div>
+
         <div style="text-align: right; margin-top: 20px;">
             <button id="btn-close-help" data-i18n="dialog.close">閉じる</button>
         </div>
@@ -1006,8 +1015,8 @@ The above copyright notice and this permission notice shall be included in all c
             <div style="margin-bottom: 15px;">
                 <label style="display: flex; flex-direction: column; gap: 8px;">
                     <span><span data-i18n="settings.svgToolbarOpacity">ツールバー透過率 (通常時): </span><strong
-                            id="cfg-svg-toolbar-opacity-value">40</strong>%</span>
-                    <input type="range" id="cfg-svg-toolbar-opacity" min="10" max="90" step="1" value="40"
+                            id="cfg-svg-toolbar-opacity-value">20</strong>%</span>
+                    <input type="range" id="cfg-svg-toolbar-opacity" min="10" max="90" step="1" value="20"
                         style="width: 100%;">
                     <small style="color: #666;" data-i18n="settings.svgToolbarOpacityDesc">非アクティブ時のツールバーの不透明度
                         (10%～90%)</small>
@@ -1063,7 +1072,27 @@ The above copyright notice and this permission notice shall be included in all c
 
             <div style="margin-bottom: 15px;">
                 <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                    <span data-i18n="settings.syntaxTheme">シンタックスハイライトテーマ:</span>
+                    <span data-i18n="settings.appTheme">アプリのテーマ (UI):</span>
+                    <div style="display: flex; gap: 4px; align-items: center;">
+                        <select id="cfg-app-theme" style="padding: 4px 8px;">
+                            <!-- Dynamically populated -->
+                        </select>
+                        <label title="独自テーマのCSSを読み込む" style="cursor: pointer; display: flex; align-items: center; background: #f0f0f0; border: 1px solid #ccc; padding: 4px 8px; border-radius: 4px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            追加
+                            <input type="file" id="cfg-load-custom-theme" accept=".css" style="display: none;">
+                        </label>
+                    </div>
+                </label>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span data-i18n="settings.syntaxTheme">エディタのテーマ (ハイライト):</span>
                     <select id="cfg-syntax-theme" style="padding: 4px 8px;">
                         <option value="prism" data-i18n="settings.themeLight">明るいテーマ</option>
                         <option value="prism-okaidia" data-i18n="settings.themeDark">ダークテーマ (Okaidia)</option>
@@ -1557,14 +1586,23 @@ The above copyright notice and this permission notice shall be included in all c
     <script charset="utf-8" src="js/svg/svg_floating_toolbar.js"></script>
     <script charset="utf-8" src="js/svg/SvgAnimationManager.js"></script>
     <script charset="utf-8" src="js/svg/svg_animation_transform_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_animation_style_toolbar.js"></script>
     <script charset="utf-8" src="js/svg/svg_animation_timing_toolbar.js"></script>
     <script charset="utf-8" src="js/svg/svg_animation_path_toolbar.js"></script>
+    <script charset="utf-8" src="js/svg/svg_animation_list_toolbar.js"></script>
     <script charset="utf-8" src="js/svg/svg_editor.js"></script>
     <script charset="utf-8" src="js/search.js"></script>
     <script charset="utf-8" src="js/export/pdf.js"></script>
     <script charset="utf-8" src="js/export/docx_export.js"></script>
     <script charset="utf-8" src="js/table_editor.js"></script>
     <script charset="utf-8" src="js/preview_inline_edit.js"></script>
+    <script>
+        // MathLiveがローカルファイル環境でエラーを出すのを防ぐ
+        window.MathfieldElement = {
+            fontsDirectory: 'lib/mathlive/fonts',
+            soundsDirectory: null
+        };
+    </script>
     <script charset="utf-8" src="lib/mathlive/mathlive.min.js"></script>
     <script src="js/math/math_slash_command.js"></script>
     <script src="js/math/math_inline_editor.js"></script>

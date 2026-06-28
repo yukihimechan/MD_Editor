@@ -1,0 +1,13 @@
+:root {
+    --bg: #ffffff;
+    --fg: #333333;
+    --border: #e0e0e0;
+    --primary: #0366d6;
+    --header-bg: #f6f8fa;
+    --code-bg: #fff7e6;
+    --code-border: #e8d9c3;
+    --table-head-bg: #eaf5ff;
+    --table-border: #d9e3f0;
+    --table-zebra: #fbfdff;
+    --table-hover: #f2faff;
+}

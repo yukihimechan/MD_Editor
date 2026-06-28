@@ -1,20 +1,20 @@
 /* Base Styles */
 :root {
-    --bg: #ffffff;
-    --fg: #333333;
-    --border: #e0e0e0;
-    --primary: #0366d6;
-    --header-bg: #f6f8fa;
-    --code-bg: #fff7e6;
+    
+    
+    
+    
+    
+    
     /* クリーム色 */
-    --code-border: #e8d9c3;
+    
     /* コードブロックの行間 */
     --code-line-height: 1.45;
     --editor-line-height: 1.6;
-    --table-head-bg: #eaf5ff;
-    --table-border: #d9e3f0;
-    --table-zebra: #fbfdff;
-    --table-hover: #f2faff;
+    
+    
+    
+    
     --font-sans: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
     --font-mono: Consolas, "Courier New", Courier, Monaco, monospace;
     --sidebar-outline-width: 280px;
@@ -50,218 +50,89 @@
 }
 
 /* ダークモード対応 */
-body.dark-theme #svg-mode-badge {
-    background: linear-gradient(135deg, #b35c00, #d97706);
-    box-shadow: 0 1px 4px rgba(217, 119, 6, 0.5);
-}
+
 
 
 /* Dark Theme */
-body.dark-theme {
-    --bg: #1e1e1e;
-    --fg: #d4d4d4;
-    --border: #3e3e3e;
-    --primary: #569cd6;
-    --header-bg: #2d2d2d;
-    --code-bg: #272822;
-    /* Okaidia background */
-    --code-border: #3e3d32;
-    --table-head-bg: #2d2d30;
-    --table-border: #3e3e42;
-    --table-zebra: #252526;
-    --table-hover: #2a2d2e;
-}
 
-body.dark-theme #editor-pane {
-    background: #1e1e1e;
-}
 
-body.dark-theme #editor {
-    background: transparent;
-    color: #d4d4d4;
-    border-color: #3e3e3e;
-}
 
-body.dark-theme .editor-highlights mark {
-    background-color: rgba(255, 235, 59, 0.3);
-}
 
-body.dark-theme .editor-highlights mark.current {
-    background-color: rgba(255, 152, 0, 0.5);
-}
 
-body.dark-theme mark.search-highlight {
-    background-color: rgba(255, 235, 59, 0.3);
-    color: inherit;
-}
 
-body.dark-theme mark.search-highlight-current {
-    background-color: rgba(255, 152, 0, 0.5);
-    font-weight: 600;
-}
 
-body.dark-theme button {
-    background: #3e3e3e;
-    color: #d4d4d4;
-    border-color: #555;
-}
 
-body.dark-theme button:hover {
-    background: #505050;
-}
 
-body.dark-theme button:disabled {
-    background: rgba(62, 62, 62, 0.3);
-    color: #666;
-}
 
-body.dark-theme input,
-body.dark-theme select,
-body.dark-theme textarea {
-    background: #3e3e3e;
-    color: #d4d4d4;
-    border-color: #555;
-}
 
-body.dark-theme .language-label {
-    background: rgba(62, 62, 62, 0.95);
-    border-color: #555;
-    color: #c5c5c5;
-}
 
-body.dark-theme .copy-btn,
-body.dark-theme .code-edit-btn,
-body.dark-theme .btn-save-mermaid,
-body.dark-theme .btn-save-svg,
-body.dark-theme .btn-unwrap-svg,
-body.dark-theme .btn-wrap-svg {
-    background: rgba(62, 62, 62, 0.95);
-    border-color: #555;
-    color: #c5c5c5;
-}
 
-body.dark-theme .copy-btn:hover,
-body.dark-theme .code-edit-btn:hover,
-body.dark-theme .btn-save-mermaid:hover,
-body.dark-theme .btn-save-svg:hover,
-body.dark-theme .btn-unwrap-svg:hover,
-body.dark-theme .btn-wrap-svg:hover {
-    background: #505050;
-    color: #ffffff;
-}
 
-body.dark-theme .copy-btn.copied {
-    background: #4caf50;
-    color: white;
-    border-color: #4caf50;
-}
 
-body.dark-theme .md-preview thead th {
-    color: #d4d4d4;
-}
 
-body.dark-theme .md-preview a {
-    color: #569cd6;
-}
 
-body.dark-theme .md-preview a:hover {
-    color: #7dafde;
-}
 
-body.dark-theme .md-preview blockquote {
-    border-left-color: #555;
-    color: #b4b4b4;
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* CodeMirror Dark Theme */
-body.dark-theme .CodeMirror {
-    background: #1e1e1e;
-    color: #d4d4d4;
-}
 
-body.dark-theme .CodeMirror-gutters {
-    background: #252526;
-    border-right: 1px solid #3e3e3e;
-}
 
-body.dark-theme .CodeMirror-linenumber {
-    color: #858585;
-}
 
-body.dark-theme .CodeMirror-cursor {
-    border-left-color: #d4d4d4;
-}
 
-body.dark-theme .CodeMirror-selected {
-    background: rgba(58, 118, 202, 0.3);
-}
 
-body.dark-theme .CodeMirror-activeline-background {
-    background: rgba(255, 255, 255, 0.05);
-}
 
-body.dark-theme .CodeMirror-matchingbracket {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffff00 !important;
-}
+
+
+
+
+
+
+
 
 /* CodeMirror Syntax Highlighting for Dark Theme */
-body.dark-theme .cm-header {
-    color: #569cd6;
-}
 
-body.dark-theme .cm-strong {
-    color: #dcdcaa;
-    font-weight: bold;
-}
 
-body.dark-theme .cm-em {
-    color: #ce9178;
-    font-style: italic;
-}
 
-body.dark-theme .cm-link {
-    color: #4ec9b0;
-}
 
-body.dark-theme .cm-url {
-    color: #3794ff;
-}
 
-body.dark-theme .cm-quote {
-    color: #7c7c7c;
-}
 
-body.dark-theme .cm-comment {
-    color: #6a9955;
-}
 
-body.dark-theme .cm-variable-2,
-body.dark-theme .cm-variable-3 {
-    color: #9cdcfe;
-}
 
-body.dark-theme .cm-string {
-    color: #ce9178;
-}
 
-body.dark-theme .cm-tag {
-    color: #569cd6;
-}
 
-body.dark-theme .cm-attribute {
-    color: #9cdcfe;
-}
 
-body.dark-theme .CodeMirror-foldmarker {
-    color: #569cd6;
-    text-shadow: none;
-}
 
-body.dark-theme .CodeMirror-foldgutter-open,
-body.dark-theme .CodeMirror-foldgutter-folded {
-    color: #858585;
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 * {
@@ -418,20 +289,11 @@ button:disabled .btn-label {
 }
 
 /* Dark theme */
-body.dark-theme .file-menu-dropdown {
-    background: #252526;
-    border-color: #454545;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
-}
 
-body.dark-theme .file-menu-item:hover {
-    background: #094771;
-    color: #fff;
-}
 
-body.dark-theme .file-menu-separator {
-    background: #454545;
-}
+
+
+
 
 
 /* Main Layout */
@@ -533,16 +395,9 @@ section {
     /* Add glow effect */
 }
 
-body.dark-theme .resize-bar {
-    background: #555;
-}
 
-body.dark-theme .resize-bar:hover,
-body.dark-theme .resize-bar.resizing {
-    background: #777;
-    box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
-    /* Glow effect for dark theme */
-}
+
+
 
 /* Editor Highlights Overlay */
 .editor-highlights {
@@ -632,9 +487,7 @@ body.dark-theme .resize-bar.resizing {
     pointer-events: none;
 }
 
-body.dark-theme .editor-line-numbers>div>div::before {
-    color: #666;
-}
+
 
 /* Editor */
 textarea#editor {
@@ -688,9 +541,7 @@ textarea#editor {
 }
 
 /* ダークテーマ対応 */
-body.dark-theme .preview-page-break-line {
-    border-top-color: rgba(255, 120, 120, 0.5);
-}
+
 
 /* ラベル ("P2", "P3" ... 改ページ後のページ番号) */
 .preview-page-break-line::after {
@@ -709,9 +560,7 @@ body.dark-theme .preview-page-break-line {
     user-select: none;
 }
 
-body.dark-theme .preview-page-break-line::after {
-    color: rgba(255, 120, 120, 0.85);
-}
+
 
 /* GFM Styles */
 .md-preview h1,
@@ -1235,6 +1084,36 @@ body:not(.dark-theme) .md-preview code[class*="language-"] {
     border-color: #4caf50;
 }
 
+/* 編集モード時の完了ボタン（緑色） */
+.code-edit-btn.mermaid-done-mode,
+.code-edit-btn.svg-done-mode {
+    background-color: var(--success, #28a745);
+    color: white;
+    border-color: var(--success, #28a745);
+    opacity: 1;
+}
+
+.code-edit-btn.mermaid-done-mode:hover,
+.code-edit-btn.svg-done-mode:hover {
+    background-color: #218838;
+    border-color: #218838;
+}
+
+/* 編集モード時の拡大ボタン（黄緑色） */
+.btn-expand-mermaid.mermaid-expand-active,
+.code-edit-btn.btn-svg-expand {
+    background-color: #A8E74B;
+    color: #fff;
+    border-color: #A8E74B;
+    opacity: 1;
+}
+
+.btn-expand-mermaid.mermaid-expand-active:hover,
+.code-edit-btn.btn-svg-expand:hover {
+    background-color: #96CF43;
+    border-color: #96CF43;
+}
+
 .md-preview code {
     font-family: var(--font-mono);
 }
@@ -1248,11 +1127,7 @@ body:not(.dark-theme) .md-preview code[class*="language-"] {
 }
 
 /* Dark theme inline code */
-body.dark-theme .md-preview p>code,
-body.dark-theme .md-preview li>code {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: #d4d4d4;
-}
+
 
 /* Line Numbers in Code */
 /* Prism.js line numbers plugin styles override */
@@ -1293,9 +1168,7 @@ body.dark-theme .md-preview li>code {
 }
 
 /* Dark theme adjustments for line numbers */
-body.dark-theme .md-preview pre.line-numbers .line-numbers-rows>span:before {
-    color: #858585;
-}
+
 
 /* Selection Sync */
 .sel {
@@ -1382,6 +1255,12 @@ main.split.editor-only .resize-bar {
     transform: translateX(-50%);
     opacity: 0;
     transition: opacity 0.3s, bottom 0.3s;
+    
+    /* popover overrides */
+    margin: 0;
+    top: auto;
+    right: auto;
+    border: none;
 }
 
 #toast.show {
@@ -1524,9 +1403,7 @@ body.comment-panel-visible {
     border-radius: 4px;
 }
 
-body.dark-theme .svg-list-toolbar {
-    background: rgba(255, 255, 255, 0.05);
-}
+
 
 .svg-list-tool-btn {
     display: flex;
@@ -1634,10 +1511,7 @@ body.dark-theme .svg-list-toolbar {
 }
 
 /* ダークテーマでの背景調整 */
-body.dark-theme .outline-panel {
-    background: rgba(30, 30, 30, 0.95);
-    /* 半透明 */
-}
+
 
 /* ライトテーマでの背景調整 */
 body:not(.dark-theme) .outline-panel {
@@ -1732,29 +1606,16 @@ body:not(.dark-theme) .outline-panel {
     margin-left: 4px;
 }
 
-body.dark-theme .outline-item.folded {
-    color: #666;
-}
+
 
 /* Dark theme outline panel */
-body.dark-theme .outline-panel {
-    background: #1e1e1e;
-    border-right-color: #3e3e3e;
-}
 
-body.dark-theme .outline-header {
-    background: #2d2d2d;
-    border-bottom-color: #3e3e3e;
-}
 
-body.dark-theme .outline-item:hover {
-    background: rgba(255, 255, 255, 0.05);
-}
 
-body.dark-theme .outline-item.active {
-    background: rgba(86, 156, 214, 0.2);
-    color: var(--primary);
-}
+
+
+
+
 
 /* アウトライン表示時は、mainに影響を与えない（オーバーレイ表示） */
 /* padding-leftやmargin-leftを削除 */
@@ -1838,26 +1699,13 @@ body.dark-theme .outline-item.active {
 }
 
 /* Dark theme Mermaid styles */
-body.dark-theme .mermaid-diagram-wrapper {
-    background: #252526;
-    border-color: #3e3e42;
-}
 
-body.dark-theme .mermaid-error {
-    background: #3a1c1c;
-    border-color: #6b2c2c;
-    color: #ff6b6b;
-}
 
-body.dark-theme .mermaid-error strong {
-    color: #ff8888;
-}
 
-body.dark-theme .mermaid-error pre {
-    background: #1e1e1e;
-    border-color: #3e3e3e;
-    color: #d4d4d4;
-}
+
+
+
+
 
 /* Suppress Mermaid default error display (Bomb icon etc) and prevent blank space */
 body>div[id^="dmermaid-"],
@@ -1941,20 +1789,11 @@ body>div[id^="dmermaid-"],
 /* ── Mermaidツールバー（diagram-wrapper内アタッチ型） ─────────────── */
 /* ツールバー本体のスタイルはJS側のinlineスタイルで設定済み。
    ここではダークテーマ対応のみ行う */
-body.dark-theme .mermaid-edit-toolbar-inner {
-    background: #2d2d3f;
-    border-color: #9B7EC8;
-    color: #ddd;
-}
 
-body.dark-theme .mermaid-edit-toolbar-inner button[data-tool] {
-    color: #ccc;
-}
 
-body.dark-theme .mermaid-edit-toolbar-inner button[data-tool]:hover {
-    background: rgba(155, 126, 200, 0.2);
-    color: #9B7EC8;
-}
+
+
+
 
 /* ── ノードラベルインライン入力 ─────────────── */
 .mermaid-node-label-input {
@@ -2218,10 +2057,7 @@ body.dark-theme .mermaid-edit-toolbar-inner button[data-tool]:hover {
     background: var(--table-hover);
 }
 
-body.dark-theme .export-submenu {
-    background: #1e1e1e;
-    border-color: #3e3e3e;
-}
+
 
 .search-targets-fieldset legend {
     font-size: 12px;
@@ -2405,39 +2241,19 @@ mark.search-highlight-current {
 
 
 
-body.dark-theme .search-dialog-header {
-    background: #1e1e1e;
-    border-bottom-color: #3e3e3e;
-}
 
-body.dark-theme .search-dialog-header:hover {
-    background: #252526;
-}
 
-body.dark-theme .search-dialog input[type="text"],
-body.dark-theme .search-dialog input[type="checkbox"] {
-    background: #1e1e1e;
-    color: #d4d4d4;
-    border-color: #3e3e3e;
-}
 
-body.dark-theme .search-dialog button {
-    background: #569cd6;
-}
 
-body.dark-theme #search-status {
-    background: #1e1e1e;
-    color: #d4d4d4;
-}
 
-body.dark-theme #search-history-dropdown {
-    background: #2d2d2d;
-    border-color: #3e3e3e;
-}
 
-body.dark-theme #search-history-dropdown>div:hover {
-    background: #3e3e3e;
-}
+
+
+
+
+
+
+
 
 /* Search Results Dialog */
 .search-results-dialog {
@@ -2642,33 +2458,17 @@ body.dark-theme #search-history-dropdown>div:hover {
 
 
 /* Dark theme */
-body.dark-theme .search-results-dialog {
-    background: #2d2d2d;
-    color: #d4d4d4;
-    border-color: #3e3e3e;
-}
 
-body.dark-theme .search-result-item {
-    border-bottom-color: #3e3e3e;
-}
 
-body.dark-theme .search-result-item:hover {
-    background: #3e3e3e;
-}
 
-body.dark-theme .search-result-item.active {
-    background: rgba(86, 156, 214, 0.2);
-    border-left-color: #569cd6;
-}
 
-body.dark-theme .search-result-type {
-    background: #1e1e1e;
-}
 
-body.dark-theme .search-result-context mark {
-    background-color: rgba(255, 235, 59, 0.4);
-    color: #d4d4d4;
-}
+
+
+
+
+
+
 
 /* Responsive: Search dialog on mobile */
 @media (max-width: 768px) {
@@ -2918,12 +2718,18 @@ html body .svg-select-group-canvas .svg_select_handle_point_l {
 }
 
 /* Force markers to be visible even if tiny in coordinates */
-rect.svg_select_handle {
+rect.svg_select_handle,
+rect.svg_select_handle_point,
+rect.select-point-handle,
+rect.svg-select-handle {
     width: 8px;
     height: 8px;
 }
 
-circle.svg_select_handle {
+circle.svg_select_handle,
+circle.svg_select_handle_point,
+circle.select-point-handle,
+circle.svg-select-handle {
     r: 5px;
 }
 
@@ -2989,11 +2795,13 @@ circle.svg_select_handle {
 }
 
 /* Point Select Handles */
-.svg_select_handle_point {
+.svg_select_handle_point,
+.select-point-handle {
     stroke-width: 1px;
     stroke: #fff;
     fill: #007bff;
     cursor: move;
+    pointer-events: all !important;
 }
 
 /* ========================================
@@ -3027,9 +2835,7 @@ circle.svg_select_handle {
 .table-cell-selected {
     background-color: rgba(3, 102, 214, 0.12) !important;
 }
-body.dark-theme .table-cell-selected {
-    background-color: rgba(86, 156, 214, 0.15) !important;
-}
+
 
 /* セルドラッグ選択中のテキスト選択防止 */
 .selecting-cells,
@@ -3067,21 +2873,11 @@ body.dark-theme .table-cell-selected {
     box-shadow: inset 0 0 0 2px var(--primary) !important;
 }
 
-body.dark-theme .table-cell-focused {
-    box-shadow: inset 0 0 0 2px rgba(86, 156, 214, 0.9) !important;
-    background-color: rgba(86, 156, 214, 0.08) !important;
-}
 
-body.dark-theme .table-cell-editing {
-    box-shadow: inset 0 0 0 2px rgba(86, 156, 214, 0.9) !important;
-    background-color: rgba(86, 156, 214, 0.08) !important;
-}
 
-body.dark-theme .table-cell-editing:focus,
-body.dark-theme .table-cell-editing:focus-visible {
-    outline: none !important;
-    box-shadow: inset 0 0 0 2px rgba(86, 156, 214, 0.9) !important;
-}
+
+
+
 
 /* Done Button */
 .table-editor-done-btn {
@@ -3183,14 +2979,9 @@ body.dark-theme .table-cell-editing:focus-visible {
 
 
 /* Dark Theme Adjustments */
-body.dark-theme .ctx-menu {
-    background: #2d2d2d;
-    border-color: #3e3e3e;
-}
 
-body.dark-theme .ctx-menu-item:hover {
-    background: #0366d6;
-}
+
+
 
 /* Row Control UI (+/- buttons) */
 .table-row-controls {
@@ -3260,17 +3051,9 @@ body.dark-theme .ctx-menu-item:hover {
     background-color: rgba(3, 102, 214, 0.05);
 }
 
-body.dark-theme .preview-selectable {
-    outline-color: rgba(86, 156, 214, 0.2);
-    background-color: rgba(86, 156, 214, 0.05);
-}
 
-body.dark-theme .preview-selectable:focus,
-body.dark-theme .preview-selectable:focus-visible,
-body.dark-theme .preview-selectable[contenteditable="true"]:focus {
-    outline: 2px dashed rgba(86, 156, 214, 0.6) !important;
-    background-color: rgba(86, 156, 214, 0.1);
-}
+
+
 
 
 .table-btn-group {
@@ -3298,16 +3081,9 @@ body.dark-theme .preview-selectable[contenteditable="true"]:focus {
     color: #333;
 }
 
-body.dark-theme .table-export-btn {
-    background: rgba(45, 45, 45, 0.9);
-    border-color: #555;
-    color: #ddd;
-}
 
-body.dark-theme .table-export-btn:hover {
-    background: #404040;
-    color: #fff;
-}
+
+
 
 /* ミニフォーマットツールバー */
 .mini-format-toolbar {
@@ -3340,23 +3116,11 @@ body.dark-theme .table-export-btn:hover {
     color: var(--primary);
 }
 
-body.dark-theme .mini-format-toolbar {
-    background: #2d2d2d;
-    border-color: #444;
-}
-body.dark-theme .mini-format-toolbar button {
-    color: #ddd;
-}
-body.dark-theme .mini-format-toolbar button:hover {
-    background: rgba(86, 156, 214, 0.3);
-    color: #fff;
-}
 
-body.dark-theme .inline-edit-btn {
-    background: rgba(45, 45, 45, 0.9);
-    border-color: #555;
-    color: #ddd;
-}
+
+
+
+
 
 .inline-edit-btn:hover {
     opacity: 1;
@@ -3364,10 +3128,7 @@ body.dark-theme .inline-edit-btn {
     color: #333;
 }
 
-body.dark-theme .inline-edit-btn:hover {
-    background: #404040;
-    color: #fff;
-}
+
 
 .inline-editor-wrapper {
     margin: 16px 0;
@@ -3398,11 +3159,7 @@ body.dark-theme .inline-edit-btn:hover {
     overflow: hidden;
 }
 
-body.dark-theme .inline-editor-textarea {
-    background: #2d2d2d;
-    /* Or match code block bg */
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
+
 
 /* Match table editor done button style */
 .inline-done-btn {
@@ -3451,18 +3208,14 @@ body.dark-theme .inline-editor-textarea {
     transition: all 0.2s;
 }
 
-body.dark-theme .cfg-tab-btn {
-    color: #aaa;
-}
+
 
 .cfg-tab-btn:hover {
     background: rgba(0, 0, 0, 0.05);
     color: var(--primary);
 }
 
-body.dark-theme .cfg-tab-btn:hover {
-    background: rgba(255, 255, 255, 0.05);
-}
+
 
 .cfg-tab-btn.active {
     color: var(--primary);
@@ -3470,11 +3223,7 @@ body.dark-theme .cfg-tab-btn:hover {
     font-weight: 600;
 }
 
-body.dark-theme .cfg-tab-btn.active {
-    color: #569cd6;
-    /* Light Blue for dark theme */
-    border-bottom-color: #569cd6;
-}
+
 
 .cfg-tab-content {
     display: none;
@@ -3518,11 +3267,7 @@ body.dark-theme .cfg-tab-btn.active {
     z-index: 10;
 }
 
-body.dark-theme #preview-status-bar {
-    background: #2d2d2d;
-    border-color: #3e3e3e;
-    color: #aeaeae;
-}
+
 
 /* Context Menu */
 .context-menu {
@@ -3602,25 +3347,13 @@ body.dark-theme #preview-status-bar {
     display: block;
 }
 
-body.dark-theme .context-menu,
-body.dark-theme .context-menu-submenu {
-    background: #252526;
-    border-color: #454545;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
-}
 
-body.dark-theme .context-menu-item:hover {
-    background: #094771;
-    color: #fff;
-}
 
-body.dark-theme .context-menu-item.disabled {
-    color: #666;
-}
 
-body.dark-theme .context-menu-separator {
-    background: #454545;
-}
+
+
+
+
 
 /* Help Dialog Tabs */
 .help-tabs {
@@ -3641,18 +3374,14 @@ body.dark-theme .context-menu-separator {
     transition: all 0.2s;
 }
 
-body.dark-theme .help-tab-btn {
-    color: #aaa;
-}
+
 
 .help-tab-btn:hover {
     background: rgba(0, 0, 0, 0.05);
     color: var(--primary);
 }
 
-body.dark-theme .help-tab-btn:hover {
-    background: rgba(255, 255, 255, 0.05);
-}
+
 
 .help-tab-btn.active {
     color: var(--primary);
@@ -3660,10 +3389,7 @@ body.dark-theme .help-tab-btn:hover {
     font-weight: 600;
 }
 
-body.dark-theme .help-tab-btn.active {
-    color: #569cd6;
-    border-bottom-color: #569cd6;
-}
+
 
 .help-tab-content {
     display: none;
@@ -3734,16 +3460,9 @@ body.dark-theme .help-tab-btn.active {
     color: #333;
 }
 
-body.dark-theme .license-list summary {
-    background: rgba(255, 255, 255, 0.05);
-    color: #d4d4d4;
-}
 
-body.dark-theme .license-text pre {
-    background: #2d2d2d;
-    border-color: #3e3e3e;
-    color: #ccc;
-}
+
+
 
 /* ===== Export Menu ===== */
 .export-menu-dropdown {
@@ -3792,15 +3511,9 @@ body.dark-theme .license-text pre {
 }
 
 /* Dark theme overrides (actually handled by CSS variables above, but keeping for specificity) */
-body.dark-theme .export-menu-dropdown {
-    background: #2d2d2d;
-    border-color: #454545;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
 
-body.dark-theme .export-menu-item:hover {
-    background: #3e3e3e;
-}
+
+
 
 /* --- Mermaid Diagram SVG Save Button --- */
 .mermaid-diagram-wrapper {
@@ -3838,10 +3551,7 @@ body.dark-theme .export-menu-item:hover {
     color: var(--fg);
 }
 
-body.dark-theme .dialog-language-select {
-    background: #252526;
-    border-color: #454545;
-}
+
 
 .lang-categories {
     max-height: 60vh;
@@ -3891,22 +3601,11 @@ body.dark-theme .dialog-language-select {
     border-color: #0366d6;
 }
 
-body.dark-theme .lang-btn {
-    background: #3e3e3e;
-    border-color: #555;
-    color: #d4d4d4;
-}
 
-body.dark-theme .lang-btn:hover {
-    background: #4e4e4e;
-    border-color: #666;
-}
 
-body.dark-theme .lang-btn.active {
-    background: #094771;
-    color: white;
-    border-color: #094771;
-}
+
+
+
 
 /* Make Language Label clickable */
 .language-label.clickable {
@@ -3922,10 +3621,7 @@ body.dark-theme .lang-btn.active {
     border-color: rgba(0, 0, 0, 0.2);
 }
 
-body.dark-theme .language-label.clickable:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
-}
+
 
 .export-menu-item .icon {
     flex-shrink: 0;
@@ -3939,15 +3635,9 @@ body.dark-theme .language-label.clickable:hover {
 }
 
 /* Dark theme overrides (actually handled by CSS variables above, but keeping for specificity) */
-body.dark-theme .export-menu-dropdown {
-    background: #2d2d2d;
-    border-color: #454545;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
 
-body.dark-theme .export-menu-item:hover {
-    background: #3e3e3e;
-}
+
+
 
 /* --- Mermaid Diagram SVG Save Button --- */
 .mermaid-diagram-wrapper {
@@ -3985,10 +3675,7 @@ body.dark-theme .export-menu-item:hover {
     color: var(--fg);
 }
 
-body.dark-theme .dialog-language-select {
-    background: #252526;
-    border-color: #454545;
-}
+
 
 .lang-categories {
     max-height: 60vh;
@@ -4038,22 +3725,11 @@ body.dark-theme .dialog-language-select {
     border-color: #0366d6;
 }
 
-body.dark-theme .lang-btn {
-    background: #3e3e3e;
-    border-color: #555;
-    color: #d4d4d4;
-}
 
-body.dark-theme .lang-btn:hover {
-    background: #4e4e4e;
-    border-color: #666;
-}
 
-body.dark-theme .lang-btn.active {
-    background: #094771;
-    color: white;
-    border-color: #094771;
-}
+
+
+
 
 /* Make Language Label clickable */
 .language-label.clickable {
@@ -4069,10 +3745,7 @@ body.dark-theme .lang-btn.active {
     border-color: rgba(0, 0, 0, 0.2);
 }
 
-body.dark-theme .language-label.clickable:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
-}
+
 
 /* ============================================================ */
 /* SVG Editor Zoom-independent Handles (ULTIMATE OVERRIDE)      */
@@ -4143,9 +3816,7 @@ html body .svg-select-group-canvas [class*="-handle-b"] {
     outline: none !important;
 }
 
-body.dark-theme .md-preview [contenteditable="true"] {
-    background: rgba(86, 156, 214, 0.15);
-}
+
 
 /* Drag and Drop Handles */
 .drag-handle {
@@ -4181,9 +3852,7 @@ body.dark-theme .md-preview [contenteditable="true"] {
     border-radius: 4px;
 }
 
-body.dark-theme .drag-handle:hover {
-    background: rgba(255,255,255,0.1);
-}
+
 
 .drag-handle:active {
     cursor: grabbing;
@@ -4227,6 +3896,12 @@ body.dark-theme .drag-handle:hover {
     background-color: rgba(3, 102, 214, 0.05); /* 非 li 要素はここで背景色も適用 */
 }
 
+/* [FIX] コードブロックなどは子要素の背景でアウトラインが隠れないように外側にオフセット */
+.code-block-wrapper.preview-focused,
+.table-wrapper.preview-focused {
+    outline-offset: 2px !important;
+}
+
 /* 複数選択されている要素（メインのフォーカス以外）のスタイル */
 .preview-selected-element {
     outline: 1.5px solid var(--primary) !important;
@@ -4266,26 +3941,13 @@ li.task-list-item > span.li-text-wrapper {
     border-radius: 4px;
 }
 
-body.dark-theme .preview-focused {
-    outline: 1.5px dashed rgba(86, 156, 214, 0.6) !important;
-    background-color: rgba(86, 156, 214, 0.1);
-}
 
-body.dark-theme .preview-selected-element {
-    outline: 1.5px solid rgba(86, 156, 214, 0.6) !important;
-    background-color: rgba(86, 156, 214, 0.2);
-}
 
-body.dark-theme li.preview-focused,
-body.dark-theme .li-text-wrapper.preview-focused,
-body.dark-theme li.preview-selected-element,
-body.dark-theme .li-text-wrapper.preview-selected-element {
-    background-color: transparent !important;
-}
 
-body.dark-theme .preview-focused-parent {
-    background-color: rgba(86, 156, 214, 0.1);
-}
+
+
+
+
 
 [contenteditable="true"].inline-editing-active {
     outline-offset: -1px;
@@ -4337,13 +3999,8 @@ body.dark-theme .preview-focused-parent {
 .img-resize-handle.se { bottom: -5px; right: -5px;   cursor: se-resize; }
 
 /* ダークテーマ対応 */
-body.dark-theme .img-resize-wrapper {
-    outline-color: var(--primary, #569cd6);
-}
-body.dark-theme .img-resize-handle {
-    background: var(--primary, #569cd6);
-    border-color: #1e1e1e;
-}
+
+
 
 /* サイズ表示ツールチップ（JS で更新) */
 .img-resize-wrapper::after {
@@ -4390,9 +4047,7 @@ body.dark-theme .img-resize-handle {
     opacity: 1;
 }
 
-body.dark-theme .dummy-tail-block::before {
-    color: #666;
-}
+
 
 .dummy-tail-block:hover {
     border-color: rgba(3, 102, 214, 0.3);
@@ -4405,11 +4060,7 @@ body.dark-theme .dummy-tail-block::before {
     outline: none;
 }
 
-body.dark-theme .dummy-tail-block.inline-editing-active {
-    border-color: transparent !important;
-    background: transparent !important;
-    box-shadow: none !important;
-}
+
 
 /* 編集状態で文字がない場合（ゼロ幅スペースのみ）はプレースホルダーを消す */
 .dummy-tail-block.inline-editing-active::before {
@@ -4418,12 +4069,7 @@ body.dark-theme .dummy-tail-block.inline-editing-active {
 
 /* Mermaid Edge Selection Highlight */
 .mermaid-edge-selected,
-body.dark-theme .mermaid-edge-selected {
-    stroke: #3b82f6 !important;
-    stroke-dasharray: 4,2 !important;
-    filter: drop-shadow(0 0 4px rgba(59, 130, 246, 1)) !important;
-    transition: all 0.2s ease-in-out;
-}
+
 
 /* Math Editor UI */
 .math-inline-editor-overlay {
@@ -4442,9 +4088,7 @@ body.dark-theme .mermaid-edge-selected {
     width: auto;
 }
 
-body.dark-theme .math-inline-editor-overlay {
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
+
 
 /* ヘッダー行: ⌨ + ≡ ボタン */
 .math-editor-header {
@@ -4484,20 +4128,11 @@ body.dark-theme .math-inline-editor-overlay {
     border-color: var(--primary);
 }
 
-body.dark-theme .math-header-btn {
-    background: #3e3e3e;
-    border-color: #555;
-}
 
-body.dark-theme .math-header-btn:hover {
-    background: #4e4e4e;
-    border-color: #569cd6;
-}
 
-body.dark-theme .math-header-btn.active {
-    background: #094771;
-    border-color: #569cd6;
-}
+
+
+
 
 /* メインレイアウト: MathField + ボタンパネルの横並び */
 .math-editor-row {
@@ -4525,16 +4160,9 @@ body.dark-theme .math-header-btn.active {
     box-shadow: 0 0 0 2px rgba(3, 102, 214, 0.15);
 }
 
-body.dark-theme .math-editor-field {
-    background: #2a2a2a;
-    border-color: #555;
-    color: #d4d4d4;
-}
 
-body.dark-theme .math-editor-field:focus-within {
-    border-color: #569cd6;
-    box-shadow: 0 0 0 2px rgba(86, 156, 214, 0.2);
-}
+
+
 
 /* MathLive の仮想キーボードトグルを非表示にする */
 math-field::part(virtual-keyboard-toggle) {
@@ -4567,9 +4195,7 @@ math-field::part(menu-toggle) {
     border-radius: 2px;
 }
 
-body.dark-theme .math-editor-toolbar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
-}
+
 
 /* 各ボタン */
 .math-toolbar-btn {
@@ -4601,20 +4227,11 @@ body.dark-theme .math-editor-toolbar::-webkit-scrollbar-thumb {
     color: #fff;
 }
 
-body.dark-theme .math-toolbar-btn {
-    background: #3e3e3e;
-    border-color: #555;
-}
 
-body.dark-theme .math-toolbar-btn:hover {
-    background: #4e4e4e;
-    border-color: #569cd6;
-}
 
-body.dark-theme .math-toolbar-btn:active {
-    background: #094771;
-    color: #fff;
-}
+
+
+
 
 /* Math Slash Command Suggestion Box */
 .math-slash-command {
@@ -4628,9 +4245,7 @@ body.dark-theme .math-toolbar-btn:active {
     overflow-y: auto;
 }
 
-body.dark-theme .math-slash-command {
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
-}
+
 
 .math-slash-command-item {
     padding: 6px 12px;
@@ -4646,11 +4261,7 @@ body.dark-theme .math-slash-command {
     background-color: var(--table-hover);
 }
 
-body.dark-theme .math-slash-command-item:hover,
-body.dark-theme .math-slash-command-item.selected {
-    background-color: var(--primary);
-    color: #fff;
-}
+
 
 .math-slash-command-item-label {
     font-weight: 500;
@@ -4664,10 +4275,7 @@ body.dark-theme .math-slash-command-item.selected {
     border-radius: 4px;
 }
 
-body.dark-theme .math-slash-command-item-desc {
-    color: #aaa;
-    background: rgba(255,255,255,0.1);
-}
+
 
 /* ===== Mermaidノードドラッグ機能 ===== */
 
@@ -4730,19 +4338,9 @@ body.dark-theme .math-slash-command-item-desc {
 }
 
 /* ダークテーマ対応 */
-body.dark-theme .mermaid-node-ghost {
-    border-color: #569cd6;
-    background: rgba(86, 156, 214, 0.2);
-    color: #569cd6;
-    box-shadow: 0 4px 12px rgba(86, 156, 214, 0.3);
-}
 
-body.dark-theme .mermaid-subgraph-drop-target > rect,
-body.dark-theme .mermaid-subgraph-drop-target .cluster-inner > rect,
-body.dark-theme .mermaid-subgraph-drop-target rect:first-of-type {
-    stroke: #d97706 !important;
-    fill: rgba(217, 119, 6, 0.15) !important;
-}
+
+
 
 /* ==========================================================================
    印刷 / PDFエクスポート用スタイル調整

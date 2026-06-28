@@ -41,9 +41,22 @@
 /* 閉じるボタン */
 .svg-expanded-close-btn {
     position: absolute !important;
-    top: 10px !important;
-    right: 10px !important;
+    top: 16px !important;
+    right: 16px !important;
     z-index: 10005 !important;
+    background-color: #ef4444 !important;
+    color: white !important;
+    border: none !important;
+    opacity: 1 !important;
+    padding: 8px 16px !important;
+    font-size: 13px !important;
+    font-weight: bold !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+    border-radius: 4px !important;
+}
+
+.svg-expanded-close-btn:hover {
+    background-color: #dc2626 !important;
 }
 
 /* 拡大表示中のSVGコンテナ */
