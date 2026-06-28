@@ -128,9 +128,9 @@
 
         const down = (e) => {
             const cur = window.currentEditingSVG;
-            console.log('[Marquee Debug] down: hasCur=' + (!!cur) + ' tool=' + (typeof SVGToolbar !== 'undefined' ? SVGToolbar.currentTool : 'undefined') + ' button=' + e.button + ' shift=' + e.shiftKey + ' ctrl=' + e.ctrlKey + ' size=' + (cur?.selectedElements ? cur.selectedElements.size : 'null') + ' target=' + (e.target ? e.target.tagName + '#' + e.target.id : 'null'));
+            console.log('[Marquee Debug] down: hasCur=' + (!!cur) + ' tool=' + (typeof window.SVGToolbar !== 'undefined' ? window.SVGToolbar.currentTool : 'undefined') + ' button=' + e.button + ' shift=' + e.shiftKey + ' ctrl=' + e.ctrlKey + ' size=' + (cur?.selectedElements ? cur.selectedElements.size : 'null') + ' target=' + (e.target ? e.target.tagName + '#' + e.target.id : 'null'));
             if (!cur) return;
-            if (typeof SVGToolbar !== 'undefined' && SVGToolbar.currentTool !== 'select') return;
+            if (typeof window.SVGToolbar !== 'undefined' && window.SVGToolbar.currentTool !== 'select') return;
             if (e.button !== 0 || !e.shiftKey || e.ctrlKey) return;
             if (cur.isSpacePressed || cur.isPanning) return;
 

@@ -72,6 +72,9 @@ function scheduleSelectionUIUpdate(silent = false) {
         if (window.animationTransformToolbar && typeof window.animationTransformToolbar.updateValuesFromSelected === 'function') {
             window.animationTransformToolbar.updateValuesFromSelected();
         }
+        if (window.animationStyleToolbar && typeof window.animationStyleToolbar.updateValuesFromSelected === 'function') {
+            window.animationStyleToolbar.updateValuesFromSelected();
+        }
         if (window.animationTimingToolbar && typeof window.animationTimingToolbar.updateValuesFromSelected === 'function') {
             window.animationTimingToolbar.updateValuesFromSelected();
         }
@@ -228,15 +231,11 @@ window.makeInteractive = makeInteractive;
 /**
  * Select an element
  */
-function selectElement(el, isMulti, silent = false, force = false) {
+function selectElement(el, isMulti, silent = false, force = false, skipVisibilityCheck = false) {
     if (!window.currentEditingSVG) {
         return;
     }
-    try {
-        const elId = el && el.id ? (typeof el.id === 'function' ? el.id() : el.id) : (el && el.node ? el.node.getAttribute('id') : 'unknown');
-        console.debug(`[selectElement] Called for ID: ${elId}, isMulti: ${isMulti}, force: ${force}, currentCount: ${window.currentEditingSVG.selectedElements.size}`);
-    } catch(err) {}
-
+    
     // [FIX] CSS 編集モード中は、プレビュー以外の要素を選択させない
     if (window.currentEditingSVG._inCSSEditMode) {
         console.debug(`[selectElement] BLOCKED: In CSS Edit Mode.`);
@@ -281,12 +280,16 @@ function selectElement(el, isMulti, silent = false, force = false) {
     }
 
     // [FIX] Prevent selection of hidden elements
-    try {
-        if (!el.visible()) {
-            return;
+    // [PERF] Lassoなどからの一括呼び出し時は、レイアウトスラッシング（Forced Synchronous Layout）を
+    // 防ぐため事前に可視性チェックが終わっているのでスキップする
+    if (!skipVisibilityCheck) {
+        try {
+            if (!el.visible()) {
+                return;
+            }
+        } catch (e) {
+            console.warn('[selectElement] Error checking visibility:', e);
         }
-    } catch (e) {
-        console.warn('[selectElement] Error checking visibility:', e);
     }
 
     // [FIX] Ensure element has root before proceeding with selection/resize
@@ -326,10 +329,12 @@ function selectElement(el, isMulti, silent = false, force = false) {
         window.currentEditingSVG.selectedElements.add(el);
     }
     // ▲▲▲ ここまで ▲▲▲
+
     // [NEW] 選択状態を示すクラスを付加してCSSで検知できるようにする
     if (el.node && el.node.classList) {
         el.node.classList.add('svg-edit-selected');
     }
+    
     // [NEW] Delegate Selection UI to SvgShape instance
     let shape = el.remember('_shapeInstance');
     if (!shape && typeof wrapShape === 'function') {
@@ -341,32 +346,36 @@ function selectElement(el, isMulti, silent = false, force = false) {
         }
     }
 
-    if (shape && typeof shape.applySelectionUI === 'function') {
-        try {
-            shape.applySelectionUI();
-        } catch (e) {
-            console.warn('[selectElement] shape.applySelectionUI failed:', e);
-        }
-    } else {
-        // Fallback for non-wrapped elements
-        // [FIX] Ensure element is connected to a root and has select method before calling
-        if (typeof el.select === 'function' && el.root()) {
+    // [PERF] 選択された要素が多すぎる場合は、すべてに8点マーカー（選択UI）を付けるとフリーズするため、
+    // UIの適用をスキップする（青枠クラス 'svg-edit-selected' は付与されているため見た目でのフィードバックは残る）
+    const isMassSelection = window.currentEditingSVG && window.currentEditingSVG.selectedElements.size > 20;
+
+    if (!isMassSelection) {
+        if (shape && typeof shape.applySelectionUI === 'function') {
             try {
-                el.select({ rotationPoint: false, deepSelect: true });
+                shape.applySelectionUI();
             } catch (e) {
-                console.warn('[selectElement] el.select failed:', e);
+                console.warn('[selectElement] shape.applySelectionUI failed:', e);
+            }
+        } else {
+            // Fallback for non-wrapped elements
+            if (typeof el.select === 'function' && el.root()) {
+                try {
+                    el.select({ rotationPoint: false, deepSelect: true });
+                } catch (e) {
+                    console.warn('[selectElement] el.select failed:', e);
+                }
+            }
+        }
+
+        if (typeof el.resize === 'function' && !shape && el.root()) {
+            try {
+                el.resize();
+            } catch (e) {
+                console.warn('[selectElement] el.resize failed:', e);
             }
         }
     }
-
-    if (typeof el.resize === 'function' && !shape && el.root()) {
-        try {
-            el.resize();
-        } catch (e) {
-            console.warn('[selectElement] el.resize failed:', e);
-        }
-    }
-
 
     if (typeof el.resize === 'function') {
         // [NEW] Snap to dynamic grid on Resize/Rotate
@@ -454,10 +463,8 @@ function selectElement(el, isMulti, silent = false, force = false) {
         }
     };
 
-    // [NEW] 同期ハイライトの更新呼び出し
-    if (typeof window.updateSVGSourceHighlight === 'function') {
-        window.updateSVGSourceHighlight();
-    }
+    // [NEW] 同期ハイライトの更新呼び出しをデバウンス化して呼び出す
+    scheduleSVGSourceHighlightUpdate();
 
     // Unified resize handler
     el.on('resize.selection', (e) => {
@@ -516,6 +523,7 @@ function selectElement(el, isMulti, silent = false, force = false) {
         // ▼追加: 自分がドラッグ中・リサイズ中なら処理をスキップ
         const shape = el.remember('_shapeInstance');
         if (shape && (shape._isDragging || shape._isResizing)) return;
+        if (el.node.getAttribute('data-is-dragging') === 'true') return;
 
         for (const mutation of mutations) {
             if (mutation.type === 'attributes' && mutation.attributeName === 'transform') {
@@ -707,6 +715,19 @@ function updateSVGSourceHighlight() {
     }
 }
 window.updateSVGSourceHighlight = updateSVGSourceHighlight;
+
+let highlightUpdateTimer = null;
+function scheduleSVGSourceHighlightUpdate() {
+    if (highlightUpdateTimer) {
+        clearTimeout(highlightUpdateTimer);
+    }
+    highlightUpdateTimer = setTimeout(() => {
+        if (typeof window.updateSVGSourceHighlight === 'function') {
+            window.updateSVGSourceHighlight();
+        }
+    }, 50);
+}
+window.scheduleSVGSourceHighlightUpdate = scheduleSVGSourceHighlightUpdate;
 
 // --- Event Handlers ---
 

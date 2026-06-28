@@ -13,7 +13,8 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
             isSwapped: true
         });
         this.onValueChange = options.onValueChange || (() => { });
-        this.inputs = {};
+        this.animations = [{ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: 'infinite', trigger: 'auto' }];
+        this.rowInputs = [];
 
         this.createToolbar();
     }
@@ -27,6 +28,9 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
         this.toolbarElement = toolbar;
         this.contentArea = contentArea;
         this.toolbarElement.classList.add('svg-animation-transform-toolbar');
+        this.contentArea.style.flexDirection = 'column';
+        this.contentArea.style.alignItems = 'stretch';
+        this.contentArea.style.gap = '4px';
 
         this.renderContents();
 
@@ -38,77 +42,162 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
     renderContents() {
         const contentArea = this.contentArea;
         contentArea.innerHTML = '';
+        this.rowInputs = [];
 
-        // ツールバーラベル
-        const label = document.createElement('span');
-        label.style.cssText = 'color:var(--svg-toolbar-fg); font-size:10px; font-weight:bold; margin:0 4px;';
-        label.textContent = t('svgEditor.animTransform.label') || '変形アニメ:';
-        contentArea.appendChild(label);
+        this.animations.forEach((anim, index) => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; align-items:center; gap:2px; white-space:nowrap;';
 
-        // 種類 (Type)
-        const typeSelect = document.createElement('select');
-        typeSelect.style.width = '75px';
-        typeSelect.innerHTML = `
-            <option value="none">${t('svgEditor.animTransform.none') || 'なし'}</option>
-            <option value="spin">${t('svgEditor.animTransform.spin') || 'スピン(回転)'}</option>
-            <option value="swing">${t('svgEditor.animTransform.swing') || 'スイング(往復)'}</option>
-            <option value="bounce">${t('svgEditor.animTransform.bounce') || 'バウンド(上下)'}</option>
-            <option value="pulse">${t('svgEditor.animTransform.pulse') || 'パルス(拡縮)'}</option>
-        `;
-        typeSelect.addEventListener('change', () => {
-            this.inputs['amount'].value = this.getDefaultAmountForType(typeSelect.value);
-            this.handleUIChange();
+            // ツールバーラベル
+            const label = document.createElement('span');
+            label.style.cssText = 'color:var(--svg-toolbar-fg); font-size:10px; font-weight:bold; margin:0 4px; width:48px;';
+            label.textContent = index === 0 ? (t('svgEditor.animTransform.label') || '変形アニメ:') : '';
+            row.appendChild(label);
+
+            // 種類 (Type)
+            const typeSelect = document.createElement('select');
+            typeSelect.style.width = '75px';
+            typeSelect.innerHTML = `
+                <option value="none">${t('svgEditor.animTransform.none') || 'なし'}</option>
+                <option value="spin">${t('svgEditor.animTransform.spin') || 'スピン(回転)'}</option>
+                <option value="swing">${t('svgEditor.animTransform.swing') || 'スイング(往復)'}</option>
+                <option value="bounce">${t('svgEditor.animTransform.bounce') || 'バウンド(上下)'}</option>
+                <option value="pulse">${t('svgEditor.animTransform.pulse') || 'パルス(拡縮)'}</option>
+                <option value="shake">シェイク(左右揺れ)</option>
+                <option value="float">フロート(ふわふわ)</option>
+                <option value="flip">フリップ(裏返し)</option>
+                <option value="jelly">ゼリー</option>
+            `;
+            typeSelect.value = anim.type;
+            
+            // 変化量 (Amount)
+            const amountWrap = document.createElement('div');
+            amountWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
+            amountWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;" title="${t('svgEditor.animTransform.amountTitle') || '変化量（角度、高さ、スケール）'}">${t('svgEditor.animTransform.amount') || '量:'}</span>`;
+            const amountInput = document.createElement('input');
+            amountInput.type = 'number';
+            amountInput.style.width = '45px';
+            amountInput.style.textAlign = 'right';
+            amountInput.value = anim.amount;
+            amountWrap.appendChild(amountInput);
+
+            // 再生時間 (Duration)
+            const durWrap = document.createElement('div');
+            durWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
+            durWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;">${t('svgEditor.animTransform.seconds') || '秒:'}</span>`;
+            const durInput = document.createElement('input');
+            durInput.type = 'number';
+            durInput.style.width = '40px';
+            durInput.style.textAlign = 'right';
+            durInput.value = anim.dur;
+            durInput.step = '0.1';
+            durInput.min = '0.1';
+            durWrap.appendChild(durInput);
+
+            // イージング (Easing)
+            const easeSelect = document.createElement('select');
+            easeSelect.style.width = '70px';
+            easeSelect.innerHTML = `
+                <option value="linear">${t('svgEditor.animTransform.ease.linear') || '一定'}</option>
+                <option value="ease">${t('svgEditor.animTransform.ease.ease') || '滑らか'}</option>
+                <option value="ease-in">${t('svgEditor.animTransform.ease.easeIn') || '徐々に'}</option>
+                <option value="ease-out">${t('svgEditor.animTransform.ease.easeOut') || '最後急に'}</option>
+                <option value="ease-in-out">${t('svgEditor.animTransform.ease.easeInOut') || '滑らか(強)'}</option>
+            `;
+            easeSelect.value = anim.easing || 'ease-in-out';
+
+            // 回数 (Repeat)
+            const repeatWrap = document.createElement('div');
+            repeatWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
+            repeatWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;">${t('svgEditor.animTransform.repeatLabel') || '回数:'}</span>`;
+            const repeatSelect = document.createElement('select');
+            repeatSelect.style.width = '55px';
+            repeatSelect.innerHTML = `
+                <option value="infinite">${t('svgEditor.animTransform.repeatInfinite') || '無限'}</option>
+                <option value="1">${t('svgEditor.animTransform.repeat1') || '1回'}</option>
+                <option value="2">${t('svgEditor.animTransform.repeat2') || '2回'}</option>
+                <option value="3">${t('svgEditor.animTransform.repeat3') || '3回'}</option>
+            `;
+            repeatSelect.value = anim.repeat || 'infinite';
+            repeatWrap.appendChild(repeatSelect);
+
+            // 開始 (Trigger)
+            const triggerWrap = document.createElement('div');
+            triggerWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
+            triggerWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;">${t('svgEditor.animTransform.triggerLabel') || '開始:'}</span>`;
+            const triggerSelect = document.createElement('select');
+            triggerSelect.style.width = '80px';
+            triggerSelect.innerHTML = `
+                <option value="auto">${t('svgEditor.animTransform.triggerAuto') || '初めから'}</option>
+                <option value="click">${t('svgEditor.animTransform.triggerClick') || 'クリック時'}</option>
+            `;
+            triggerSelect.value = anim.trigger || 'auto';
+            triggerWrap.appendChild(triggerSelect);
+
+            typeSelect.addEventListener('change', () => {
+                if (typeSelect.value !== 'none' && !amountInput.value) {
+                    amountInput.value = this.getDefaultAmountForType(typeSelect.value);
+                }
+                if (typeSelect.value !== 'none' && !durInput.value) {
+                    durInput.value = '1.2';
+                }
+                this.handleUIChange();
+            });
+
+            amountInput.addEventListener('change', () => this.handleUIChange());
+            amountInput.addEventListener('keydown', (e) => e.stopPropagation());
+            durInput.addEventListener('change', () => this.handleUIChange());
+            durInput.addEventListener('keydown', (e) => e.stopPropagation());
+            easeSelect.addEventListener('change', () => this.handleUIChange());
+            repeatSelect.addEventListener('change', () => this.handleUIChange());
+            triggerSelect.addEventListener('change', () => this.handleUIChange());
+
+            row.appendChild(typeSelect);
+            row.appendChild(this.createSeparator());
+            row.appendChild(amountWrap);
+            row.appendChild(durWrap);
+            row.appendChild(easeSelect);
+            row.appendChild(repeatWrap);
+            row.appendChild(triggerWrap);
+
+            // 削除ボタン
+            if (this.animations.length > 1) {
+                const removeBtn = document.createElement('button');
+                removeBtn.innerHTML = '×';
+                removeBtn.title = t('svgEditor.animTransform.removeTitle') || 'このアニメーションを削除';
+                removeBtn.style.cssText = 'background:transparent; border:none; color:#FF5722; cursor:pointer; font-weight:bold; margin-left:4px; opacity:0.7; padding:0 4px;';
+                removeBtn.onclick = () => {
+                    this.animations.splice(index, 1);
+                    this.renderContents();
+                    this.handleUIChange();
+                };
+                row.appendChild(removeBtn);
+            }
+
+            // 追加ボタン (最後の行で、4種類未満なら表示)
+            if (index === this.animations.length - 1 && this.animations.length < 4) {
+                const addBtn = document.createElement('button');
+                addBtn.innerHTML = '＋';
+                addBtn.title = t('svgEditor.animTransform.addTitle') || 'アニメーションを追加';
+                addBtn.style.cssText = 'background:transparent; border:none; color:#4CAF50; cursor:pointer; font-weight:bold; margin-left:4px; padding:0 4px;';
+                addBtn.onclick = () => {
+                    this.animations.push({ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: 'infinite', trigger: 'auto' });
+                    this.renderContents();
+                };
+                row.appendChild(addBtn);
+            }
+
+            contentArea.appendChild(row);
+
+            this.rowInputs.push({
+                type: typeSelect,
+                amount: amountInput,
+                dur: durInput,
+                easing: easeSelect,
+                repeat: repeatSelect,
+                trigger: triggerSelect
+            });
         });
-        contentArea.appendChild(typeSelect);
-        this.inputs['type'] = typeSelect;
-
-        contentArea.appendChild(this.createSeparator());
-
-        // 変化量 (Amount)
-        const amountWrap = document.createElement('div');
-        amountWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
-        amountWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;" title="${t('svgEditor.animTransform.amountTitle') || '変化量（角度、高さ、スケール）'}">${t('svgEditor.animTransform.amount') || '量:'}</span>`;
-        const amountInput = document.createElement('input');
-        amountInput.type = 'number';
-        amountInput.style.width = '50px';
-        amountInput.style.textAlign = 'right';
-        amountInput.value = '360';
-        amountInput.addEventListener('change', () => this.handleUIChange());
-        amountInput.addEventListener('keydown', (e) => e.stopPropagation());
-        amountWrap.appendChild(amountInput);
-        contentArea.appendChild(amountWrap);
-        this.inputs['amount'] = amountInput;
-
-        // 再生時間 (Duration)
-        const durWrap = document.createElement('div');
-        durWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
-        durWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;">${t('svgEditor.animTransform.seconds') || '秒:'}</span>`;
-        const durInput = document.createElement('input');
-        durInput.type = 'number';
-        durInput.style.width = '45px';
-        durInput.style.textAlign = 'right';
-        durInput.value = '1.2';
-        durInput.step = '0.1';
-        durInput.min = '0.1';
-        durInput.addEventListener('change', () => this.handleUIChange());
-        durInput.addEventListener('keydown', (e) => e.stopPropagation());
-        durWrap.appendChild(durInput);
-        contentArea.appendChild(durWrap);
-        this.inputs['dur'] = durInput;
-
-        // イージング (Easing)
-        const easeSelect = document.createElement('select');
-        easeSelect.style.width = '70px';
-        easeSelect.innerHTML = `
-            <option value="linear">linear</option>
-            <option value="ease">ease</option>
-            <option value="ease-in">ease-in</option>
-            <option value="ease-out">ease-out</option>
-            <option value="ease-in-out" selected>ease-in-out</option>
-        `;
-        easeSelect.addEventListener('change', () => this.handleUIChange());
-        contentArea.appendChild(easeSelect);
-        this.inputs['easing'] = easeSelect;
     }
 
     createSeparator() {
@@ -121,51 +210,64 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
      * UI変更イベントを検知し、アニメーションパラメータを適用する
      */
     handleUIChange() {
-        const type = this.inputs['type'].value;
-        const amount = parseFloat(this.inputs['amount'].value);
-        const dur = parseFloat(this.inputs['dur'].value);
-        const easing = this.inputs['easing'].value;
+        // UIから有効な設定を収集
+        const validAnimations = [];
+        const seenTypes = new Set();
 
-        // バリデーション
-        if (type !== 'none' && (isNaN(amount) || isNaN(dur) || dur <= 0)) return;
+        this.rowInputs.forEach(inputs => {
+            const type = inputs.type.value;
+            const amount = parseFloat(inputs.amount.value);
+            const dur = parseFloat(inputs.dur.value);
+            const easing = inputs.easing.value;
+            const repeat = inputs.repeat.value;
+            const trigger = inputs.trigger.value;
 
-        // 選択された要素にアニメーションを反映する
+            if (type !== 'none' && !isNaN(amount) && !isNaN(dur) && dur > 0 && !seenTypes.has(type)) {
+                validAnimations.push({ type, amount, dur, easing, repeat, trigger });
+                seenTypes.add(type);
+            }
+        });
+
+        // 現在のUI状態を保存（再描画時に復元するため）
+        this.animations = this.rowInputs.map(inputs => ({
+            type: inputs.type.value,
+            amount: inputs.amount.value,
+            dur: inputs.dur.value,
+            easing: inputs.easing.value,
+            repeat: inputs.repeat.value,
+            trigger: inputs.trigger.value
+        }));
+
         if (window.currentEditingSVG && window.currentEditingSVG.selectedElements) {
             window.currentEditingSVG.selectedElements.forEach(el => {
-                if (type === 'none') {
-                    // 解除処理（全種類の可能性をクリア）
-                    ['spin', 'swing', 'bounce', 'pulse'].forEach(t => {
+                const animData = SvgAnimationManager.getAnimationData(el);
+
+                // UIに存在しない（または重複排除された）古いアニメーションを削除
+                ['spin', 'swing', 'bounce', 'pulse', 'shake', 'float', 'flip', 'jelly'].forEach(t => {
+                    if (animData[t] && !seenTypes.has(t)) {
                         SvgAnimationManager.removeAnimation(el, t);
-                    });
-                    // アンラップ後に要素を再取得
-                    if (window.selectElement) window.selectElement(el, true);
-                    return;  // 早期リターンして二重呼び出しを防ぐ
-                } else {
-                    // 以前適用されていた他のアニメーションがあればクリア（種類切り替え時のため）
-                    ['spin', 'swing', 'bounce', 'pulse'].forEach(t => {
-                        if (t !== type) SvgAnimationManager.removeAnimation(el, t);
-                    });
+                    }
+                });
 
-                    // アニメーション適用
-                    const animData = SvgAnimationManager.getAnimationData(el);
-                    const currentTiming = animData[type] || {};
-
+                // UIで指定されたアニメーションを適用
+                validAnimations.forEach(anim => {
+                    const currentTiming = animData[anim.type] || {};
                     SvgAnimationManager.applyCssAnimation(el, {
-                        type,
-                        amount,
-                        dur,
-                        easing,
+                        type: anim.type,
+                        amount: anim.amount,
+                        dur: anim.dur,
+                        easing: anim.easing,
+                        repeat: anim.repeat,
+                        trigger: anim.trigger,
                         delay: currentTiming.delay || 0,
                         originX: currentTiming.originX,
                         originY: currentTiming.originY
                     });
-                }
+                });
 
-                // エディタ側での選択マーカー等の再計算・表示同期
                 if (window.selectElement) window.selectElement(el, true);
             });
 
-            // メタデータ復元のため、タイミング/基点ツールバー値も同期
             if (window.animationTimingToolbar && typeof window.animationTimingToolbar.updateValuesFromSelected === 'function') {
                 window.animationTimingToolbar.updateValuesFromSelected();
             }
@@ -181,75 +283,30 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
         const selectedElements = Array.from(window.currentEditingSVG.selectedElements);
         if (selectedElements.length === 0) return;
 
-        let types = [];
-        let amounts = [];
-        let durs = [];
-        let easings = [];
+        // 最初の要素のアニメーションを取得してUIを更新する
+        const firstEl = selectedElements[0];
+        const animData = SvgAnimationManager.getAnimationData(firstEl);
 
-        selectedElements.forEach(el => {
-            const animData = SvgAnimationManager.getAnimationData(el);
-            const activeType = ['spin', 'swing', 'bounce', 'pulse'].find(t => animData[t]);
-            if (activeType) {
-                const data = animData[activeType];
-                types.push(data.type);
-                amounts.push(data.amount);
-                durs.push(data.dur);
-                easings.push(data.easing);
-            } else {
-                types.push('none');
-                amounts.push(null);
-                durs.push(null);
-                easings.push(null);
-            }
-        });
-
-        const uniqueTypes = [...new Set(types)];
-        const uniqueAmounts = [...new Set(amounts.filter(v => v !== null))];
-        const uniqueDurs = [...new Set(durs.filter(v => v !== null))];
-        const uniqueEasings = [...new Set(easings.filter(v => v !== null))];
-
-        let foundType = 'none';
-        if (uniqueTypes.length === 1) {
-            foundType = uniqueTypes[0];
-        } else if (uniqueTypes.length > 1) {
-            const activeType = uniqueTypes.find(t => t !== 'none');
-            foundType = activeType || 'none';
-        }
-
-        // UIへの値の書き戻しとプレースホルダー設定
-        this.inputs['type'].value = foundType;
-
-        const amountInput = this.inputs['amount'];
-        if (uniqueAmounts.length > 1) {
-            amountInput.value = '';
-            amountInput.placeholder = t('svgEditor.animTransform.multiple') || '複数';
-        } else if (uniqueAmounts.length === 1) {
-            amountInput.value = uniqueAmounts[0];
-            amountInput.placeholder = '';
+        const appliedTypes = ['spin', 'swing', 'bounce', 'pulse', 'shake', 'float', 'flip', 'jelly'].filter(t => animData[t]);
+        
+        this.animations = [];
+        if (appliedTypes.length > 0) {
+            appliedTypes.forEach(t => {
+                const data = animData[t];
+                this.animations.push({
+                    type: data.type,
+                    amount: data.amount,
+                    dur: data.dur,
+                    easing: data.easing,
+                    repeat: data.repeat || 'infinite',
+                    trigger: data.trigger || 'auto'
+                });
+            });
         } else {
-            amountInput.value = this.getDefaultAmountForType(foundType);
-            amountInput.placeholder = '';
+            this.animations = [{ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: 'infinite', trigger: 'auto' }];
         }
 
-        const durInput = this.inputs['dur'];
-        if (uniqueDurs.length > 1) {
-            durInput.value = '';
-            durInput.placeholder = t('svgEditor.animTransform.multiple') || '複数';
-        } else if (uniqueDurs.length === 1) {
-            durInput.value = uniqueDurs[0];
-            durInput.placeholder = '';
-        } else {
-            durInput.value = '1.2';
-            durInput.placeholder = '';
-        }
-
-        if (uniqueEasings.length === 1) {
-            this.inputs['easing'].value = uniqueEasings[0];
-        } else if (uniqueEasings.length > 1) {
-            this.inputs['easing'].value = uniqueEasings[0];
-        } else {
-            this.inputs['easing'].value = 'ease-in-out';
-        }
+        this.renderContents();
     }
 
     getDefaultAmountForType(type) {
@@ -258,6 +315,10 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
             case 'swing': return 30;
             case 'bounce': return 8;
             case 'pulse': return 1.2;
+            case 'shake': return 10;
+            case 'float': return 15;
+            case 'flip': return 180;
+            case 'jelly': return 1.2;
             default: return 0;
         }
     }

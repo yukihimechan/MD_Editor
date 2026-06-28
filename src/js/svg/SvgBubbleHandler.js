@@ -510,7 +510,7 @@ class SvgBubbleHandler {
         }
 
         this.update(this.overlayGroup, this.activeNode, null);
-        if (this.onUpdate) this.onUpdate();
+        if (this.onUpdate) this.onUpdate(false);
     }
 
     hide() {

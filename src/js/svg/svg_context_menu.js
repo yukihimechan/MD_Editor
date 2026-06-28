@@ -106,7 +106,8 @@ function showSVGContextMenu(e, container, svgIndex, currentEditingSVG, actions, 
             }
         },
         { type: 'separator' },
-        { label: t('svgContextMenu.addToToolbar', 'ツールバーに追加'), enabled: selectionCount === 1, action: () => actions.addToToolbar(container) }
+        { label: t('svgContextMenu.addToToolbar', 'ツールバーに追加'), enabled: selectionCount === 1, action: () => actions.addToToolbar(container) },
+        { label: t('svgContextMenu.addToAnimList', '連続再生に追加'), enabled: selectionCount === 1, action: () => actions.addToAnimList() }
     ];
 
     // [NEW] CSS追加メニュー（クラス未設定の図形のみ、且つscriptタグが読み込まれているとき）

@@ -680,6 +680,12 @@ const SVGConnectorManager = {
                             }
                         }
                         line.attr('d', d);
+
+                        // [NEW] 交差ブリッジを適用
+                        if (window.SVGUtils && window.SVGUtils.applyLineBridge) {
+                            window.SVGUtils.applyLineBridge(line.node);
+                        }
+
                         return true;
                     }
                 }
@@ -805,6 +811,9 @@ const SVGConnectorManager = {
 
                             const pointsStr = localRoute.map((p, i) => (i === 0 ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
                             line.attr('data-poly-points', pointsStr);
+                            if (line.attr('data-tool-id') === 'orthogonal_line') {
+                                line.attr('data-ortho-points', localRoute.map(p => p[0] + ',' + p[1]).join(' '));
+                            }
 
                             if (isPath) {
                                 const newBezData = localRoute.map(() => ({ type: 0 }));
@@ -813,6 +822,12 @@ const SVGConnectorManager = {
                             } else if (line.type === 'polyline') {
                                 line.attr('points', pointsStr);
                             }
+
+                            // [NEW] 交差ブリッジを適用
+                            if (window.SVGUtils && window.SVGUtils.applyLineBridge) {
+                                window.SVGUtils.applyLineBridge(line.node);
+                            }
+
                             return true;
                         }
                     }
@@ -821,6 +836,9 @@ const SVGConnectorManager = {
                 // 自動迂回が適用されない、または直線で良い場合は通常の追従処理を行う
                 const pointsStr = points.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
                 line.attr('data-poly-points', pointsStr);
+                if (line.attr('data-tool-id') === 'orthogonal_line') {
+                    line.attr('data-ortho-points', points.map(p => p[0] + ',' + p[1]).join(' '));
+                }
 
                 if (isPath) {
                     line.attr('data-bez-points', JSON.stringify(bezData));
@@ -830,6 +848,12 @@ const SVGConnectorManager = {
                 } else if (line.type === 'line') {
                     line.attr({ x1: points[0][0], y1: points[0][1], x2: points[1][0], y2: points[1][1] });
                 }
+
+                // [NEW] 交差ブリッジを適用
+                if (window.SVGUtils && window.SVGUtils.applyLineBridge) {
+                    window.SVGUtils.applyLineBridge(line.node);
+                }
+
                 return true;
             }
         } catch (e) {
@@ -895,6 +919,12 @@ const SVGConnectorManager = {
 
         if (updatedLinesCount > 0) {
             console.debug(`[SVG Connector] Successfully updated ${updatedLinesCount} line points connected to moved element(s)`);
+        }
+
+        // [NEW] 図形移動により線の重なり状態が変化した可能性があるため、全体のブリッジを再計算
+        // （更新されなかった線も、移動してきた線との交差によってブリッジが変化する可能性があるため）
+        if (window.SVGUtils && window.SVGUtils.refreshAllLineBridges) {
+            window.SVGUtils.refreshAllLineBridges(draw.node);
         }
     },
 

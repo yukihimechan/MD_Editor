@@ -244,7 +244,13 @@ class SVGToolbarBase {
         const prefix = toolbar.id || 'svg-toolbar';
 
         // 1. ピン留め状態の復元 (100%表示固定)
-        const isPinned = localStorage.getItem(prefix + '-is-pinned') === 'true';
+        let isPinned = localStorage.getItem(prefix + '-is-pinned');
+        if (isPinned === null) {
+            isPinned = this.config.isPinned === true;
+        } else {
+            isPinned = isPinned === 'true';
+        }
+        
         if (isPinned) {
             toolbar.classList.add('is-pinned');
         }

@@ -165,6 +165,10 @@ const SVGUtils = {
             if (!el.style.left) {
                 const rect = el.getBoundingClientRect();
                 const parentRect = el.offsetParent ? el.offsetParent.getBoundingClientRect() : { left: 0, top: 0 };
+                // leftとrightのアンカー切り替え時に要素が伸びないように現在の幅を明示的に固定する
+                if (!el.style.width) {
+                    el.style.width = el.offsetWidth + 'px';
+                }
                 el.style.left = ((rect.left - parentRect.left) / scale) + 'px';
                 el.style.right = 'auto';
             }
@@ -300,6 +304,12 @@ const SVGUtils = {
         const polyPoints = node.getAttribute('data-poly-points');
         if (polyPoints) {
             node.setAttribute('data-poly-points', offsetCsvPoints(polyPoints, dx, dy));
+        }
+
+        // 1.5 data-ortho-points (CSV of x,y x,y...)
+        const orthoPoints = node.getAttribute('data-ortho-points');
+        if (orthoPoints) {
+            node.setAttribute('data-ortho-points', offsetCsvPoints(orthoPoints, dx, dy));
         }
 
         // 2. data-bez-points (JSON array of point objects)
@@ -1093,7 +1103,6 @@ const SVGUtils = {
     filterCandidateLines(svgRoot, newLineSegments, excludeNode) {
         if (!svgRoot || !newLineSegments || newLineSegments.length === 0) return [];
 
-        // 新しい線全体のバウンディングボックスを計算（マージン付き）
         const margin = 10;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         newLineSegments.forEach(seg => {
@@ -1106,47 +1115,72 @@ const SVGUtils = {
         maxX += margin; maxY += margin;
 
         const candidates = [];
-        // path, polyline, line 要素を走査
         const allLines = svgRoot.querySelectorAll('path, polyline, line');
+        
+        let excludeNodeCTMInv = null;
+        try {
+            if (excludeNode && excludeNode.getCTM) {
+                const ctm = excludeNode.getCTM();
+                if (ctm) excludeNodeCTMInv = ctm.inverse();
+            }
+        } catch (e) {}
+        
+        const svgPt = svgRoot.createSVGPoint();
+
         allLines.forEach(el => {
-            // 自身は除外
             if (el === excludeNode) return;
-            // オーバーレイ要素やハンドル要素は除外
             if (el.closest('.overlay-group') || el.closest('.polyline-handle-group') ||
-                el.closest('.svg-grad-skeleton-hitarea') || el.closest('.svg-grad-skeleton-line')) return;
-            // マーカー定義内の要素は除外
+                el.closest('.svg-grad-skeleton-hitarea') || el.closest('.svg-grad-skeleton-line') ||
+                el.closest('.svg-snap-guides') || el.closest('.svg-grid-lines') || el.closest('.svg-grid-line')) return;
             if (el.closest('defs') || el.closest('marker')) return;
-            // 非表示要素は除外
             if (el.getAttribute('display') === 'none' || el.getAttribute('visibility') === 'hidden') return;
-            // fillがnoneでない閉じた図形（rect等のpath表現）は除外
+            
             const fill = el.getAttribute('fill');
             const isClosed = el.getAttribute('data-poly-closed') === 'true';
             if (isClosed && fill && fill !== 'none') return;
 
-            // getBBoxでAABB重複判定
             try {
                 const bbox = el.getBBox();
                 if (bbox.width === 0 && bbox.height === 0) return;
-                // AABB重複判定
-                if (bbox.x + bbox.width < minX || bbox.x > maxX) return;
-                if (bbox.y + bbox.height < minY || bbox.y > maxY) return;
+                
+                let bMinX = bbox.x;
+                let bMinY = bbox.y;
+                let bMaxX = bbox.x + bbox.width;
+                let bMaxY = bbox.y + bbox.height;
+                
+                if (excludeNodeCTMInv && el.getCTM) {
+                    const elCTM = el.getCTM();
+                    if (elCTM) {
+                        const m = excludeNodeCTMInv.multiply(elCTM);
+                        if (Math.abs(m.a - 1) > 1e-5 || Math.abs(m.d - 1) > 1e-5 || Math.abs(m.e) > 1e-5 || Math.abs(m.f) > 1e-5 || Math.abs(m.b) > 1e-5 || Math.abs(m.c) > 1e-5) {
+                            const pts = [
+                                {x: bbox.x, y: bbox.y},
+                                {x: bbox.x + bbox.width, y: bbox.y},
+                                {x: bbox.x, y: bbox.y + bbox.height},
+                                {x: bbox.x + bbox.width, y: bbox.y + bbox.height}
+                            ];
+                            bMinX = Infinity; bMinY = Infinity; bMaxX = -Infinity; bMaxY = -Infinity;
+                            pts.forEach(p => {
+                                svgPt.x = p.x; svgPt.y = p.y;
+                                const tp = svgPt.matrixTransform(m);
+                                bMinX = Math.min(bMinX, tp.x);
+                                bMinY = Math.min(bMinY, tp.y);
+                                bMaxX = Math.max(bMaxX, tp.x);
+                                bMaxY = Math.max(bMaxY, tp.y);
+                            });
+                        }
+                    }
+                }
+
+                if (bMaxX < minX || bMinX > maxX) return;
+                if (bMaxY < minY || bMinY > maxY) return;
                 candidates.push(el);
-            } catch (e) {
-                // getBBoxが失敗する場合はスキップ
-            }
+            } catch (e) {}
         });
 
         return candidates;
     },
 
-    /**
-     * 交差点にブリッジ（飛び越え）用の頂点とベジェ制御点を挿入する。
-     * @param {Array} points 元のポイント配列 [[x,y], ...]
-     * @param {Array} bezData 元のベジェデータ配列
-     * @param {Array} intersections findIntersectionsの結果
-     * @param {number} bridgeRadius ブリッジの弧の半径（デフォルト6）
-     * @returns {{points: Array, bezData: Array}} 更新されたポイントとベジェデータ
-     */
     generateBridgePoints(points, bezData, intersections, bridgeRadius = 6) {
         if (!intersections || intersections.length === 0) return { points, bezData };
 
@@ -1248,6 +1282,202 @@ const SVGUtils = {
         }
 
         return { points: newPoints, bezData: newBezData };
+    },
+
+    /**
+     * [NEW] 線の交差ブリッジ処理を適用する共通ヘルパー。
+     * activeElement のパス上に他の線との交差点がある場合、ベジェ曲線による飛び越え弧を挿入する。
+     * @param {SVGElement|Object} element 対象となる要素（DOMノードまたはSVG.jsインスタンス）
+     */
+    applyLineBridge(element) {
+        if (!element || !window.SVGUtils) {
+            return;
+        }
+        const node = element.node || element;
+        const tagName = node.tagName ? node.tagName.toLowerCase() : '';
+        if (tagName !== 'path' && tagName !== 'polyline' && tagName !== 'line') {
+            return;
+        }
+
+        // 新しい線のセグメントを取得
+        const newSegments = SVGUtils.getLineSegments(node);
+        if (newSegments.length === 0) {
+            return;
+        }
+
+        // SVGルート要素を取得
+        const svgRoot = node.ownerSVGElement;
+        if (!svgRoot) {
+            return;
+        }
+
+        const toolId = node.getAttribute('data-tool-id');
+
+        // 候補線をバウンディングボックスでフィルタリング
+        let candidates = SVGUtils.filterCandidateLines(svgRoot, newSegments, node);
+        
+        // [NEW] 二重ジャンプ（互いにジャンプし合う）を防ぐため、
+        // 常に「DOM順序で自分より後ろにある（＝背面に描画されている）線に対してのみジャンプする」ルールとする。
+        candidates = candidates.filter(candidateNode => {
+            // compareDocumentPosition で candidateNode が node より前 (PRECEDING) にある場合のみ true
+            return (node.compareDocumentPosition(candidateNode) & Node.DOCUMENT_POSITION_PRECEDING);
+        });
+
+        if (candidates.length === 0) {
+            // 交差対象がない場合は既存のブリッジをクリアする
+            SVGUtils.clearLineBridge(node, toolId, tagName);
+            return;
+        }
+
+        // 全候補線との交差点を集約
+        let allIntersections = [];
+        
+        let nodeCTMInv = null;
+        try {
+            if (node.getCTM) {
+                const ctm = node.getCTM();
+                if (ctm) nodeCTMInv = ctm.inverse();
+            }
+        } catch (e) {}
+
+        const svgPt = svgRoot.createSVGPoint();
+
+        candidates.forEach(candidateNode => {
+            let candidateSegments = SVGUtils.getLineSegments(candidateNode);
+            if (candidateSegments.length === 0) return;
+            
+            if (nodeCTMInv && candidateNode.getCTM) {
+                try {
+                    const candCTM = candidateNode.getCTM();
+                    if (candCTM) {
+                        const m = nodeCTMInv.multiply(candCTM);
+                        if (Math.abs(m.a - 1) > 1e-5 || Math.abs(m.d - 1) > 1e-5 || Math.abs(m.e) > 1e-5 || Math.abs(m.f) > 1e-5 || Math.abs(m.b) > 1e-5 || Math.abs(m.c) > 1e-5) {
+                            candidateSegments = candidateSegments.map(seg => {
+                                svgPt.x = seg.x1; svgPt.y = seg.y1;
+                                const p1 = svgPt.matrixTransform(m);
+                                svgPt.x = seg.x2; svgPt.y = seg.y2;
+                                const p2 = svgPt.matrixTransform(m);
+                                return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+                            });
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            const hits = SVGUtils.findIntersections(newSegments, candidateSegments);
+            allIntersections = allIntersections.concat(hits);
+        });
+
+        if (allIntersections.length === 0) {
+            SVGUtils.clearLineBridge(node, toolId, tagName);
+            return;
+        }
+
+        // 同一セグメント上のtでソート
+        allIntersections.sort((a, b) => {
+            if (a.segIdxA !== b.segIdxA) return a.segIdxA - b.segIdxA;
+            return a.t - b.t;
+        });
+
+        // ポイントとベジェデータを取得
+        let points, bezData;
+        if (toolId === 'orthogonal_line' && typeof SvgOrthogonalHandler !== 'undefined') {
+            const handler = new SvgOrthogonalHandler(node, null);
+            points = handler.getPoints().map(p => [p.x, p.y]);
+            bezData = [];
+        } else if (typeof SvgPolylineHandler !== 'undefined') {
+            const handler = new SvgPolylineHandler(null, null);
+            points = handler.getPoints(node);
+            bezData = (tagName === 'path') ? handler.getBezData(node) : [];
+        } else {
+            // フォールバック: data-poly-pointsから直接取得
+            const polyPts = node.getAttribute('data-poly-points');
+            if (!polyPts) {
+                return;
+            }
+            points = polyPts.split(/\s+/).filter(s => s).map(p => {
+                const isM = p.startsWith('M');
+                const coord = (isM ? p.substring(1) : p).split(',');
+                return [parseFloat(coord[0]), parseFloat(coord[1])];
+            });
+            bezData = [];
+        }
+
+        if (points.length < 2) {
+            return;
+        }
+
+        // bezData を points の長さに合わせる
+        while (bezData.length < points.length) {
+            bezData.push({ type: 0 });
+        }
+
+        // ブリッジ頂点を生成
+        const bridgeRadius = 6;
+        const result = SVGUtils.generateBridgePoints(points, bezData, allIntersections, bridgeRadius);
+
+        // 結果を要素に反映
+        const pointsStr = result.points.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
+
+        if (toolId === 'orthogonal_line') {
+            // 直角折れ線の場合は元の data-ortho-points はそのまま維持し、d属性のみを更新する
+            if (typeof SvgPolylineHandler !== 'undefined') {
+                const handler = new SvgPolylineHandler(null, null);
+                handler.activeNode = node;
+                // SvgPolylineHandlerのパス生成ロジックを利用するため一時的に属性を設定
+                node.setAttribute('data-poly-points', pointsStr);
+                node.setAttribute('data-bez-points', JSON.stringify(result.bezData));
+                handler.generatePath(node);
+                // ドラッグ時に誤認されないよう一時属性を削除
+                node.removeAttribute('data-poly-points');
+                node.removeAttribute('data-bez-points');
+                // 直角折れ線にブリッジが適用された印
+                node.setAttribute('data-has-bridge', 'true');
+            }
+        } else {
+            node.setAttribute('data-poly-points', pointsStr);
+            node.setAttribute('data-bez-points', JSON.stringify(result.bezData));
+
+            // パスのd属性を再生成
+            if (typeof SvgPolylineHandler !== 'undefined') {
+                const handler = new SvgPolylineHandler(null, null);
+                handler.activeNode = node;
+                handler.generatePath(node);
+            }
+        }
+    },
+
+    /**
+     * [NEW] 交差点がない場合に線のブリッジ（半円）を解除して直線に戻す
+     */
+    clearLineBridge(node, toolId, tagName) {
+        if (node.getAttribute('data-has-bridge') === 'true') {
+            node.removeAttribute('data-has-bridge');
+            if (toolId === 'orthogonal_line' && typeof SvgOrthogonalHandler !== 'undefined') {
+                const handler = new SvgOrthogonalHandler(node, null);
+                const cleanPts = handler.getPoints();
+                if (cleanPts.length >= 2) {
+                    const d = handler._generatePathD(cleanPts);
+                    node.setAttribute('d', d);
+                }
+            } else if (typeof SvgPolylineHandler !== 'undefined') {
+                const handler = new SvgPolylineHandler(null, null);
+                handler.activeNode = node;
+                handler.generatePath(node);
+            }
+        }
+    },
+
+    /**
+     * [NEW] キャンバス上のすべての直角折れ線のブリッジを再計算する
+     * 図形移動後など、他の線が移動したことで交差状態が変わった線を更新するために使用。
+     */
+    refreshAllLineBridges(svgRoot) {
+        if (!svgRoot) return;
+        const lines = svgRoot.querySelectorAll('path[data-tool-id="orthogonal_line"]');
+        lines.forEach(line => {
+            SVGUtils.applyLineBridge(line);
+        });
     },
 
     /**

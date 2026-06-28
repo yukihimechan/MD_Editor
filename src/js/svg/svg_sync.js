@@ -82,7 +82,7 @@ function startSVGUndoTracking() {
 }
 window.startSVGUndoTracking = startSVGUndoTracking;
 
-function syncChanges(silent = true, overrideDims = null, addToHistory = true) {
+function syncChanges(silent = true, overrideDims = null, addToHistory = true, changedElementId = null) {
     if (window.currentEditingSVG && window.currentEditingSVG._initializing) {
         // console.log(`[svg_sync] syncChanges SKIPPED: initializing...`);
         return;
@@ -97,8 +97,8 @@ function syncChanges(silent = true, overrideDims = null, addToHistory = true) {
         return;
     }
     clearTimeout(partialSyncTimeout);
-    partialSyncTimeout = null;
-    // console.log(`[svg_sync] syncChanges called (silent: ${silent}, override: ${overrideDims ? 'yes' : 'no'}, addToHistory: ${addToHistory})`);
+    const _t0 = performance.now();
+    // console.log(`[svg_sync] syncChanges called (silent: ${silent}, override: ${overrideDims ? 'yes' : 'no'}, addToHistory: ${addToHistory}, changedElementId: ${changedElementId})`);
     
     // [FIX] アノテーションモード時の同期処理
     if (window.currentEditingSVG && window.currentEditingSVG._isAnnotationLayerMock) {
@@ -116,15 +116,27 @@ function syncChanges(silent = true, overrideDims = null, addToHistory = true) {
         return;
     }
 
-    // [NEW] Update hit areas for selected elements before syncing
-    window.currentEditingSVG.selectedElements.forEach(el => {
-        const shape = el.remember('_shapeInstance');
-        if (shape) {
-            if (shape.updateHitArea) shape.updateHitArea();
-            // [NEW] Ensure all custom handles are synced whenever any change occurs
-            if (shape.syncSelectionHandlers) shape.syncSelectionHandlers();
-        }
-    });
+    // [PERF] changedElementId が指定されている場合（頂点操作など）は、操作対象の要素のみ更新する
+    // SvgPolylineHandler 側で既にハンドル位置は更新済みのため、全選択要素のイテレートは不要
+    if (changedElementId) {
+        window.currentEditingSVG.selectedElements.forEach(el => {
+            if (el.id() !== changedElementId) return;
+            const shape = el.remember('_shapeInstance');
+            if (shape) {
+                if (shape.updateHitArea) shape.updateHitArea();
+            }
+        });
+    } else {
+        // [NEW] Update hit areas for selected elements before syncing
+        window.currentEditingSVG.selectedElements.forEach(el => {
+            const shape = el.remember('_shapeInstance');
+            if (shape) {
+                if (shape.updateHitArea) shape.updateHitArea();
+                // [NEW] Ensure all custom handles are synced whenever any change occurs
+                if (shape.syncSelectionHandlers) shape.syncSelectionHandlers();
+            }
+        });
+    }
 
     // [NOTE] ロールバック履歴管理の廃止に伴い、確定同期時のテキスト復元処理をスキップします。
 
@@ -163,15 +175,31 @@ function syncChanges(silent = true, overrideDims = null, addToHistory = true) {
     // 確定同期（操作完了）のタイミングで履歴を強制分離し、自動マージを防ぐ
     const isolateHistory = addToHistory;
 
-    // キャンバスのリサイズ(overrideDims) や 構造変更 がある場合は安全優先でフル同期
-    if (queue && !queue.requiresFullSync && !overrideDims && queue.changedNodeIds.size > 0 && queue.changedNodeIds.size < 50) {
-        // 属性の変更のみであれば超高速な部分同期
-        isPartialSuccess = applyPartialSvgSync(cur.svgIndex, queue.changedNodeIds, silent, addToHistory, isolateHistory);
+    // [PERF] changedElementId が指定されている場合、syncQueue の状態に関わらず部分同期を試行する
+    // （頂点操作中は Observer が suspend されているため syncQueue が空になるが、対象要素は確定している）
+    if (changedElementId && !overrideDims) {
+        const directIds = new Set([changedElementId, '__root__']);
+        const _t0 = performance.now(); // [PERF LOG]
+        isPartialSuccess = applyPartialSvgSync(cur.svgIndex, directIds, silent, addToHistory, isolateHistory);
+        console.log(`[PERF syncChanges] directPartialSync: ${(performance.now() - _t0).toFixed(2)}ms, success: ${isPartialSuccess}, elementId: ${changedElementId}`);
     }
 
+    // changedElementId が未指定、または部分同期が失敗した場合は従来のロジック
     if (!isPartialSuccess) {
-        // 部分同期がスキップされた、またはパースエラー等で失敗した場合は従来のフル同期へ
-        syncSVGToEditor(cur.container, cur.svgIndex, silent, overrideDims, addToHistory, isolateHistory);
+        // キャンバスのリサイズ(overrideDims) や 構造変更 がある場合は安全優先でフル同期
+        if (queue && !queue.requiresFullSync && !overrideDims && queue.changedNodeIds.size > 0 && queue.changedNodeIds.size < 50) {
+            // 属性の変更のみであれば超高速な部分同期
+            const _t1 = performance.now(); // [PERF LOG]
+            isPartialSuccess = applyPartialSvgSync(cur.svgIndex, queue.changedNodeIds, silent, addToHistory, isolateHistory);
+            console.log(`[PERF syncChanges] queuePartialSync: ${(performance.now() - _t1).toFixed(2)}ms, success: ${isPartialSuccess}, ids: ${queue.changedNodeIds.size}`);
+        }
+
+        if (!isPartialSuccess) {
+            // 部分同期がスキップされた、またはパースエラー等で失敗した場合は従来のフル同期へ
+            const _t2 = performance.now(); // [PERF LOG]
+            syncSVGToEditor(cur.container, cur.svgIndex, silent, overrideDims, addToHistory, isolateHistory);
+            console.log(`[PERF syncChanges] FULL SYNC: ${(performance.now() - _t2).toFixed(2)}ms (changedElementId: ${changedElementId})`);
+        }
     }
 
     // キューの初期化
@@ -216,10 +244,59 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
     const indentation = indentationMatch ? indentationMatch[0] : '';
     const oldSvgString = lines.slice(startLine + 1, endLine).join('\n');
 
+    // [FIX] Populate backup map directly from raw markdown to prevent base64 loss on quick save
+    if (!window._svgImageBackups) window._svgImageBackups = {};
+    if (!window._svgImageBackups[targetSvgIndex]) {
+        window._svgImageBackups[targetSvgIndex] = new Map();
+    }
+    const imageTags = oldSvgString.match(/<image[\s\S]*?>/g) || [];
+    imageTags.forEach(tag => {
+        const idMatch = tag.match(/id\s*=\s*["']([^"']+)["']/i);
+        const syncIdMatch = tag.match(/data-sync-id\s*=\s*["']([^"']+)["']/i);
+        const hrefMatch = tag.match(/(?:xlink:href|href)\s*=\s*["'](data:image\/[^"']+)["']/i);
+        if (hrefMatch) {
+            if (idMatch) window._svgImageBackups[targetSvgIndex].set(idMatch[1], hrefMatch[1]);
+            if (syncIdMatch) window._svgImageBackups[targetSvgIndex].set(syncIdMatch[1], hrefMatch[1]);
+        }
+    });
+
     // 2. ブロック内のみを DOMParser でパース (1〜2msで完了)
     const parser = new DOMParser();
     const svgDoc = parser.parseFromString(oldSvgString, 'image/svg+xml');
     if (svgDoc.querySelector('parsererror')) return false;
+
+    // 画像の埋め込みデータを復元
+    const images = svgDoc.querySelectorAll('image');
+    for (const img of images) {
+        let backup = null;
+        if (window._svgImageBackups && window._svgImageBackups[targetSvgIndex]) {
+            const id = img.getAttribute('id');
+            const syncId = img.getAttribute('data-sync-id');
+            if (id && window._svgImageBackups[targetSvgIndex].has(id)) backup = window._svgImageBackups[targetSvgIndex].get(id);
+            else if (syncId && window._svgImageBackups[targetSvgIndex].has(syncId)) backup = window._svgImageBackups[targetSvgIndex].get(syncId);
+        }
+        if (!backup) backup = img.getAttribute('data-original-href-backup');
+        
+        if (!backup) {
+            // ID または data-sync-id で Live DOM から対応する要素を探してバックアップを取得
+            let liveImg = null;
+            if (img.id) {
+                liveImg = draw.node.querySelector(`image[id="${img.id}"]`);
+            }
+            if (!liveImg && img.hasAttribute('data-sync-id')) {
+                liveImg = draw.node.querySelector(`image[data-sync-id="${img.getAttribute('data-sync-id')}"]`);
+            }
+            if (liveImg) {
+                backup = liveImg.getAttribute('data-original-href-backup');
+            }
+        }
+        if (backup) {
+            if (!img.getAttribute('xlink:href') || img.getAttribute('xlink:href') === 'null') {
+                img.setAttribute('xlink:href', backup);
+                hasChange = true;
+            }
+        }
+    }
 
     let hasChange = false;
     const draw = window.currentEditingSVG.draw;
@@ -268,7 +345,7 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
 
             if (['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2'].includes(name)) {
                 if (!isNaN(val) && val !== '') val = round3(val).toString();
-            } else if (['transform', 'd', 'points', 'data-poly-points', 'viewBox'].includes(name)) {
+            } else if (['d', 'points', 'data-poly-points', 'viewBox'].includes(name)) {
                 if (val.includes('.')) val = val.replace(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g, m => round3(m));
             }
 
@@ -346,6 +423,20 @@ function applyPartialSvgSync(targetSvgIndex, changedIds, silent, addToHistory = 
  */
 function formatSVGCode(svgStr) {
     let cleanStr = svgStr.replace(/>\s+</g, '><').trim();
+
+    // [FIX] SVG.js or browser innerHTML might lowercase camelCase SVG tags and attributes
+    // Also, XMLSerializer might generate ns1:href instead of xlink:href
+    cleanStr = cleanStr.replace(/<clippath\b/gi, '<clipPath')
+                       .replace(/<\/clippath>/gi, '</clipPath>')
+                       .replace(/<lineargradient\b/gi, '<linearGradient')
+                       .replace(/<\/lineargradient>/gi, '</linearGradient>')
+                       .replace(/<radialgradient\b/gi, '<radialGradient')
+                       .replace(/<\/radialgradient>/gi, '</radialGradient>')
+                       .replace(/preserveaspectratio/gi, 'preserveAspectRatio')
+                       .replace(/viewbox/gi, 'viewBox')
+                       .replace(/xmlns:ns\d+="http:\/\/www\.w3\.org\/1999\/xlink"/g, 'xmlns:xlink="http://www.w3.org/1999/xlink"')
+                       .replace(/ns\d+:href=/g, 'xlink:href=');
+
     cleanStr = cleanStr.replace(/(>)(<)(\/*)/g, '$1\n$2$3');
 
     const lines = cleanStr.split('\n');
@@ -391,7 +482,10 @@ const IGNORE_CLASSES = new Set([
     'container-glow', 'svg-connector-overlay'
 ]);
 
-function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
+function serializeLiveSvgNode(node, skipRounding, rootOptions = null, currentSvgIndex = null) {
+    if (currentSvgIndex === null && node.closest) {
+        currentSvgIndex = node.closest('.svg-view-wrapper')?.getAttribute('data-svg-index');
+    }
     if (node.nodeType === 3) {
         return typeof escapeHtml === 'function' ? escapeHtml(node.nodeValue) : node.nodeValue; // XML escape
     }
@@ -458,6 +552,26 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
         for (const [k, v] of Object.entries(rootOptions)) attrMap.set(k, v);
     }
 
+    if (tagName === 'image') {
+        const id = node.getAttribute('id') || node.getAttribute('data-sync-id');
+        let backup = null;
+        
+        console.log('[Debug Base64] serializeLiveSvgNode processing image:', { id, currentSvgIndex, mapExists: !!(window._svgImageBackups && window._svgImageBackups[currentSvgIndex]), hasId: window._svgImageBackups && window._svgImageBackups[currentSvgIndex] ? window._svgImageBackups[currentSvgIndex].has(id) : false });
+
+        if (currentSvgIndex !== null && window._svgImageBackups && window._svgImageBackups[currentSvgIndex]) {
+            if (id && window._svgImageBackups[currentSvgIndex].has(id)) backup = window._svgImageBackups[currentSvgIndex].get(id);
+        }
+        if (!backup) backup = node.getAttribute('data-original-href-backup');
+        
+        console.log('[Debug Base64] Backup found:', backup ? backup.substring(0, 30) + '...' : null);
+
+        if (backup) {
+            if (!attrMap.has('xlink:href') || !attrMap.get('xlink:href') || attrMap.get('xlink:href') === 'null') {
+                attrMap.set('xlink:href', backup);
+            }
+        }
+    }
+
     if (attrMap.has('class')) {
         const cleanedClass = attrMap.get('class').split(' ')
             .filter(c => !c.includes('svg_select') && !c.includes('svg-interaction') && c !== 'svg-editable' && c !== 'isSelected' && c !== 'svg-edit-selected')
@@ -469,13 +583,14 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
     attrMap.forEach((val, name) => {
         // Remove internal attributes
         if (name === 'data-svg-camel-fixed') return;
+        if (name === 'data-original-href-backup') return;
         if (['data-is-proxy', 'data-is-canvas', 'data-locked'].includes(name) && !isRoot && tagName !== 'g') return;
 
         if (!skipRounding && val !== undefined && val !== null) {
             val = String(val);
             if (['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2'].includes(name)) {
                 if (!isNaN(val) && val.trim() !== '') val = ROUND3(val).toString();
-            } else if (['transform', 'd', 'points', 'data-poly-points', 'stroke-dasharray', 'viewBox'].includes(name) || name.startsWith('data-arrow-')) {
+            } else if (['d', 'points', 'data-poly-points', 'stroke-dasharray', 'viewBox'].includes(name) || name.startsWith('data-arrow-')) {
                 if (val.length < 5000 && val.includes('.')) val = val.replace(FLOAT_ROUND_REGEX, m => ROUND3(m));
             } else if (name.startsWith('data-') && !isNaN(val) && val.trim() !== '' && val.length < 512) {
                 val = ROUND3(val).toString();
@@ -498,7 +613,7 @@ function serializeLiveSvgNode(node, skipRounding, rootOptions = null) {
 
     str += `>`;
     for (let i = 0; i < node.childNodes.length; i++) {
-        str += serializeLiveSvgNode(node.childNodes[i], skipRounding);
+        str += serializeLiveSvgNode(node.childNodes[i], skipRounding, null, currentSvgIndex);
     }
     return str + `</${tagName}>`;
 }
@@ -522,6 +637,29 @@ function syncSVGToEditor(container, svgIndex, silent = true, overrideDims = null
     const editorContent = getEditorText();
     const info = getSvgBlockInfo(editorContent, svgIndex);
     if (!info) return;
+
+    // [FIX] 生のMarkdownテキストから直接Base64画像を抽出し、ブラウザのDOMParserによる欠落を完全に回避する
+    if (!window._svgImageBackups) window._svgImageBackups = {};
+    window._svgImageBackups[svgIndex] = new Map();
+    const imageTags = info.content.match(/<image[\s\S]*?>/g) || [];
+    
+    console.log('[Debug Base64] Extracted image tags from Markdown count:', imageTags.length);
+    if (imageTags.length > 0) {
+        console.log('[Debug Base64] First matched tag snippet:', imageTags[0].substring(0, 100));
+    }
+
+    imageTags.forEach(tag => {
+        const idMatch = tag.match(/id\s*=\s*["']([^"']+)["']/i);
+        const syncIdMatch = tag.match(/data-sync-id\s*=\s*["']([^"']+)["']/i);
+        const hrefMatch = tag.match(/(?:xlink:href|href)\s*=\s*["'](data:image\/[^"']+)["']/i);
+        if (hrefMatch) {
+            console.log('[Debug Base64] Found href for:', { id: idMatch ? idMatch[1] : null, syncId: syncIdMatch ? syncIdMatch[1] : null }, hrefMatch[1].substring(0, 30) + '...');
+            if (idMatch) window._svgImageBackups[svgIndex].set(idMatch[1], hrefMatch[1]);
+            if (syncIdMatch) window._svgImageBackups[svgIndex].set(syncIdMatch[1], hrefMatch[1]);
+        } else {
+            console.log('[Debug Base64] NO href found in tag!', tag.substring(0, 100));
+        }
+    });
 
     // ----- Pre-processing: Apply text alignment changes to live DOM -----
     if (window.currentEditingSVG) window.currentEditingSVG._syncingToEditor = true;
@@ -605,11 +743,14 @@ function syncSVGToEditor(container, svgIndex, silent = true, overrideDims = null
     // Skip rounding for huge files or during drag/resize for max performance
     const skipRounding = elementCount > 500 || (silent && isDraggingOrResizing);
 
-    // ★ Execute Zero-Clone Serialization
-    let svgCode = serializeLiveSvgNode(svgElement, skipRounding, rootOptions);
+    // ⚡ Execute Zero-Clone Serialization
+    let svgCode = serializeLiveSvgNode(svgElement, skipRounding, rootOptions, svgIndex);
 
     if (elementCount <= 500) {
         svgCode = formatSVGCode(svgCode);
+    } else {
+        // [FIX] 巨大なSVGでも1行の文字数が多すぎるとCodeMirrorがフリーズするため、簡易的な改行だけは必ず挿入する
+        svgCode = svgCode.replace(/(>)(<)/g, '$1\n$2');
     }
 
     // ----- Apply to Markdown Editor -----
@@ -720,7 +861,9 @@ function updateSVGFromEditor() {
     }
 
     // [FIX] ループ防止フラグをチェック（ガード節をdeselectAllおよび退避処理より前に移動）
-    if (window.currentEditingSVG._syncingToEditor || window._isDispatchingSvgSync) {
+    const isUndo = !!window._lastUndoRequestTime;
+    // UNDOの時は、ユーザーによる明示的な過去への書き戻しであるため、現在のキャンバス状態（同期中フラグ等）に関わらず強制的に反映する
+    if (!isUndo && (window.currentEditingSVG._syncingToEditor || window._isDispatchingSvgSync)) {
         console.log(`[updateSVGFromEditor] Aborted: Syncing to editor is in progress. (_syncingToEditor=${window.currentEditingSVG._syncingToEditor}, _isDispatchingSvgSync=${!!window._isDispatchingSvgSync})`);
         return;
     }
@@ -778,6 +921,14 @@ function updateSVGFromEditor() {
     window.isScrolling = true;
 
     try {
+        const _perfStartTime = performance.now();
+        if (window._lastUndoRequestTime) {
+            console.log(`[Perf] ⏱ UNDO/REDO トリガーから updateSVGFromEditor 開始までの待機: ${(_perfStartTime - window._lastUndoRequestTime).toFixed(1)}ms`);
+            window._lastUndoRequestTime = null; // リセット
+        } else {
+            console.log(`[Perf] ⏱ updateSVGFromEditor 開始`);
+        }
+
         // エディタから対象SVGブロック（svgIndex番目の```svgブロック）を抽出
         const editorContent = getEditorText();
         const lines = editorContent.split('\n');
@@ -793,21 +944,32 @@ function updateSVGFromEditor() {
             }
         }
 
-        if (startLine === -1 || endLine < startLine) return;
+        if (startLine === -1 || endLine < startLine) {
+            console.error(`[updateSVGFromEditor] 🛑 Aborted: SVG block (index: ${svgIndex}) not found in editor content.`);
+            return;
+        }
 
         const svgCode = lines.slice(startLine, endLine + 1).join('\n').trim();
-        if (!svgCode || !svgCode.includes('<svg')) return;
+        if (!svgCode || !svgCode.includes('<svg')) {
+            console.error(`[updateSVGFromEditor] 🛑 Aborted: Invalid or empty SVG code extracted from block index ${svgIndex}.`);
+            return;
+        }
+
+        console.log(`[Perf] 🔍 Extracted SVG code (length: ${svgCode.length}) for block index ${svgIndex}`);
 
         // DOMParserでSVGをパース
         const parser = new DOMParser();
         const doc = parser.parseFromString(svgCode, 'image/svg+xml');
         const parsedSvg = doc.querySelector('svg');
-        if (!parsedSvg) return;
+        if (!parsedSvg) {
+            console.error(`[updateSVGFromEditor] 🛑 Aborted: Failed to parse SVG DOM from extracted code.`);
+            return;
+        }
 
         // パースエラーチェック
         const parseError = doc.querySelector('parsererror');
         if (parseError) {
-            console.warn('[updateSVGFromEditor] SVG parse error, skipping update.', parseError.textContent || parseError.innerHTML);
+            console.error('[updateSVGFromEditor] 🛑 Aborted: SVG parse error, skipping update.', parseError.textContent || parseError.innerHTML);
             return;
         }
 
@@ -820,6 +982,9 @@ function updateSVGFromEditor() {
                 }
             });
         });
+
+        const _perfParseTime = performance.now();
+        console.log(`[Perf] ⏱ 1. テキスト抽出〜SVGパース完了: ${(_perfParseTime - _perfStartTime).toFixed(1)}ms`);
 
         const svgElement = draw.node;
 
@@ -842,14 +1007,39 @@ function updateSVGFromEditor() {
         const dpY = parsedSvg.getAttribute('data-paper-y');
 
         if (dpW && dpH) {
-            const newH = parseFloat(dpH);
+            let newH = parseFloat(dpH);
+            let newW = parseFloat(dpW);
+
+            // [FIX] 自己修復 (セルフヒール)
+            // もし data-paper-height がバグによって異常な小さな値 (例: 29) に書き換わってしまっている場合、viewBox から逆算して復元する
+            const dpZ = parseFloat(parsedSvg.getAttribute('data-paper-zoom')) || 100;
+            const zf = dpZ / 100;
+            let vb = parsedSvg.viewBox && parsedSvg.viewBox.baseVal ? parsedSvg.viewBox.baseVal : null;
+            if (!vb || isNaN(vb.width) || (vb.width === 0 && vb.height === 0)) {
+                const vbAttr = parsedSvg.getAttribute('viewBox');
+                if (vbAttr) {
+                    const parts = vbAttr.split(/[\s,]+/).map(parseFloat).filter(n => !isNaN(n));
+                    if (parts.length === 4) { vb = { x: parts[0], y: parts[1], width: parts[2], height: parts[3] }; }
+                }
+            }
+            
+            console.log(`[updateSVGFromEditor DEBUG] viewBox.height=${vb ? vb.height : 'null'}, dpZ=${dpZ}, zf=${zf}, newH=${newH}`);
+
+            if (vb && vb.height && Math.abs(newH - (vb.height * zf)) > 50 && newH < (vb.height * zf) * 0.5) {
+                const safeW = Math.round(vb.width * zf);
+                const safeH = Math.round(vb.height * zf);
+                console.warn(`[updateSVGFromEditor] Self-healing height: ${newH} is abnormally small compared to viewBox calculated height ${safeH}. Restoring.`);
+                newH = safeH;
+                newW = safeW;
+            }
+
             // [WATCH] Detect unnatural reset to 350
             if (window.currentEditingSVG.baseHeight !== 350 && newH === 350) {
                 console.warn(`[updateSVGFromEditor] UNNATURAL RESET DETECTED! Height changing from ${window.currentEditingSVG.baseHeight} back to 350. Source: data-paper`);
                 console.trace();
             }
 
-            window.currentEditingSVG.baseWidth = parseFloat(dpW);
+            window.currentEditingSVG.baseWidth = newW;
             window.currentEditingSVG.baseHeight = newH;
             window.currentEditingSVG.baseX = parseFloat(dpX || 0);
             window.currentEditingSVG.baseY = parseFloat(dpY || 0);
@@ -945,39 +1135,141 @@ function updateSVGFromEditor() {
             'svg-grid-pattern', 'svg-grid-rect', 'svg-canvas-border'
         ];
 
-        // 1. グリッド等の残すべき基盤要素を退避 (DocumentFragmentへ移動)
-        Array.from(svgElement.children).forEach(el => {
-            const cls = el.classList ? Array.from(el.classList) : [];
-            if (cls.some(c => persistentClasses.includes(c))) {
-                persistentFragment.appendChild(el);
+        // [NEW] 差分更新（DOM Diff）ロジックの適用を試みる
+        const applyDOMDiff = (liveParent, newParent) => {
+            // パースされた新しい子要素を取得 (defs等を除く)
+            const newChildren = Array.from(newParent.children).filter(el => {
+                const tag = el.tagName.toLowerCase();
+                return !['defs', 'style', 'symbol'].includes(tag);
+            });
+
+            // 既存の非UI子要素をIDマップ化
+            const liveNodes = new Map();
+            Array.from(liveParent.children).forEach(el => {
+                const cls = el.classList ? Array.from(el.classList) : [];
+                if (!cls.some(c => persistentClasses.includes(c)) && !['defs', 'style', 'symbol'].includes(el.tagName.toLowerCase())) {
+                    if (el.id) {
+                        liveNodes.set(el.id, el);
+                    }
+                }
+            });
+
+            // 全ての子要素がIDを持っていれば差分更新可能とする
+            const canPatch = newChildren.length > 0 && newChildren.every(el => el.id) && liveNodes.size > 0;
+            if (!canPatch) return false;
+
+            const usedIds = new Set();
+            let insertBeforeNode = null; // 後ろから前へ処理して順序を保証する
+
+            // 新しい要素群を逆順になめる
+            for (let i = newChildren.length - 1; i >= 0; i--) {
+                const newEl = newChildren[i];
+                let targetEl = liveNodes.get(newEl.id);
+
+                if (targetEl && targetEl.tagName === newEl.tagName) {
+                    // 属性の同期
+                    for (let j = targetEl.attributes.length - 1; j >= 0; j--) {
+                        const name = targetEl.attributes[j].name;
+                        if (!newEl.hasAttribute(name) && !name.startsWith('data-paper') && !name.startsWith('data-internal')) {
+                            targetEl.removeAttribute(name);
+                        }
+                    }
+                    for (let j = 0; j < newEl.attributes.length; j++) {
+                        const name = newEl.attributes[j].name;
+                        const value = newEl.attributes[j].value;
+                        if (targetEl.getAttribute(name) !== value) {
+                            targetEl.setAttribute(name, value);
+                        }
+                    }
+
+                    // 子要素(中身)の同期（innerHTMLの上書きで対応）
+                    if (targetEl.innerHTML !== newEl.innerHTML) {
+                        targetEl.innerHTML = newEl.innerHTML;
+                    }
+
+                    usedIds.add(newEl.id);
+
+                    // 順序の同期
+                    if (targetEl.nextElementSibling !== insertBeforeNode) {
+                        liveParent.insertBefore(targetEl, insertBeforeNode);
+                    }
+                    insertBeforeNode = targetEl;
+
+                } else {
+                    // 新規ノードの挿入
+                    const adopted = document.adoptNode(newEl.cloneNode(true));
+                    liveParent.insertBefore(adopted, insertBeforeNode);
+                    insertBeforeNode = adopted;
+                }
             }
-        });
 
-        // 2. 実DOMを一瞬で空にする (削除コストの削減と再描画計算の抑制)
-        svgElement.innerHTML = '';
+            // 使われなくなった古いノードを削除
+            liveNodes.forEach((el, id) => {
+                if (!usedIds.has(id)) {
+                    // 関連付けられたインスタンスがあれば破棄
+                    const oldShape = typeof el.remember === 'function' ? el.remember('_shapeInstance') : null;
+                    if (oldShape && typeof oldShape.destroy === 'function') {
+                        try { oldShape.destroy(); } catch (e) {}
+                    }
+                    el.remove();
+                }
+            });
 
-        // 3. 新規要素のフラグメント構築
-        const defsFragment = document.createDocumentFragment();
-        const mainFragment = document.createDocumentFragment();
-        Array.from(parsedSvg.children).forEach(child => {
-            const tag = child.tagName.toLowerCase();
-            const adopted = document.adoptNode(child.cloneNode(true));
-            if (['defs', 'style', 'symbol'].includes(tag)) {
-                defsFragment.appendChild(adopted);
-            } else {
-                mainFragment.appendChild(adopted);
+            return true;
+        };
+
+        const isPatched = applyDOMDiff(svgElement, parsedSvg);
+
+        if (!isPatched) {
+            console.log('[updateSVGFromEditor] DOM Diff failed or not applicable. Fallbacking to full repaint.');
+            
+            // 1. グリッド等の残すべき基盤要素を退避 (DocumentFragmentへ移動)
+            Array.from(svgElement.children).forEach(el => {
+                const cls = el.classList ? Array.from(el.classList) : [];
+                if (cls.some(c => persistentClasses.includes(c))) {
+                    persistentFragment.appendChild(el);
+                }
+            });
+
+            // 2. 実DOMを一瞬で空にする (削除コストの削減と再描画計算の抑制)
+            svgElement.innerHTML = '';
+
+            // 3. 新規要素のフラグメント構築
+            const defsFragment = document.createDocumentFragment();
+            const mainFragment = document.createDocumentFragment();
+            Array.from(parsedSvg.children).forEach(child => {
+                const tag = child.tagName.toLowerCase();
+                const adopted = document.adoptNode(child.cloneNode(true));
+                if (['defs', 'style', 'symbol'].includes(tag)) {
+                    defsFragment.appendChild(adopted);
+                } else {
+                    mainFragment.appendChild(adopted);
+                }
+            });
+
+            // 4. 一括挿入（リフローが最小限で済む）
+            svgElement.appendChild(defsFragment);
+            svgElement.appendChild(persistentFragment);
+            svgElement.appendChild(mainFragment);
+
+            // DOM置換直後のgetScreenCTM()呼び出しで正しい値が取得できるよう、強制的にリフローを実行する
+            if (typeof svgElement.getBoundingClientRect === 'function') {
+                svgElement.getBoundingClientRect();
             }
-        });
-
-        // 4. 一括挿入（リフローが最小限で済む）
-        svgElement.appendChild(defsFragment);
-        svgElement.appendChild(persistentFragment);
-        svgElement.appendChild(mainFragment);
-
-        // [FIX] DOM置換直後のgetScreenCTM()呼び出しで正しい値が取得できるよう、強制的にリフローを実行する
-        if (typeof svgElement.getBoundingClientRect === 'function') {
-            svgElement.getBoundingClientRect();
+        } else {
+            console.log('[updateSVGFromEditor] SVG canvas updated via DOM Diff (Fast Path).');
+            // defs 要素のみ差し替えを行う
+            const oldDefs = svgElement.querySelector('defs');
+            if (oldDefs) oldDefs.remove();
+            const newDefs = parsedSvg.querySelector('defs');
+            if (newDefs) {
+                // UI要素より前に挿入する
+                svgElement.insertBefore(document.adoptNode(newDefs.cloneNode(true)), svgElement.firstChild);
+            }
         }
+
+        const _perfDiffTime = performance.now();
+        console.log(`[Perf] ⏱ 2. DOM Diff（差分反映）処理完了: ${(_perfDiffTime - _perfParseTime).toFixed(1)}ms`);
 
         // [NEW] 初期化ループは廃止。イベントデリゲーション (svg_editor.js の lazyInitHandler) で遅延初期化されます。
 
@@ -1001,15 +1293,19 @@ function updateSVGFromEditor() {
         }
 
         // viewBox更新後にcanvasProxyのサイズも合わせる
-        const vb = svgElement.viewBox.baseVal;
+        // [FIX] viewBox (ズーム込みの値) ではなく、論理サイズである baseWidth / baseHeight を使用する
         const inset = window.currentEditingSVG.canvasInset || 4;
-        if (window.currentEditingSVG.canvasProxy && vb.width && vb.height) {
+        const bW = window.currentEditingSVG.baseWidth;
+        const bH = window.currentEditingSVG.baseHeight;
+        const bX = window.currentEditingSVG.baseX || 0;
+        const bY = window.currentEditingSVG.baseY || 0;
+        if (window.currentEditingSVG.canvasProxy && bW && bH) {
             // [FIX] Negative value is not valid エラーを回避するため、最小サイズを保証する
-            const targetW = Math.max(10, vb.width - inset * 2);
-            const targetH = Math.max(10, vb.height - inset * 2);
+            const targetW = Math.max(10, bW - inset * 2);
+            const targetH = Math.max(10, bH - inset * 2);
             window.currentEditingSVG.canvasProxy
                 .size(targetW, targetH)
-                .move(vb.x + inset, vb.y + inset);
+                .move(bX + inset, bY + inset);
         }
 
         console.log('[updateSVGFromEditor] SVG canvas updated from editor content.');
@@ -1097,6 +1393,10 @@ function updateSVGFromEditor() {
         if (typeof window.buildSvgList === 'function') {
             window.buildSvgList();
         }
+
+        const _perfEndTime = performance.now();
+        console.log(`[Perf] ⏱ 3. 選択状態復元等の後処理完了: ${(_perfEndTime - _perfDiffTime).toFixed(1)}ms`);
+        console.log(`[Perf] ⏱ updateSVGFromEditor 全体の処理時間: ${(_perfEndTime - _perfStartTime).toFixed(1)}ms`);
 
     } catch (e) {
         console.error('[updateSVGFromEditor] Error:', e);

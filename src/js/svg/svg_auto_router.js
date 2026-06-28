@@ -36,7 +36,7 @@ const SVGAutoRouter = {
       const tagName = node.tagName.toLowerCase();
       // 定義、テキスト、および線要素は迂回対象（障害物）から除外
       const skipTags = ['defs', 'style', 'marker', 'symbol', 'metadata',
-                        'line', 'polyline', 'text', 'tspan', 'g'];
+                        'line', 'polyline', 'text', 'tspan'];
       if (skipTags.includes(tagName)) {
         return;
       }

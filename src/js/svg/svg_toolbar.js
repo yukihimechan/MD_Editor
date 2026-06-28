@@ -51,141 +51,19 @@ class BaseTool {
             if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
             if (window.syncChanges) window.syncChanges();
         }
-
         // [FIX] removeされた場合などのため、念のため確実なフラグ解除を行う
         if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
         this.activeElement = null;
-        this.toolbar.setTool('select');
+        
+        // [NEW] Shiftキーを押している間はツールを維持（連続描画モード）
+        const isShift = window.currentEditingSVG && window.currentEditingSVG.isShiftPressed;
+        if (!isShift) {
+            this.toolbar.setTool('select');
+        }
     }
     /**
-     * [NEW] 線の交差ブリッジ処理を適用する共通ヘルパー。
-     * finalize() の直前に呼び出す。
-     * activeElement のパス上に他の線との交差点がある場合、
-     * ベジェ曲線による飛び越え弧を挿入する。
+     * [NEW] 線の交差ブリッジ処理を適用する共通ヘルパーは SVGUtils.applyLineBridge に移行しました。
      */
-    applyLineBridge() {
-        if (!this.activeElement || !window.SVGUtils) {
-            console.log("[DEBUG] applyLineBridge early return 1: !activeElement || !SVGUtils");
-            return;
-        }
-        const node = this.activeElement.node || this.activeElement;
-        const tagName = node.tagName ? node.tagName.toLowerCase() : '';
-        if (tagName !== 'path' && tagName !== 'polyline' && tagName !== 'line') {
-            console.log("[DEBUG] applyLineBridge early return 2: wrong tagName", tagName);
-            return;
-        }
-
-        // 新しい線のセグメントを取得
-        const newSegments = SVGUtils.getLineSegments(node);
-        if (newSegments.length === 0) {
-            console.log("[DEBUG] applyLineBridge early return 3: newSegments empty");
-            return;
-        }
-
-        // SVGルート要素を取得
-        const svgRoot = node.ownerSVGElement;
-        if (!svgRoot) {
-            console.log("[DEBUG] applyLineBridge early return 4: !svgRoot");
-            return;
-        }
-
-        // 候補線をバウンディングボックスでフィルタリング
-        const candidates = SVGUtils.filterCandidateLines(svgRoot, newSegments, node);
-        console.log(`[DEBUG] applyLineBridge: found ${candidates.length} candidates.`, candidates);
-        if (candidates.length === 0) return;
-
-        // 全候補線との交差点を集約
-        let allIntersections = [];
-        candidates.forEach(candidateNode => {
-            const candidateSegments = SVGUtils.getLineSegments(candidateNode);
-            if (candidateSegments.length === 0) return;
-            const hits = SVGUtils.findIntersections(newSegments, candidateSegments);
-            allIntersections = allIntersections.concat(hits);
-        });
-
-        if (allIntersections.length === 0) {
-            console.log("[DEBUG] applyLineBridge early return 5: no intersections found");
-            return;
-        }
-
-        // 同一セグメント上のtでソート
-        allIntersections.sort((a, b) => {
-            if (a.segIdxA !== b.segIdxA) return a.segIdxA - b.segIdxA;
-            return a.t - b.t;
-        });
-
-        // ポイントとベジェデータを取得
-        let points, bezData;
-        const toolId = node.getAttribute('data-tool-id');
-        if (toolId === 'orthogonal_line' && typeof SvgOrthogonalHandler !== 'undefined') {
-            const handler = new SvgOrthogonalHandler(node, null);
-            points = handler.getPoints().map(p => [p.x, p.y]);
-            bezData = [];
-        } else if (typeof SvgPolylineHandler !== 'undefined') {
-            const handler = new SvgPolylineHandler(null, null);
-            points = handler.getPoints(node);
-            bezData = (tagName === 'path') ? handler.getBezData(node) : [];
-        } else {
-            // フォールバック: data-poly-pointsから直接取得
-            const polyPts = node.getAttribute('data-poly-points');
-            if (!polyPts) {
-                console.log("[DEBUG] applyLineBridge early return 6: no polyPts fallback");
-                return;
-            }
-            points = polyPts.split(/\s+/).filter(s => s).map(p => {
-                const isM = p.startsWith('M');
-                const coord = (isM ? p.substring(1) : p).split(',');
-                return [parseFloat(coord[0]), parseFloat(coord[1])];
-            });
-            bezData = [];
-        }
-
-        if (points.length < 2) {
-            console.log("[DEBUG] applyLineBridge early return 7: points < 2");
-            return;
-        }
-
-        // bezData を points の長さに合わせる
-        while (bezData.length < points.length) {
-            bezData.push({ type: 0 });
-        }
-
-        // ブリッジ頂点を生成
-        const bridgeRadius = 6;
-        const result = SVGUtils.generateBridgePoints(points, bezData, allIntersections, bridgeRadius);
-
-        // 結果を要素に反映
-        const pointsStr = result.points.map(p => (p[2] ? 'M' : '') + p[0] + ',' + p[1]).join(' ');
-
-        if (toolId === 'orthogonal_line') {
-            // 直角折れ線の場合は元の data-ortho-points はそのまま維持し、d属性のみを更新する
-            if (typeof SvgPolylineHandler !== 'undefined') {
-                const handler = new SvgPolylineHandler(null, null);
-                handler.activeNode = node;
-                // SvgPolylineHandlerのパス生成ロジックを利用するため一時的に属性を設定
-                node.setAttribute('data-poly-points', pointsStr);
-                node.setAttribute('data-bez-points', JSON.stringify(result.bezData));
-                handler.generatePath(node);
-                // ドラッグ時に誤認されないよう一時属性を削除
-                node.removeAttribute('data-poly-points');
-                node.removeAttribute('data-bez-points');
-                // 直角折れ線にブリッジが適用された印
-                node.setAttribute('data-has-bridge', 'true');
-            }
-        } else {
-            node.setAttribute('data-poly-points', pointsStr);
-            node.setAttribute('data-bez-points', JSON.stringify(result.bezData));
-
-            // パスのd属性を再生成
-            if (typeof SvgPolylineHandler !== 'undefined') {
-                const handler = new SvgPolylineHandler(null, null);
-                handler.activeNode = node;
-                handler.generatePath(node);
-            }
-        }
-
-        console.log(`[LineBridge] ${allIntersections.length}箇所の交差にブリッジを適用しました`);
-    }
     getCursor() { return 'crosshair'; }
 }
 
@@ -642,7 +520,9 @@ class LineTool extends BaseTool {
         }
 
         // 交差ブリッジを適用
-        this.applyLineBridge();
+        if (window.SVGUtils && window.SVGUtils.applyLineBridge) {
+            window.SVGUtils.applyLineBridge(this.activeElement);
+        }
         super.finalize();
     }
 }
@@ -854,7 +734,9 @@ class PolylineArrowTool extends LineTool {
             this.updatePath([...this.points]);
 
             // [NEW] ブリッジ処理: 他の線との交差点にベジェ曲線で飛び越え弧を挿入
-            this.applyLineBridge();
+            if (window.SVGUtils && window.SVGUtils.applyLineBridge) {
+                window.SVGUtils.applyLineBridge(this.activeElement);
+            }
 
             // コネクタを隠す
             if (window.SVGConnectorManager) window.SVGConnectorManager.hideAllConnectors(this.draw);
@@ -1303,9 +1185,11 @@ class ContainerTool extends BaseTool {
                 if (window.syncChanges) window.syncChanges();
             }
         }
-
-        // 選択ツールに戻す
-        this.toolbar.setTool('select');
+        // 選択ツールに戻す（Shiftキーが押されている場合は維持）
+        const isShift = window.currentEditingSVG && window.currentEditingSVG.isShiftPressed;
+        if (!isShift) {
+            this.toolbar.setTool('select');
+        }
     }
 }
 
@@ -1418,9 +1302,11 @@ class TextTool extends BaseTool {
         if (window.makeInteractive) window.makeInteractive(el);
         if (window.selectElement) window.selectElement(el);
         if (window.syncChanges) window.syncChanges();
-
-        // 直ちに選択ツールに戻す
-        this.toolbar.setTool('select');
+        // 直ちに選択ツールに戻す（Shiftキーが押されている場合は維持）
+        const isShift = window.currentEditingSVG && window.currentEditingSVG.isShiftPressed;
+        if (!isShift) {
+            this.toolbar.setTool('select');
+        }
 
         // 即座にインラインエディタを起動
         if (window.SvgTextEditor) {
@@ -1597,6 +1483,10 @@ class LassoTool extends BaseTool {
         this.activeElement.remove();
         this.activeElement = null;
 
+        if (window.currentEditingSVG) {
+            window.currentEditingSVG._isOperationInProgress = false;
+        }
+
         // 矩形範囲内にある要素を検索して選択
         if (lassoBox.width > 2 || lassoBox.height > 2) {
             this.selectElementsInBox(lassoBox);
@@ -1607,10 +1497,11 @@ class LassoTool extends BaseTool {
     }
 
     selectElementsInBox(box) {
+        console.time('[Perf] SVG Lasso selectElementsInBox Total');
         const draw = this.draw;
         const found = [];
 
-        console.log(`[SVG Lasso] Checking elements against Box:`, { x: box.x, y: box.y, x2: box.x2, y2: box.y2 });
+        console.time('[Perf] SVG Lasso DOM traversal');
 
         draw.children().each(function (el) {
             // 除外対象のタグまたはクラスをチェック
@@ -1657,11 +1548,11 @@ class LassoTool extends BaseTool {
             }
 
             if (!effectivelyVisible) {
-                console.log(`[SVG Lasso] Skipping HIDDEN element: <${tagName}>#${el.id()} (localVis=${isVisibleLocal}, disp=${displayAttr}/${displayCss}, vis=${visibilityAttr}/${visibilityCss})`);
+                // console.log(`[SVG Lasso] Skipping HIDDEN element: <${tagName}>#${el.id()}`);
                 return;
             }
 
-            console.log(`[SVG Lasso] Checking element: <${tagName}>#${el.id()} - PASSED Visibility (localVis=${isVisibleLocal}, disp=${displayAttr}/${displayCss}, vis=${visibilityAttr}/${visibilityCss})`);
+            // console.log(`[SVG Lasso] Checking element: <${tagName}>#${el.id()} - PASSED Visibility`);
 
             // [FIX] 行列（変形）を考慮したバウンディングボックスを取得
             const m = el.matrix() || new SVG.Matrix();
@@ -1677,25 +1568,33 @@ class LassoTool extends BaseTool {
 
             if (isContained) {
                 found.push(el);
-                console.log(`[SVG Lasso] Selected: <${tagName}>`, { elBox: { x: elBox.x, y: elBox.y, x2: elBox.x2, y2: elBox.y2 } });
+                // console.log(`[SVG Lasso] Selected: <${tagName}>`, { elBox: { x: elBox.x, y: elBox.y, x2: elBox.x2, y2: elBox.y2 } });
             } else {
                 // ログが多すぎないよう、近くにあるものだけ表示
-                if (elBox.x2 > box.x && elBox.x < box.x2 && elBox.y2 > box.y && elBox.y < box.y2) {
-                    console.log(`[SVG Lasso] Excluded (partial?): <${tagName}>`, { elBox: { x: elBox.x, y: elBox.y, x2: elBox.x2, y2: elBox.y2 } });
-                }
+                // if (elBox.x2 > box.x && elBox.x < box.x2 && elBox.y2 > box.y && elBox.y < box.y2) {
+                //     console.log(`[SVG Lasso] Excluded (partial?): <${tagName}>`, { elBox: { x: elBox.x, y: elBox.y, x2: elBox.x2, y2: elBox.y2 } });
+                // }
             }
         });
+        console.timeEnd('[Perf] SVG Lasso DOM traversal');
 
         if (found.length > 0) {
+            console.time(`[Perf] SVG Lasso calling selectElement for ${found.length} elements`);
             found.forEach((el, i) => {
                 const isMulti = i > 0 || window.currentEditingSVG.isShiftPressed;
-                if (window.selectElement) window.selectElement(el, isMulti, true);
+                if (window.selectElement) window.selectElement(el, isMulti, true, false, true);
             });
+            console.timeEnd(`[Perf] SVG Lasso calling selectElement for ${found.length} elements`);
+            
             // 一括選択後にリストを更新
+            console.time('[Perf] SVG Lasso buildSvgList');
             if (typeof buildSvgList === 'function') {
                 buildSvgList();
             }
+            console.timeEnd('[Perf] SVG Lasso buildSvgList');
         }
+        
+        console.timeEnd('[Perf] SVG Lasso selectElementsInBox Total');
     }
 
     getCursor() { return 'crosshair'; }
@@ -1773,7 +1672,8 @@ class SVGMainToolbar extends SVGToolbarBase {
         super({
             id: 'svg-main-toolbar',
             position: { top: '50px', left: '-37px' },
-            borderColor: '#004DEB'
+            borderColor: '#004DEB',
+            isPinned: true
         });
         this.currentTool = 'select';
         this.draw = null;

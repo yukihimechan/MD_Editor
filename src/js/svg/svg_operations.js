@@ -14,6 +14,7 @@ window.SVGClipboard = {
 };
 
 function groupSelectedElements() {
+    const startTime = performance.now();
     if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
 
     window.currentEditingSVG._isOperationInProgress = true;
@@ -99,10 +100,13 @@ function groupSelectedElements() {
 
     window.currentEditingSVG._isOperationInProgress = false;
     syncChanges();
+    const endTime = performance.now();
+    console.log(`[Performance] groupSelectedElements took ${((endTime - startTime) / 1000).toFixed(3)} seconds.`);
 }
 window.groupSelectedElements = groupSelectedElements;
 
 function ungroupSelectedElements() {
+    const startTime = performance.now();
     if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
 
     window.currentEditingSVG._isOperationInProgress = true;
@@ -125,9 +129,11 @@ function ungroupSelectedElements() {
             const fragment = document.createDocumentFragment();
 
             childrenArray.forEach(function (child) {
+                // [PERF] 先にFragmentに移動してDOMツリーから切り離すことで、属性変更時のリフロー（再計算）の連鎖を防ぐ
+                fragment.appendChild(child.node);
+                
                 const childMatrix = new SVG.Matrix(child);
                 child.matrix(groupMatrix.multiply(childMatrix));
-                fragment.appendChild(child.node);
 
                 const childShape = child.remember('_shapeInstance');
                 if (childShape && childShape.hitArea) {
@@ -158,9 +164,17 @@ function ungroupSelectedElements() {
         }
     });
 
-    newSelection.forEach(el => selectElement(el, true));
+    // [PERF] 大量の要素が解除された場合、すべてを個別選択状態にするとDOMの青枠（UI）生成でフリーズするため選択を制限する。
+    if (newSelection.length <= 20) {
+        newSelection.forEach(el => selectElement(el, true));
+    } else {
+        // 多すぎる場合は、重い選択UI生成を避けるため選択状態をクリアしたままにする
+        console.warn(`[Performance] Skipped auto-selecting ${newSelection.length} ungrouped elements to prevent UI freeze.`);
+    }
     window.currentEditingSVG._isOperationInProgress = false;
     syncChanges();
+    const endTime = performance.now();
+    console.log(`[Performance] ungroupSelectedElements took ${((endTime - startTime) / 1000).toFixed(3)} seconds.`);
 }
 window.ungroupSelectedElements = ungroupSelectedElements;
 
@@ -242,6 +256,106 @@ function moveSelectedToBack() {
     syncChanges();
 }
 window.moveSelectedToBack = moveSelectedToBack;
+
+const isVisualShape = (node) => {
+    if (node.nodeType !== 1) return false;
+    const classes = node.getAttribute('class') || '';
+    const tagName = node.tagName.toLowerCase();
+    if (
+        classes.includes('svg-interaction-hitarea') ||
+        classes.includes('svg-canvas-proxy') ||
+        classes.includes('svg-grid-lines') ||
+        classes.includes('svg-snap-guides') ||
+        classes.includes('svg-control-marker') ||
+        classes.includes('svg-ruler') ||
+        tagName === 'defs' || tagName === 'title' || tagName === 'desc'
+    ) {
+        return false;
+    }
+    return true;
+};
+
+function moveSelectedForward() {
+    if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
+    window.currentEditingSVG._isOperationInProgress = true;
+
+    Array.from(window.currentEditingSVG.selectedElements).forEach(el => {
+        const parent = el.node.parentNode;
+        if (!parent) return;
+        const children = Array.from(parent.children);
+        const currentIndex = children.indexOf(el.node);
+        if (currentIndex === -1) return;
+
+        let targetIndex = -1;
+        for (let i = currentIndex + 1; i < children.length; i++) {
+            if (isVisualShape(children[i])) {
+                targetIndex = i;
+                break;
+            }
+        }
+
+        if (targetIndex !== -1) {
+            const insertBeforeNode = children[targetIndex].nextElementSibling;
+            parent.insertBefore(el.node, insertBeforeNode);
+        } else {
+            parent.appendChild(el.node);
+        }
+
+        const shapeInstance = el.remember('_shapeInstance');
+        if (shapeInstance && shapeInstance.hitArea) {
+            parent.insertBefore(shapeInstance.hitArea.node, el.node);
+        }
+    });
+
+    window.currentEditingSVG._isOperationInProgress = false;
+    syncChanges();
+}
+window.moveSelectedForward = moveSelectedForward;
+
+function moveSelectedBackward() {
+    if (!window.currentEditingSVG || !window.currentEditingSVG.selectedElements) return;
+    window.currentEditingSVG._isOperationInProgress = true;
+
+    Array.from(window.currentEditingSVG.selectedElements).forEach(el => {
+        const parent = el.node.parentNode;
+        if (!parent) return;
+        const children = Array.from(parent.children);
+        const currentIndex = children.indexOf(el.node);
+        if (currentIndex <= 0) return;
+
+        let targetIndex = -1;
+        for (let i = currentIndex - 1; i >= 0; i--) {
+            if (isVisualShape(children[i])) {
+                targetIndex = i;
+                break;
+            }
+        }
+
+        if (targetIndex !== -1) {
+            let insertBeforeNode = children[targetIndex];
+            // Step over the hitArea of the target shape if it exists immediately before
+            for (let i = targetIndex - 1; i >= 0; i--) {
+                const prev = children[i];
+                const classes = prev.getAttribute('class') || '';
+                if (classes.includes('svg-interaction-hitarea')) {
+                    insertBeforeNode = prev;
+                } else {
+                    break;
+                }
+            }
+            parent.insertBefore(el.node, insertBeforeNode);
+        }
+
+        const shapeInstance = el.remember('_shapeInstance');
+        if (shapeInstance && shapeInstance.hitArea) {
+            parent.insertBefore(shapeInstance.hitArea.node, el.node);
+        }
+    });
+
+    window.currentEditingSVG._isOperationInProgress = false;
+    syncChanges();
+}
+window.moveSelectedBackward = moveSelectedBackward;
 
 // Helper to recursively store original IDs on cloned elements
 function storeOriginalIds(original, clone) {
@@ -694,9 +808,45 @@ function deleteSelectedElements() {
     } else {
         if (typeof deselectAll === 'function') deselectAll();
     }
+    
+    cleanUpUnusedMarkers(window.currentEditingSVG.draw);
+    
     syncChanges();
 }
 window.deleteSelectedElements = deleteSelectedElements;
+
+function cleanUpUnusedMarkers(draw) {
+    if (!draw) return;
+    const defs = draw.defs();
+    if (!defs) return;
+    
+    const markers = defs.node.querySelectorAll('marker');
+    if (markers.length === 0) return;
+    
+    const allElements = draw.node.querySelectorAll('*');
+    const usedMarkerIds = new Set();
+    
+    allElements.forEach(el => {
+        ['marker-start', 'marker-mid', 'marker-end'].forEach(attr => {
+            const val = el.getAttribute(attr);
+            if (val && val.includes('url(')) {
+                const match = val.match(/url\(['"]?#([^)'"]+)['"]?\)/);
+                if (match && match[1]) {
+                    usedMarkerIds.add(match[1]);
+                }
+            }
+        });
+    });
+    
+    markers.forEach(marker => {
+        const id = marker.getAttribute('id');
+        if (id && !usedMarkerIds.has(id)) {
+            console.log(`[SVG] Removing unused marker: ${id}`);
+            marker.remove();
+        }
+    });
+}
+window.cleanUpUnusedMarkers = cleanUpUnusedMarkers;
 
 function addToToolbar(container) {
     if (window.currentEditingSVG.selectedElements.size !== 1) {

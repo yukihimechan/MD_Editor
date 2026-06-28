@@ -50,6 +50,14 @@ class SvgOrthogonalHandler {
         const d = this._generatePathD(cleanPoints);
         console.log("[DEBUG SvgOrthogonalHandler] setPoints set d attribute:", d);
         this.activeNode.setAttribute('d', d);
+
+        // [NEW] 交差ブリッジを適用（キャンバス全体の直角折れ線をチェック）
+        if (window.SVGUtils && window.SVGUtils.refreshAllLineBridges) {
+            const svgRoot = this.activeNode.ownerSVGElement;
+            if (svgRoot) {
+                window.SVGUtils.refreshAllLineBridges(svgRoot);
+            }
+        }
     }
 
     /**

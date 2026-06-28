@@ -85,7 +85,7 @@ class SvgPolylineHandler {
         }
 
         const points = this.getPoints(node);
-        const shouldDrawHandles = points.length <= 50;
+        const shouldDrawHandles = points.length <= 500;
         console.log('[SvgPolylineHandler DEBUG] points length:', points.length, 'shouldDrawHandles:', shouldDrawHandles);
 
         // [NEW] 頂点数が多すぎる場合はDOM負荷を避けるためハンドル描画をスキップ
@@ -742,6 +742,7 @@ class SvgPolylineHandler {
         const performUpdate = () => {
             rAF = null;
             if (!this.activeNode || !lastEvent) return;
+            const _perfStart = performance.now(); // [PERF LOG]
             const e = lastEvent;
             this._isDragging = true;
             
@@ -749,17 +750,23 @@ class SvgPolylineHandler {
             const draw = (window.currentEditingSVG && window.currentEditingSVG.draw) || SVG(this.activeNode.ownerSVGElement);
 
             // 実線更新の前に、このフレームの最新CTMを取得 (レイアウトスラッシングの回避)
+            const _perfCTM = performance.now(); // [PERF LOG]
             const currentCtmCache = this._createCTMCache(this.activeNode, this.overlayGroup);
+            const _perfCTMEnd = performance.now(); // [PERF LOG]
 
             // コネクタ表示はlocalPt確定後に実行するため、ここではスキップ
             // （下記の頂点位置更新後にupdateConnectorDisplayを呼び出す）
 
             let localPt = this.getLocalPoint(e);
+            const _perfLocalPtEnd = performance.now(); // [PERF LOG]
             const vIdx = parseInt(handle.getAttribute('data-index'), 10);
             const points = this._dragPoints;
             const endType = (vIdx === 0) ? 'start' : (vIdx === points.length - 1 ? 'end' : null);
 
-            if (!isAlt && endType && window.SVGConnectorManager && !this.options.disableConnectors) {
+            const _perfConnStart = performance.now(); // [PERF LOG]
+            // [PERF] data-no-connector="true" の要素ではコネクタスナップ処理を完全にスキップ
+            const _noConnector = this.activeNode.getAttribute('data-no-connector') === 'true';
+            if (!_noConnector && !isAlt && endType && window.SVGConnectorManager && !this.options.disableConnectors) {
                 // 頂点のローカル座標をワールド座標に変換してスナップ判定に使用
                 let worldPt;
                 try {
@@ -865,7 +872,7 @@ class SvgPolylineHandler {
             points[activeIndex] = [localPt.x, localPt.y];
 
             // 頂点位置確定後にコネクタ表示を更新（頂点のワールド座標を使用）
-            if (!isAlt && window.SVGConnectorManager && this._connectorCache && !this.options.disableConnectors) {
+            if (!_noConnector && !isAlt && window.SVGConnectorManager && this._connectorCache && !this.options.disableConnectors) {
                 const zoom = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
                 // localPt（ローカル座標）をワールド座標に変換
                 let vertexWorldPt;
@@ -897,9 +904,10 @@ class SvgPolylineHandler {
                     }
                 }
                 window.SVGConnectorManager.updateConnectorDisplay(draw, this._connectorCache, vertexWorldPt, zoom, SVG(this.activeNode));
-            } else if (!isAlt && window.SVGConnectorManager && !this.options.disableConnectors) {
+            } else if (!_noConnector && !isAlt && window.SVGConnectorManager && !this.options.disableConnectors) {
                 window.SVGConnectorManager.hideAllConnectors(draw);
             }
+            const _perfConnEnd = performance.now(); // [PERF LOG]
 
             const isClosed = this.activeNode.getAttribute('data-poly-closed') === 'true';
             if (isClosed && isEndpoint) {
@@ -945,8 +953,12 @@ class SvgPolylineHandler {
                 this.activeNode.setAttribute('points', pointsStr);
             }
 
+            const _perfUpdateStart = performance.now(); // [PERF LOG]
             this.update(this.overlayGroup, this.activeNode, null, currentCtmCache);
-            if (this.onUpdate) this.onUpdate();
+            const _perfUpdateEnd = performance.now(); // [PERF LOG]
+            if (this.onUpdate) this.onUpdate(false);
+            const _perfEnd = performance.now(); // [PERF LOG]
+            console.log(`[PERF vertexDrag] total: ${(_perfEnd - _perfStart).toFixed(2)}ms | CTM: ${(_perfCTMEnd - _perfCTM).toFixed(2)}ms, localPt: ${(_perfLocalPtEnd - _perfCTMEnd).toFixed(2)}ms, connector: ${(_perfConnEnd - _perfConnStart).toFixed(2)}ms, pathGen: ${(_perfUpdateStart - _perfConnEnd).toFixed(2)}ms, update: ${(_perfUpdateEnd - _perfUpdateStart).toFixed(2)}ms, onUpdate: ${(_perfEnd - _perfUpdateEnd).toFixed(2)}ms`);
         };
 
         const onMouseMove = (e) => {
@@ -971,6 +983,7 @@ class SvgPolylineHandler {
             if (window.currentEditingSVG && typeof window.currentEditingSVG.resumeObserver === 'function') {
                 window.currentEditingSVG.resumeObserver();
             }
+            const _perfMouseUpStart = performance.now(); // [PERF LOG]
             if (rAF) {
                 cancelAnimationFrame(rAF);
                 rAF = null;
@@ -979,7 +992,9 @@ class SvgPolylineHandler {
             if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
 
             // [NEW] ドラッグ終了時にデータをDOMに確定させる
+            const _perfCommitStart = performance.now(); // [PERF LOG]
             this._commitDataAttributes();
+            const _perfCommitEnd = performance.now(); // [PERF LOG]
             this._isDragging = false;
             this._connectorsShown = false;
 
@@ -1020,10 +1035,14 @@ class SvgPolylineHandler {
             this._dragBezData = null;
             this._connectorCache = null;
 
-            if (window.syncChanges) window.syncChanges(true, null, true);
+            const _perfSyncStart = performance.now(); // [PERF LOG]
+            if (window.syncChanges) window.syncChanges(true, null, true, this.activeNode ? this.activeNode.id : null);
+            const _perfSyncEnd = performance.now(); // [PERF LOG]
+            console.log(`[PERF vertexDrag mouseUp] total: ${(_perfSyncEnd - _perfMouseUpStart).toFixed(2)}ms, commitData: ${(_perfCommitEnd - _perfCommitStart).toFixed(2)}ms, syncChanges: ${(_perfSyncEnd - _perfSyncStart).toFixed(2)}ms`);
         };
 
         handle.addEventListener('pointerdown', (e) => {
+            const _perfPointerDown = performance.now(); // [PERF LOG]
             if (window.currentEditingSVG && typeof window.currentEditingSVG.suspendObserver === 'function') {
                 window.currentEditingSVG.suspendObserver();
             }
@@ -1045,6 +1064,7 @@ class SvgPolylineHandler {
             }
 
             // [NEW] ドラッグ開始時に計算用データを一括キャッシュ
+            const _perfCacheStart = performance.now(); // [PERF LOG]
             this._dragPoints = this.getPoints(this.activeNode);
             this._dragBezData = this.activeNode.tagName.toLowerCase() === 'path' ? this.getBezData(this.activeNode) : [];
             this._dragCTM = this.activeNode.getScreenCTM();
@@ -1053,11 +1073,16 @@ class SvgPolylineHandler {
             if (draw && draw.node) {
                 this._dragRootCTMInv = draw.node.getScreenCTM().inverse();
             }
-            if (window.SVGConnectorManager && draw && !this.options.disableConnectors) {
-                this._connectorCache = window.SVGConnectorManager.cacheConnectorPoints(draw, SVG(this.activeNode));
+            const _perfCacheEnd = performance.now(); // [PERF LOG]
 
+            // [PERF] data-no-connector="true" の要素ではコネクタキャッシュ構築をスキップ
+            const _noConnector = this.activeNode.getAttribute('data-no-connector') === 'true';
+            if (!_noConnector && window.SVGConnectorManager && draw && !this.options.disableConnectors) {
+                const _perfConnCacheStart = performance.now(); // [PERF LOG]
+                this._connectorCache = window.SVGConnectorManager.cacheConnectorPoints(draw, SVG(this.activeNode));
+                console.log(`[PERF pointerdown] connectorCache: ${(performance.now() - _perfConnCacheStart).toFixed(2)}ms`);
             } else {
-                console.log('[DEBUG pointerdown bindVertexDrag] connectorCache NOT created. SVGConnectorManager:', !!window.SVGConnectorManager, 'draw:', !!draw, 'disableConnectors:', this.options.disableConnectors);
+                this._connectorCache = null;
             }
 
             const isCtrl = e.ctrlKey || (window.currentEditingSVG && window.currentEditingSVG.isCtrlPressed);
@@ -1087,7 +1112,7 @@ class SvgPolylineHandler {
                     this.activeNode.setAttribute('data-poly-points', pointsStr);
                 }
                 this.update(this.overlayGroup, this.activeNode, null);
-                if (window.syncChanges) window.syncChanges(true);
+                if (window.syncChanges) window.syncChanges(true, null, true, this.activeNode ? this.activeNode.id : null);
                 return;
             }
 
@@ -1096,6 +1121,7 @@ class SvgPolylineHandler {
             this._isDragging = true;
             window.addEventListener('pointermove', onMouseMove);
             window.addEventListener('pointerup', onMouseUp);
+            console.log(`[PERF pointerdown] total: ${(performance.now() - _perfPointerDown).toFixed(2)}ms, cache: ${(_perfCacheEnd - _perfCacheStart).toFixed(2)}ms`);
         });
     }
 
@@ -1156,7 +1182,7 @@ class SvgPolylineHandler {
                 handle.setAttribute('fill-opacity', '1.0');
                 handle.setAttribute('cursor', 'move');
 
-                if (this.onUpdate) this.onUpdate();
+                if (this.onUpdate) this.onUpdate(false);
             }
 
             if (vertexIndex < 0) return;
@@ -1180,7 +1206,7 @@ class SvgPolylineHandler {
             }
 
             this.update(this.overlayGroup, this.activeNode, null, currentCtmCache);
-            if (this.onUpdate) this.onUpdate();
+            if (this.onUpdate) this.onUpdate(false);
         };
 
         const onMouseMove = (e) => {
@@ -1234,7 +1260,7 @@ class SvgPolylineHandler {
 
             if (didConvert || vIndex >= 0) {
                 this.update(this.overlayGroup, this.activeNode, null);
-                if (window.syncChanges) window.syncChanges(true, null, true);
+                if (window.syncChanges) window.syncChanges(true, null, true, this.activeNode ? this.activeNode.id : null);
             }
         };
 
@@ -1287,7 +1313,7 @@ class SvgPolylineHandler {
                 }
 
                 this.update(this.overlayGroup, this.activeNode, null);
-                if (window.syncChanges) window.syncChanges(true);
+                if (window.syncChanges) window.syncChanges(true, null, true, this.activeNode ? this.activeNode.id : null);
                 return;
             }
 
@@ -1325,7 +1351,7 @@ class SvgPolylineHandler {
             this.activeNode.setAttribute('data-arrow-size', newSize);
 
             this.update(this.overlayGroup, this.activeNode, null, currentCtmCache);
-            if (this.onUpdate) this.onUpdate();
+            if (this.onUpdate) this.onUpdate(false);
         };
 
         const onMouseMove = (e) => {
@@ -1366,7 +1392,7 @@ class SvgPolylineHandler {
             this._dragPoints = null;
             this._dragBezData = null;
 
-            if (window.syncChanges) window.syncChanges(true, null, true);
+            if (window.syncChanges) window.syncChanges(true, null, true, this.activeNode ? this.activeNode.id : null);
         };
 
         handle.addEventListener('pointerdown', (e) => {
@@ -1498,7 +1524,7 @@ class SvgPolylineHandler {
             if (window.selectElement) window.selectElement(SVG(targetNode));
         } else {
             this.update(this.overlayGroup, targetNode, null);
-            if (this.onUpdate) this.onUpdate();
+            if (this.onUpdate) this.onUpdate(true);
         }
     }
 
@@ -1556,7 +1582,7 @@ class SvgPolylineHandler {
             this.generatePath(this.activeNode);
             
             this.update(this.overlayGroup, this.activeNode, null, currentCtmCache);
-            if (this.onUpdate) this.onUpdate();
+            if (this.onUpdate) this.onUpdate(false);
         };
 
         const onMouseMove = (e) => {
@@ -1601,7 +1627,7 @@ class SvgPolylineHandler {
             this._dragPoints = null;
             this._dragBezData = null;
 
-            if (window.syncChanges) window.syncChanges(true, null, true);
+            if (window.syncChanges) window.syncChanges(true, null, true, this.activeNode ? this.activeNode.id : null);
         };
 
         handle.addEventListener('pointerdown', (e) => {
@@ -1909,7 +1935,7 @@ class SvgPolylineHandler {
                 this.options.onSkeletonDragEnd();
             }
 
-            if (window.syncChanges) window.syncChanges(true, null, true);
+            if (window.syncChanges) window.syncChanges(true, null, true, this.activeNode ? this.activeNode.id : null);
         };
 
         handle.addEventListener('pointerdown', (e) => {

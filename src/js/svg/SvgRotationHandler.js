@@ -200,16 +200,12 @@ class SvgRotationHandler {
                 if (typeof window.startSVGUndoTracking === 'function') window.startSVGUndoTracking();
             }
 
-            // [GUARD] Double check if it's canvas or locked
             const isCanvas = this.activeElement.getAttribute('data-is-canvas') === 'true' ||
                 this.activeElement.classList.contains('svg-canvas-proxy');
             const isLocked = this.activeElement.getAttribute('data-locked') === 'true' ||
                 this.activeElement.getAttribute('data-locked') === true;
 
-            if (isCanvas || isLocked) {
-                console.warn('[ROTATION GUARD] Prevented start on canvas or locked element.');
-                return;
-            }
+            if (isCanvas || isLocked) return;
 
             this.isRotating = true;
             try { e.target.setPointerCapture(e.pointerId); } catch(err) {}
@@ -219,14 +215,57 @@ class SvgRotationHandler {
                 window.SVGUtils.startHandleScaleLoop(root, 'rotate');
             }
 
-            // Show Angle Display
             this.createAngleDisplay();
 
-            // Calculate Center Point (Global coordinates)
-            const svgRect = this.svg.getBoundingClientRect();
-            const bbox = this.activeElement.getBBox();
+            // [FIX] 接続図形の取得
+            this.connectedShapes = [];
+            const connStr = this.activeElement.getAttribute('data-connections');
+            if (connStr) {
+                try {
+                    const conns = JSON.parse(connStr);
+                    conns.forEach(c => {
+                        if (c.targetId) {
+                            const target = document.getElementById(c.targetId);
+                            if (target) {
+                                const addShape = (shapeEl) => {
+                                    if (!shapeEl) return;
+                                    if (shapeEl.tagName !== 'g' && shapeEl.parentNode) {
+                                        const parentG = shapeEl.closest('g[data-tool-id="shape-text-group"]');
+                                        if (parentG) shapeEl = parentG;
+                                    }
+                                    if (this.connectedShapes.find(s => s.el === shapeEl)) return;
+                                    
+                                    const wrappedShape = window.SVG ? window.SVG(shapeEl) : SVG(shapeEl);
+                                    this.connectedShapes.push({
+                                        el: shapeEl,
+                                        startMatrix: wrappedShape.matrix()
+                                    });
+                                    const tId = shapeEl.getAttribute('data-associated-text-id');
+                                    if (tId) { const tEl = document.getElementById(tId); if (tEl) addShape(tEl); }
+                                    const sId = shapeEl.getAttribute('data-associated-shape-id');
+                                    if (sId) { const sEl = document.getElementById(sId); if (sEl) addShape(sEl); }
+                                };
+                                addShape(target);
+                            }
+                        }
+                    });
+                } catch (e) {
+                    console.error('Failed to parse data-connections for rotation', e);
+                }
+            }
 
-            // Convert local SVG coordinates to client coordinates
+            // [FIX] コネクタ線の場合、過去のtransformが残っていると軸がズレるため、完全にクリアして引き直す
+            if (this.connectedShapes.length > 0) {
+                this.activeElement.removeAttribute('transform');
+                if (window.SVGConnectorManager && typeof window.SVGConnectorManager.updateConnectionsFromElement === 'function') {
+                    this.connectedShapes.forEach(shape => {
+                        const svgjsEl = shape.el.instance || (typeof window.SVG === 'function' ? window.SVG(shape.el) : shape.el);
+                        if (svgjsEl) window.SVGConnectorManager.updateConnectionsFromElement(svgjsEl);
+                    });
+                }
+            }
+
+            const bbox = this.activeElement.getBBox();
             const ctm = this.activeElement.getScreenCTM();
             const localCx = bbox.x + bbox.width / 2;
             const localCy = bbox.y + bbox.height / 2;
@@ -245,54 +284,19 @@ class SvgRotationHandler {
             const dx = e.clientX - this.centerPoint.x;
             const dy = e.clientY - this.centerPoint.y;
             this.startMouseAngle = Math.atan2(dy, dx);
-            this.startElementRotation = this.getRotationAngle(this.activeElement);
+            
+            // コネクタ線の場合は0（上でクリアしたため）。単一図形の場合は既存の角度を取得
+            this.startElementRotation = (this.connectedShapes.length > 0) ? 0 : this.getRotationAngle(this.activeElement);
 
-            // [NEW] 線の回転中心をグローバル座標系で保存
-            const lineMatrix = window.SVG ? new window.SVG.Matrix(this.activeElement) : new SVG.Matrix(this.activeElement);
-            this.globalCenter = (window.SVG ? new window.SVG.Point(localCx, localCy) : new SVG.Point(localCx, localCy)).transform(lineMatrix);
+            // [FIX] 線の初期マトリックスと回転中心を保存
+            const wrappedActive = window.SVG ? window.SVG(this.activeElement) : SVG(this.activeElement);
+            this.startLineMatrix = wrappedActive.matrix();
+            this.globalCenter = (window.SVG ? new window.SVG.Point(localCx, localCy) : new SVG.Point(localCx, localCy)).transform(this.startLineMatrix);
 
-            // [NEW] 接続図形とその初期マトリックスを記録
-            this.connectedShapes = [];
-            const connStr = this.activeElement.getAttribute('data-connections');
-            if (connStr) {
-                try {
-                    const conns = JSON.parse(connStr);
-                    conns.forEach(c => {
-                        if (c.targetId) {
-                            const target = document.getElementById(c.targetId);
-                            if (target) {
-                                const addShape = (shapeEl) => {
-                                    if (this.connectedShapes.find(s => s.el === shapeEl)) return;
-                                    this.connectedShapes.push({
-                                        el: shapeEl,
-                                        startMatrix: window.SVG ? new window.SVG.Matrix(shapeEl) : new SVG.Matrix(shapeEl)
-                                    });
-                                    const tId = shapeEl.getAttribute('data-associated-text-id');
-                                    if (tId) {
-                                        const tEl = document.getElementById(tId);
-                                        if (tEl) addShape(tEl);
-                                    }
-                                    const sId = shapeEl.getAttribute('data-associated-shape-id');
-                                    if (sId) {
-                                        const sEl = document.getElementById(sId);
-                                        if (sEl) addShape(sEl);
-                                    }
-                                };
-                                addShape(target);
-                            }
-                        }
-                    });
-                } catch (e) {
-                    console.error('Failed to parse data-connections for rotation', e);
-                }
-            }
-
-            // Bind move/up listeners to window
             window.addEventListener('pointermove', this.handleRotationMove);
             window.addEventListener('pointerup', this.handleRotationEnd);
             window.addEventListener('pointercancel', this.handleRotationEnd);
             
-            console.log('[SvgRotationHandler] handleRotationStart completed successfully.');
         } catch (error) {
             console.error('[SvgRotationHandler] Error in handleRotationStart:', error);
             this.isRotating = false;
@@ -326,72 +330,60 @@ class SvgRotationHandler {
     }
 
     handleRotationMove(e) {
-        if (!this.isRotating || !this.activeElement) {
-            return;
-        }
+        if (!this.isRotating || !this.activeElement) return;
         e.preventDefault();
-        
-        console.log('[SvgRotationHandler] handleRotationMove', e.clientX, e.clientY);
         e.stopPropagation();
 
         const dx = e.clientX - this.centerPoint.x;
         const dy = e.clientY - this.centerPoint.y;
 
-        // [FIX] Calculate relative angle change from the start of the drag
         const currentMouseAngle = Math.atan2(dy, dx);
         let deltaRad = currentMouseAngle - this.startMouseAngle;
         let deltaDeg = deltaRad * (180 / Math.PI);
 
-        // Normalize delta to -180...180 range to handle PI boundary crossings smoothly
         if (deltaDeg > 180) deltaDeg -= 360;
         else if (deltaDeg < -180) deltaDeg += 360;
 
-        // [FIX] 反転している場合はドラッグ角度変化の方向を反転させる
-        if (this.isFlipped) {
-            deltaDeg = -deltaDeg;
-        }
+        if (this.isFlipped) deltaDeg = -deltaDeg;
 
         let angleDeg = this.startElementRotation + deltaDeg;
-
         const shiftKey = e.shiftKey || (window.currentEditingSVG && window.currentEditingSVG.isShiftPressed);
         const isOrthogonal = this.activeElement.getAttribute('data-tool-id') === 'orthogonal_line';
 
-        if (isOrthogonal) {
-            // [NEW] 直角折れ線は90度単位でのみ回転可能にする
-            angleDeg = Math.round(angleDeg / 90) * 90;
-        } else if (shiftKey) {
-            // Snap to 15 degree increments
-            angleDeg = Math.round(angleDeg / 15) * 15;
+        if (isOrthogonal) angleDeg = Math.round(angleDeg / 90) * 90;
+        else if (shiftKey) angleDeg = Math.round(angleDeg / 15) * 15;
+
+        const appliedDeltaDeg = angleDeg - this.startElementRotation;
+        angleDeg = (angleDeg % 360 + 360) % 360;
+
+        const hasConnectedShapes = this.connectedShapes && this.connectedShapes.length > 0;
+
+        // [FIX] コネクタ線の場合は線自身に直接 rotate(...) を適用しない
+        if (!hasConnectedShapes) {
+            this.applyRotation(angleDeg);
         }
 
-        // Normalize 0-360 for display and attribute consistency
-        angleDeg = (angleDeg % 360 + 360) % 360;
-        
-        // [NEW] スナップ処理後の実際の回転変化量を算出（接続図形の回転用）
-        const appliedDeltaDeg = angleDeg - this.startElementRotation;
-
-        // Update Element Transform
-        this.applyRotation(angleDeg);
-
-        // Update Display
         this.updateAngleDisplay(angleDeg);
         
-        // [NEW] 接続図形に、線の中心を軸にした回転を適用する
-        if (this.connectedShapes && this.connectedShapes.length > 0 && this.globalCenter) {
-            const rotMatrix = new SVG.Matrix().rotate(appliedDeltaDeg, this.globalCenter.x, this.globalCenter.y);
+        // [FIX] 接続図形と線を一体としてマトリックスで回転させる
+        if (hasConnectedShapes && this.globalCenter) {
+            const SvgMatrix = window.SVG ? window.SVG.Matrix : SVG.Matrix;
+            const rotMatrix = new SvgMatrix().rotate(appliedDeltaDeg, this.globalCenter.x, this.globalCenter.y);
+            
+            // 線自身を回転
+            if (this.startLineMatrix) {
+                const newLineMatrix = rotMatrix.multiply(this.startLineMatrix);
+                this.activeElement.setAttribute('transform', `matrix(${newLineMatrix.a},${newLineMatrix.b},${newLineMatrix.c},${newLineMatrix.d},${newLineMatrix.e},${newLineMatrix.f})`);
+            }
+
+            // 接続図形を回転
             this.connectedShapes.forEach(shape => {
                 const newMatrix = rotMatrix.multiply(shape.startMatrix);
                 shape.el.setAttribute('transform', `matrix(${newMatrix.a},${newMatrix.b},${newMatrix.c},${newMatrix.d},${newMatrix.e},${newMatrix.f})`);
             });
         }
 
-        // Retrieve latest center (local) for rotate transform
-        // We assume center doesn't move during rotation
         const bbox = this.activeElement.getBBox();
-        const cx = bbox.x + bbox.width / 2;
-        const cy = bbox.y + bbox.height / 2;
-
-        // [FIX] Refresh handle position relative to overlay during rotation
         const localCx = bbox.x + bbox.width / 2;
         const zoomVal = (window.currentEditingSVG && window.currentEditingSVG.zoom) || 100;
         const handleDistance = 25 * (100 / zoomVal);
@@ -425,42 +417,23 @@ class SvgRotationHandler {
                 circle.setAttribute('cy', absHandle.y);
             }
 
-            // [NEW] Update Scaling during rotation 
             if (window.SVGUtils && window.SVGUtils.updateHandleScaling) {
                 window.SVGUtils.updateHandleScaling(line, zoomVal);
                 window.SVGUtils.updateHandleScaling(circle, zoomVal);
             }
         }
 
-        // [NEW] Real-time sync for radius handler
-        if (window.currentEditingSVG && window.currentEditingSVG.radiusHandler) {
-            window.currentEditingSVG.radiusHandler.update(this.overlayGroup, this.activeElement, bbox);
-        }
-
-        // [NEW] Sync radius and polyline handlers in real-time if they exist
         if (window.currentEditingSVG) {
-            if (window.currentEditingSVG.radiusHandler) {
-                window.currentEditingSVG.radiusHandler.update(this.overlayGroup, this.activeElement, bbox);
-            }
-            if (window.currentEditingSVG.polylineHandler) {
-                window.currentEditingSVG.polylineHandler.update(this.overlayGroup, this.activeElement, bbox);
-            }
+            if (window.currentEditingSVG.radiusHandler) window.currentEditingSVG.radiusHandler.update(this.overlayGroup, this.activeElement, bbox);
+            if (window.currentEditingSVG.polylineHandler) window.currentEditingSVG.polylineHandler.update(this.overlayGroup, this.activeElement, bbox);
         }
 
         if (window.updateTransformToolbarValues) window.updateTransformToolbarValues();
 
-        // [NEW] 接続されている線をリアルタイムに更新
-        if (window.SVGConnectorManager) {
-            window.SVGConnectorManager.updateConnectionsFromElement(this.activeElement);
-        }
-
-        // [NEW] 矢印ツールなどのマーカー追従用のイベントを発火
         if (this.activeElement && this.activeElement.dispatchEvent) {
             this.activeElement.dispatchEvent(new CustomEvent('rotatemove'));
         }
 
-        // [FIX] 回転ドラッグ中に8点リサイズハンドルも図形に追従させる
-        // rAF で間引いてパフォーマンスへの影響を最小化する
         if (!this._syncRaf) {
             this._syncRaf = requestAnimationFrame(() => {
                 this._syncRaf = null;
@@ -480,36 +453,60 @@ class SvgRotationHandler {
         this.isRotating = false;
 
         const root = this.activeElement && this.activeElement.ownerSVGElement;
-        if (root && window.SVGUtils) {
-            window.SVGUtils.stopHandleScaleLoop(root);
-        }
+        if (root && window.SVGUtils) window.SVGUtils.stopHandleScaleLoop(root);
 
-        // [FIX] 回転中のrAF間引き同期をキャンセル
         if (this._syncRaf) {
             cancelAnimationFrame(this._syncRaf);
             this._syncRaf = null;
         }
 
-        // Cleanup listeners
         window.removeEventListener('pointermove', this.handleRotationMove);
         window.removeEventListener('pointerup', this.handleRotationEnd);
         window.removeEventListener('pointercancel', this.handleRotationEnd);
         try { e.target.releasePointerCapture(e.pointerId); } catch(err) {}
 
-        // Remove Display
         if (this.angleDisplay) {
             this.angleDisplay.remove();
             this.angleDisplay = null;
         }
 
-        if (window.currentEditingSVG) {
-            window.currentEditingSVG._isOperationInProgress = false;
+        if (window.currentEditingSVG) window.currentEditingSVG._isOperationInProgress = false;
+
+        // [FIX] 回転終了時に図形の座標をBakeし、線は純粋な座標で結び直す
+        if (this.connectedShapes && this.connectedShapes.length > 0) {
+            this.connectedShapes.forEach(shape => {
+                const svgjsEl = shape.el.instance || (typeof window.SVG === 'function' ? window.SVG(shape.el) : null);
+                const inst = svgjsEl && typeof svgjsEl.remember === 'function' ? svgjsEl.remember('_shapeInstance') : null;
+                if (inst && typeof inst.bakeTransformation === 'function') inst.bakeTransformation(true);
+            });
+
+            // 線自身の transform をクリアする
+            if (this.activeElement) {
+                this.activeElement.removeAttribute('transform');
+                const svgjsEl = this.activeElement.instance || (typeof window.SVG === 'function' ? window.SVG(this.activeElement) : null);
+                if (svgjsEl && svgjsEl.node) {
+                    svgjsEl.node.removeAttribute('transform');
+                    if (svgjsEl._matrix) svgjsEl._matrix = null;
+                }
+            }
+
+            // 最後に1回だけコネクタマネージャを呼び出して線を正しい位置に引き直す
+            this.connectedShapes.forEach(shape => {
+                if (window.SVGConnectorManager && typeof window.SVGConnectorManager.updateConnectionsFromElement === 'function') {
+                    const svgjsEl = shape.el.instance || (typeof window.SVG === 'function' ? window.SVG(shape.el) : shape.el);
+                    window.SVGConnectorManager.updateConnectionsFromElement(svgjsEl);
+                }
+            });
+
+            // 選択枠（青枠）の同期
+            const lineSvgjsEl = this.activeElement.instance || (typeof window.SVG === 'function' ? window.SVG(this.activeElement) : null);
+            const lineInst = lineSvgjsEl && typeof lineSvgjsEl.remember === 'function' ? lineSvgjsEl.remember('_shapeInstance') : null;
+            if (lineInst && typeof lineInst.syncSelectionHandlers === 'function') {
+                setTimeout(() => lineInst.syncSelectionHandlers(null, true), 10);
+            }
         }
 
-        // Sync to editor
-        if (this.syncCallback) {
-            this.syncCallback();
-        }
+        if (this.syncCallback) this.syncCallback(true);
     }
 
     applyRotation(angle) {

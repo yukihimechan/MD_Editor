@@ -43,7 +43,34 @@ class SvgAnimationManager {
         } else {
             content += '\n' + keyframesCss;
         }
+
+        // Trigger制御用の共通クラスがなければ追加
+        if (!content.includes('.anim-paused')) {
+            content += '\n.anim-paused { animation-play-state: paused !important; }';
+        }
+        if (!content.includes('.anim-running')) {
+            content += '\n.anim-running { animation-play-state: running !important; }';
+        }
+
         style.textContent = content.trim();
+    }
+
+    /**
+     * トリガー専用のCSSクラスを動的に更新・追加する
+     * @param {SVGElement} svgNode - SVGのルートノード
+     * @param {string} className - クラス名
+     * @param {string} animationCss - animationプロパティの値
+     */
+    static updateTriggerClass(svgNode, className, newRuleText) {
+        const style = this.getOrCreateStyleTag(svgNode);
+        let content = style.textContent || '';
+        const regex = new RegExp(`[^{}]*\\.${className}\\b[^{]*\\{[^}]*\\}`, 'g');
+        if (content.includes(`.${className}`)) {
+            content = content.replace(regex, '');
+        }
+        content += '\n' + newRuleText;
+        style.textContent = content.trim();
+        console.log(`[Animation] Generated CSS for ${className}: \n`, newRuleText);
     }
 
     /**
@@ -98,6 +125,59 @@ class SvgAnimationManager {
   50% { transform: scale(${amount}); }
   100% { transform: scale(1); }
 }`;
+            case 'shake':
+                return `@keyframes ${animName} {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-${amount}px); }
+  75% { transform: translateX(${amount}px); }
+}`;
+            case 'float':
+                return `@keyframes ${animName} {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-${amount}px); }
+}`;
+            case 'flip':
+                return `@keyframes ${animName} {
+  from { transform: perspective(400px) rotateY(0deg); }
+  to { transform: perspective(400px) rotateY(${amount}deg); }
+}`;
+            case 'jelly':
+                const squeeze = (1 / amount).toFixed(2);
+                return `@keyframes ${animName} {
+  0%, 100% { transform: scale(1, 1); }
+  25% { transform: scale(${amount}, ${squeeze}); }
+  50% { transform: scale(1, 1); }
+  75% { transform: scale(${squeeze}, ${amount}); }
+}`;
+            // --- スタイルアニメーション ---
+            case 'fade-in':
+                return `@keyframes ${animName} {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}`;
+            case 'fade-out':
+                return `@keyframes ${animName} {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}`;
+            case 'flash':
+                return `@keyframes ${animName} {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}`;
+            case 'color-fill':
+                return `@keyframes ${animName} {
+  100% { fill: ${amount}; }
+}`;
+            case 'color-line':
+                return `@keyframes ${animName} {
+  100% { stroke: ${amount}; }
+}`;
+            case 'dash-draw':
+                return `@keyframes ${animName} {
+  0% { stroke-dashoffset: ${amount}; }
+  100% { stroke-dashoffset: 0; }
+}`;
             default:
                 return '';
         }
@@ -108,7 +188,7 @@ class SvgAnimationManager {
      * 既存の要素をラッパー <g> で包み、そのラッパーに対してアニメーションを設定する。
      * @param {SVGElement|Object} element - アニメーションを付与する要素 (SVG.js オブジェクトまたはDOM要素)
      * @param {Object} params - アニメーションパラメータ
-     * @param {string} params.type - 'spin' | 'swing' | 'bounce' | 'pulse'
+     * @param {string} params.type - 'spin' | 'swing' | 'bounce' | 'pulse' | 'shake' | 'float' | 'flip' | 'jelly'
      * @param {number} params.amount - 変化量 (角度, ピクセル, スケール)
      * @param {number} params.dur - 再生時間 (秒)
      * @param {number} [params.delay=0] - 遅延時間 (秒)
@@ -121,7 +201,7 @@ class SvgAnimationManager {
         const svgNode = domNode.ownerSVGElement;
         if (!svgNode) return;
 
-        const { type, amount, dur, delay = 0, easing = 'ease-in-out', originX, originY } = params;
+        const { type, amount, dur, delay = 0, easing = 'ease-in-out', originX, originY, repeat = 'infinite', trigger = 'auto' } = params;
 
         // すでに該当の種類でラップされているか確認
         let wrapper = domNode.closest(`.anim-wrapper-${type}`);
@@ -134,6 +214,21 @@ class SvgAnimationManager {
             isNewWrapper = true;
         }
 
+        // [NEW] dash-draw の場合、パスの長さを計算して stroke-dasharray を設定
+        let actualAmount = amount;
+        if (type === 'dash-draw') {
+            if (!actualAmount || actualAmount === '') {
+                try {
+                    actualAmount = domNode.getTotalLength ? domNode.getTotalLength() : 1000;
+                    actualAmount = Math.ceil(actualAmount);
+                } catch(e) {
+                    actualAmount = 1000;
+                }
+            }
+            // domNode自身にstroke-dasharrayを設定する（ラッパーではない）
+            domNode.style.strokeDasharray = actualAmount;
+        }
+
         // 一意のアニメーション名（キーフレーム名）を決定
         let animName = wrapper.getAttribute('data-anim-name');
         if (!animName) {
@@ -143,15 +238,17 @@ class SvgAnimationManager {
         }
 
         // キーフレーム定義を作成してSVG内のstyleに反映
-        const keyframes = this.generateKeyframeCss(animName, type, amount);
+        const keyframes = this.generateKeyframeCss(animName, type, actualAmount);
         this.updateKeyframes(svgNode, animName, keyframes);
 
         // ラッパーにパラメータをカスタムメタデータとして保存
         wrapper.setAttribute('data-anim-type', type);
         wrapper.setAttribute('data-anim-dur', dur);
-        wrapper.setAttribute('data-anim-amount', amount);
+        wrapper.setAttribute('data-anim-amount', actualAmount);
         wrapper.setAttribute('data-anim-delay', delay);
         wrapper.setAttribute('data-anim-easing', easing);
+        wrapper.setAttribute('data-anim-repeat', repeat);
+        wrapper.setAttribute('data-anim-trigger', trigger);
 
         // 基準点（originX, originY）の解決
         let resolvedX = originX;
@@ -202,12 +299,68 @@ class SvgAnimationManager {
             wrapper.style.transformOrigin = '';
         }
 
-        // CSSアニメーションプロパティを設定
-        wrapper.style.animation = `${animName} ${dur}s ${easing} infinite`;
-        if (delay !== 0) {
-            wrapper.style.animationDelay = `${delay}s`;
+        const isStyleAnimation = ['fade-in', 'fade-out', 'flash', 'color-fill', 'color-line', 'dash-draw'].includes(type);
+        const fillMode = (isStyleAnimation && repeat !== 'infinite') ? ' both' : '';
+
+        // Triggerの処理
+        if (trigger === 'click') {
+            wrapper.style.animation = ''; // 通常時はインラインアニメーションを適用しない
+            wrapper.setAttribute('tabindex', '0'); // フォーカス可能にしてクリック検知
+            wrapper.style.outline = 'none';
+            wrapper.style.cursor = 'pointer';
+            
+            // ラッパーにIDがなければ生成
+            if (!wrapper.id) {
+                const randId = Math.random().toString(36).substring(2, 8);
+                wrapper.id = `anim-wrap-${type}-${randId}`;
+            }
+
+            const animStyle = `${animName} ${dur}s ${easing} ${delay ? delay + 's ' : ''}${repeat === 'infinite' ? 'infinite' : repeat}${fillMode}`;
+            const triggerClassName = `anim-trigger-${animName}`;
+
+            const newRule = `.${triggerClassName} { animation: none !important; outline: none; }
+.${triggerClassName}:focus { animation: ${animStyle} !important; outline: none; }
+.${triggerClassName}:active { animation: none !important; outline: none; }
+#slideshow-content .${triggerClassName} { animation: ${animStyle} !important; outline: none; }`;
+            this.updateTriggerClass(svgNode, triggerClassName, newRule);
+
+            const baseClass = wrapper.getAttribute('class').replace(new RegExp(`\\b${triggerClassName}\\b`, 'g'), '').replace('anim-paused', '').replace('anim-running', '').trim();
+            wrapper.setAttribute('class', `${baseClass} ${triggerClassName}`);
+
+            // 調査用ログ
+            wrapper.addEventListener('focus', () => console.log(`[Animation] ${triggerClassName} received focus (click trigger)`));
+            wrapper.addEventListener('blur', () => console.log(`[Animation] ${triggerClassName} lost focus (click trigger)`));
+
+            // 古い <set> タグが残っていれば削除
+            Array.from(wrapper.children).forEach(child => {
+                if (child.tagName.toLowerCase() === 'set') {
+                    child.remove();
+                }
+            });
         } else {
-            wrapper.style.animationDelay = '';
+            const animStyle = `${animName} ${dur}s ${easing} ${delay ? delay + 's ' : ''}${repeat === 'infinite' ? 'infinite' : repeat}${fillMode}`;
+            const triggerClassName = `anim-trigger-${animName}`;
+            
+            const newRule = `#preview:not(.playing-sequence) svg:not(.svg-block-focused) .${triggerClassName}:not(:focus) { animation-play-state: paused !important; outline: none; }`;
+            this.updateTriggerClass(svgNode, triggerClassName, newRule);
+
+            const baseClass = wrapper.getAttribute('class').replace(new RegExp(`\\b${triggerClassName}\\b`, 'g'), '').replace('anim-paused', '').replace('anim-running', '').trim();
+            wrapper.setAttribute('class', `${baseClass} ${triggerClassName}`);
+            
+            wrapper.setAttribute('tabindex', '0'); // プレビューでフォーカス可能にする
+            wrapper.style.outline = 'none';
+            wrapper.style.cursor = 'pointer'; // クリックできることを示す
+            wrapper.style.animation = animStyle;
+            
+            // 調査用ログ
+            wrapper.addEventListener('focus', () => console.log(`[Animation] ${triggerClassName} received focus (auto trigger)`));
+            wrapper.addEventListener('blur', () => console.log(`[Animation] ${triggerClassName} lost focus (auto trigger)`));
+
+            Array.from(wrapper.children).forEach(child => {
+                if (child.tagName.toLowerCase() === 'set') {
+                    child.remove();
+                }
+            });
         }
 
         // 新規ラッパーの場合、ここで初めてDOMツリーに挿入して対象要素を包む
@@ -317,7 +470,8 @@ class SvgAnimationManager {
     /**
      * 要素から特定の種類のアニメーション（ラッパー）を削除する
      * @param {SVGElement|Object} element - アニメーション設定された要素またはラッパー
-     * @param {string} type - 'spin' | 'swing' | 'bounce' | 'pulse' | 'motion'
+     * @param {string} type - 'spin' | 'swing' | 'bounce' | 'pulse' | 'shake' | 'float' | 'flip' | 'jelly' | 'motion'
+     * @returns {void}
      */
     static removeAnimation(element, type) {
         const domNode = element.node || element;
@@ -367,7 +521,7 @@ class SvgAnimationManager {
         let curr = domNode;
         while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
             const classes = curr.getAttribute('class') || '';
-            const match = classes.match(/anim-wrapper-([a-z]+)/);
+            const match = classes.match(/anim-wrapper-([a-z-]+)/);
             if (match) {
                 const type = match[1];
                 if (type === 'motion') {
@@ -377,14 +531,17 @@ class SvgAnimationManager {
                         autoRotate: curr.getAttribute('data-motion-rotate') === 'auto'
                     };
                 } else {
+                    const rawAmount = curr.getAttribute('data-anim-amount');
                     result[type] = {
                         type: type,
-                        amount: parseFloat(curr.getAttribute('data-anim-amount')),
+                        amount: (type === 'color-fill' || type === 'color-line') ? rawAmount : parseFloat(rawAmount),
                         dur: parseFloat(curr.getAttribute('data-anim-dur')),
                         delay: parseFloat(curr.getAttribute('data-anim-delay') || 0),
                         easing: curr.getAttribute('data-anim-easing') || 'ease-in-out',
                         originX: parseFloat(curr.getAttribute('data-origin-x')),
-                        originY: parseFloat(curr.getAttribute('data-origin-y'))
+                        originY: parseFloat(curr.getAttribute('data-origin-y')),
+                        repeat: curr.getAttribute('data-anim-repeat') || 'infinite',
+                        trigger: curr.getAttribute('data-anim-trigger') || 'auto'
                     };
                 }
             }

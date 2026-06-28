@@ -294,6 +294,20 @@ function startSVGEdit(container, svgIndex) {
         const svgElement = container.querySelector('svg');
         if (!svgElement) return;
 
+        // [FIX] data URI を含む <image> タグの xlink:href を退避
+        // WebView2等や SVG.js (v3) の処理によってDOMのattributesから href が消失・空文字化する問題への対策
+        // SVG.jsがadoptする前、いかなるDOM操作も行われる前の「一番最初の状態」で必ずバックアップを取る
+        svgElement.querySelectorAll('image').forEach(elNode => {
+            if (!elNode.hasAttribute('data-is-proxy')) {
+                const href = elNode.getAttribute('href') || 
+                             elNode.getAttribute('xlink:href') || 
+                             elNode.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+                if (href && href.startsWith('data:image/')) {
+                    elNode.setAttribute('data-original-href-backup', href);
+                }
+            }
+        });
+
         // [NEW] 編集開始時 data-paper-* 属性の正規化
         // data-paper-width がない場合は外部SVG または旧バージョンのSVGと判断し、
         // normalizeSVGTagForPreviewWidth を使って viewBox / data-paper-* を補完する。
@@ -478,8 +492,22 @@ function startSVGEdit(container, svgIndex) {
         // [FIX] viewBox はズーム込みの値のため、フォールバック時はズームで割り戻して論理サイズに変換する
         const initZoom = parseFloat(svgElement.getAttribute('data-paper-zoom')) || 100;
         const initZoomFactor = initZoom / 100;
-        const domW = !isNaN(savedPaperW) ? savedPaperW : (vbBase.width ? Math.round(vbBase.width * initZoomFactor) : (parseFloat(svgElement.getAttribute('width')) || 820));
-        const domH = !isNaN(savedPaperH) ? savedPaperH : (vbBase.height ? Math.round(vbBase.height * initZoomFactor) : (parseFloat(svgElement.getAttribute('height')) || 450));
+
+        const calcW = vbBase.width ? Math.round(vbBase.width * initZoomFactor) : 820;
+        const calcH = vbBase.height ? Math.round(vbBase.height * initZoomFactor) : 450;
+
+        let domW = !isNaN(savedPaperW) ? savedPaperW : (parseFloat(svgElement.getAttribute('width')) || calcW);
+        let domH = !isNaN(savedPaperH) ? savedPaperH : (parseFloat(svgElement.getAttribute('height')) || calcH);
+
+        console.log(`[startSVGEdit DEBUG] viewBox.height=${vbBase.height}, initZoom=${initZoom}, calcH=${calcH}, savedPaperH=${savedPaperH}, domH=${domH}`);
+
+        // [FIX] 前バージョンのバグによって data-paper-height が極端に小さな値 (29など) に書き換わってしまった場合の自己修復
+        if (Math.abs(domH - calcH) > 50 && calcH >= 50 && domH < calcH * 0.5) {
+            console.warn(`[startSVGEdit] Self-healing height: ${domH} is abnormally small compared to calculated ${calcH}. Restoring.`);
+            domH = calcH;
+            domW = calcW;
+        }
+
         const isDomDefault = (Math.abs(domH - 450) < 1 || Math.abs(domH - 350) < 1);
 
         if (prevH && !isNaN(prevH) && isDomDefault && Math.abs(domH - prevH) > 10) {
@@ -498,6 +526,20 @@ function startSVGEdit(container, svgIndex) {
 
         // [NEW] キャンバス高さを正解の基準値として記録（ライブラリによる副作用リセットの検知・修復用）
         current.standardHeight = current.baseHeight;
+
+        // [FIX] 前回のバグで保存された間違った viewBox や height 属性が `<svg>` タグに残ったままだと、
+        // この後の canvasProxy 生成時や svg.resize プラグインの初期化時に、ブラウザのレイアウトエンジンが
+        // 誤った viewBox に引っ張られて要素サイズを潰してしまう。
+        // それを防ぐため、この時点で正しく計算された論理サイズ(baseW/baseH)から viewBox と height を強制的にリセットする。
+        if (svgElement && current.baseWidth && current.baseHeight) {
+            const configW = (typeof AppState !== 'undefined' && AppState.config && AppState.config.previewWidth) ? AppState.config.previewWidth : current.baseWidth;
+            const displayH = Math.round(current.baseHeight * (configW / current.baseWidth));
+            svgElement.setAttribute('width', configW);
+            svgElement.setAttribute('height', displayH);
+            
+            // 初期のズーム値とオフセットがわかるまでは一旦基本の100%スケールで仮設定しておく
+            svgElement.setAttribute('viewBox', `${current.baseX} ${current.baseY} ${current.baseWidth} ${current.baseHeight}`);
+        }
 
         // console.log(`[startSVGEdit] Resolved Base size: ${current.baseWidth}x${current.baseHeight}`);
 
@@ -567,9 +609,10 @@ function startSVGEdit(container, svgIndex) {
 
             clearTimeout(this._zoomPanSyncTimer);
             this._zoomPanSyncTimer = setTimeout(() => {
-                if (typeof syncChanges === 'function' && window.currentEditingSVG === this) {
+                if (typeof syncChanges === 'function' && window.currentEditingSVG === this && !this._skipNextZoomSync) {
                     syncChanges(true, null, true);
                 }
+                this._skipNextZoomSync = false;
             }, 500);
 
             // [FIX] ズーム変更後に選択UI（8点ハンドル・回転ハンドル）の座標を再計算する
@@ -828,6 +871,8 @@ function startSVGEdit(container, svgIndex) {
         current.canvas = canvasProxy.node; // [NEW] Added for backward compatibility/reference
         current.canvasInset = inset;
 
+        console.log(`[startSVGEdit DEBUG] canvasProxy created with width=${canvasProxy.attr('width')}, height=${canvasProxy.attr('height')}`);
+
         // [NEW] Use CanvasShape for the proxy
         if (typeof CanvasShape !== 'undefined') {
             const canvasObj = new CanvasShape(canvasProxy);
@@ -935,14 +980,28 @@ function startSVGEdit(container, svgIndex) {
         if (typeof createAnimationTransformToolbar !== 'undefined') {
             window.animationTransformToolbar = createAnimationTransformToolbar(container, {
                 position: getRightPos(0),
-                borderColor: '#FF5722'
+                borderColor: '#FF5722',
+                onValueChange: (id, val) => {
+                    if (typeof handleTransformChange === 'function') handleTransformChange(id, val);
+                }
+            });
+        }
+
+        // [NEW] Animation Style Toolbar
+        if (typeof createAnimationStyleToolbar !== 'undefined') {
+            window.animationStyleToolbar = createAnimationStyleToolbar(container, {
+                position: getRightPos(1),
+                borderColor: '#FF5722',
+                onValueChange: (id, val) => {
+                    if (typeof handleTransformChange === 'function') handleTransformChange(id, val);
+                }
             });
         }
 
         // [NEW] Animation Timing Toolbar
         if (typeof createAnimationTimingToolbar !== 'undefined') {
             window.animationTimingToolbar = createAnimationTimingToolbar(container, {
-                position: getRightPos(1),
+                position: getRightPos(2),
                 borderColor: '#FF5722'
             });
         }
@@ -950,9 +1009,19 @@ function startSVGEdit(container, svgIndex) {
         // [NEW] Animation Path Toolbar
         if (typeof createAnimationPathToolbar !== 'undefined') {
             window.animationPathToolbar = createAnimationPathToolbar(container, {
-                position: getRightPos(2),
+                position: getRightPos(3),
                 borderColor: '#FF5722'
             });
+        }
+
+        // [NEW] Animation List Toolbar (連続再生リスト)
+        if (typeof createAnimationListToolbar !== 'undefined') {
+            window.animationListToolbar = createAnimationListToolbar(container, {
+                position: getRightPos(4),
+                borderColor: '#E65100'
+            });
+            // SVGに保存されたリストデータを復元
+            window.animationListToolbar.loadFromSvg();
         }
 
         // [NEW] Listen for global transformations to update toolbar
@@ -1080,6 +1149,7 @@ function startSVGEdit(container, svgIndex) {
                         if (typeof syncChanges === 'function') syncChanges(false);
                         if (typeof updateTransformToolbarValues === 'function') updateTransformToolbarValues();
                         if (typeof updateSVGSourceHighlight === 'function') updateSVGSourceHighlight();
+                        if (typeof window.updateSVGFloatingToolbar === 'function') window.updateSVGFloatingToolbar();
                     }
                 }
             }
@@ -1438,7 +1508,34 @@ function startSVGEdit(container, svgIndex) {
                         if (isIgnored) continue;
 
                         if (mutation.type === 'childList' || mutation.type === 'characterData') {
-                            queue.requiresFullSync = true;
+                            if (mutation.type === 'childList') {
+                                const allNodesAreInternal = (nodeList) => {
+                                    for (const n of nodeList) {
+                                        if (n.nodeType !== 1) continue;
+                                        if (n.getAttribute('data-internal') === 'true') continue;
+                                        if (n.classList) {
+                                            const cls = n.className.baseVal || n.className || '';
+                                            if (typeof cls === 'string' && (
+                                                cls.includes('svg-canvas-proxy') || cls.includes('svg-grid') ||
+                                                cls.includes('svg_select') || cls.includes('svg-select') || cls.includes('svg-interaction') ||
+                                                cls.includes('svg-snap-guides') || cls.includes('svg-ruler') ||
+                                                cls.includes('svg-control-marker') || cls.includes('-handle-group') || cls.includes('svg-marquee')
+                                            )) {
+                                                continue;
+                                            }
+                                        }
+                                        return false;
+                                    }
+                                    return true;
+                                };
+                                const addedInternal = allNodesAreInternal(mutation.addedNodes);
+                                const removedInternal = allNodesAreInternal(mutation.removedNodes);
+                                if (!addedInternal || !removedInternal) {
+                                    queue.requiresFullSync = true;
+                                }
+                            } else {
+                                queue.requiresFullSync = true;
+                            }
                             hasChanges = true;
                         } else if (mutation.type === 'attributes') {
                             if (targetNode.tagName.toLowerCase() === 'svg') {
@@ -1537,6 +1634,7 @@ function startSVGEdit(container, svgIndex) {
         }
 
         // [NEW] Initialize Zoom and CSS Variables (RESTORED STATE)
+        current._skipNextZoomSync = true;
         current.setZoom(current.zoom || 100);
 
         // [NEW] エディタ起動時にSMILアニメーションを自動再生する
@@ -1620,6 +1718,10 @@ function stopSVGEdit(skipRender = false) {
         window.shadowToolbar.destroy();
         window.shadowToolbar = null;
     }
+    // [NEW] Floating Toolbar を非表示
+    if (window.svgFloatingToolbar) {
+        window.svgFloatingToolbar.hide();
+    }
     // [NEW] Airbrush Toolbar 破棄
     if (window.airbrushToolbar) {
         window.airbrushToolbar.destroy();
@@ -1638,6 +1740,11 @@ function stopSVGEdit(skipRender = false) {
     if (window.animationPathToolbar) {
         window.animationPathToolbar.destroy();
         window.animationPathToolbar = null;
+    }
+    // [NEW] Animation List Toolbar 破棄
+    if (window.animationListToolbar) {
+        window.animationListToolbar.destroy();
+        window.animationListToolbar = null;
     }
 
     // [NEW] Remove grid lines before sync/cleanup
@@ -1688,17 +1795,8 @@ function stopSVGEdit(skipRender = false) {
         });
         // [FIX] エディタ終了時に中身を空にすると、非同期のプレビュー再描画が完了する前に
         // 再び編集に入った場合に図形が消失するバグが発生するため、innerHTMLを空にするのは廃止します。
-        // 代わりに、同一ID要素との衝突（SMILの参照バグ）を防ぐため、古いDOM要素のID属性をすべて消去します。
-        draw.find('*').each(function () {
-            try {
-                if (this.node && this.node.hasAttribute('id')) {
-                    this.node.removeAttribute('id');
-                }
-            } catch (e) { }
-        });
-        if (draw.node) {
-            draw.node.removeAttribute('id');
-        }
+        // Leave IDs intact to prevent breaking `<use>` and `clip-path` references.
+        // The editorDiv will either be replaced by renderer.js or kept if no changes were made.
     }
 
     try {
@@ -1964,6 +2062,13 @@ function importImageAsBase64(dataUrl, dropPoint = null) {
             if (typeof makeInteractive === 'function') makeInteractive(img);
             if (typeof selectElement === 'function') selectElement(img);
 
+            // [FIX] インポートした画像も属性消失対策の退避を行う
+            const node = img.node;
+            const href = node.getAttribute('href') || node.getAttribute('xlink:href');
+            if (href && href.startsWith('data:image/')) {
+                node.setAttribute('data-original-href-backup', href);
+            }
+
             if (typeof syncChanges === 'function') syncChanges();
             console.log('[Image Import] Import complete.');
         });
@@ -2034,16 +2139,32 @@ window.getSVGContextMenuActions = function() {
             if (window.animationPathToolbar && typeof window.animationPathToolbar.resetPosition === 'function') {
                 window.animationPathToolbar.resetPosition();
             }
+            if (window.animationListToolbar && typeof window.animationListToolbar.resetPosition === 'function') {
+                window.animationListToolbar.resetPosition();
+            }
+            if (window.animationStyleToolbar && typeof window.animationStyleToolbar.resetPosition === 'function') {
+                window.animationStyleToolbar.resetPosition();
+            }
         },
         group: typeof groupSelectedElements === 'function' ? groupSelectedElements : null,
         ungroup: typeof ungroupSelectedElements === 'function' ? ungroupSelectedElements : null,
         bringToFront: typeof moveSelectedToFront === 'function' ? moveSelectedToFront : null,
         sendToBack: typeof moveSelectedToBack === 'function' ? moveSelectedToBack : null,
+        bringForward: typeof moveSelectedForward === 'function' ? moveSelectedForward : null,
+        sendBackward: typeof moveSelectedBackward === 'function' ? moveSelectedBackward : null,
         copy: typeof copySelectedElements === 'function' ? copySelectedElements : null,
         paste: typeof pasteElements === 'function' ? pasteElements : null,
         delete: typeof deleteSelectedElements === 'function' ? deleteSelectedElements : null,
         showProperties: typeof showPropertyEditor === 'function' ? showPropertyEditor : null,
         addToToolbar: typeof addToToolbar === 'function' ? addToToolbar : null,
+        addToAnimList: () => {
+            if (!window.animationListToolbar) return;
+            const sel = window.currentEditingSVG && window.currentEditingSVG.selectedElements;
+            if (!sel || sel.size === 0) return;
+            const el = Array.from(sel)[0];
+            const domNode = el.node || el;
+            window.animationListToolbar.addToSequence(domNode);
+        },
         hasClipboard: () => window.SVGClipboard ? window.SVGClipboard.elements.length > 0 : false
     };
 };

@@ -40,14 +40,25 @@ class SVGFloatingToolbar {
         this._bindEvents();
     }
 
-    _getToolbarHTML() {
-        // アイコン定義
+    _isOpenPath(el) {
+        if (!el || !el.node) return false;
+        const tagName = el.node.tagName.toLowerCase();
+        const toolId = el.attr('data-tool-id');
+        const openPathTools = ['line', 'arrow', 'polyline', 'freehand', 'airbrush', 'orthogonal', 'orthogonal_line', 'curve'];
+        if (openPathTools.includes(toolId)) return true;
+        if (tagName === 'line' || tagName === 'polyline') return true;
+        return false;
+    }
+
+    _getMainPanelHTML(isOpenPath) {
         const iconStyle = 'width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;';
         const icons = {
-            comment: `<svg style="${iconStyle}" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>`,
-            lock: `<svg style="${iconStyle}" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`,
             duplicate: `<svg style="${iconStyle}" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`,
             trash: `<svg style="${iconStyle}" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
+            startArrow: `<svg style="${iconStyle}" viewBox="0 0 24 24"><path d="M19 12H5M9 16l-4-4 4-4"/></svg>`,
+            endArrow: `<svg style="${iconStyle}" viewBox="0 0 24 24"><path d="M5 12h14M15 16l4-4-4-4"/></svg>`,
+            forward: `<svg style="${iconStyle}" viewBox="0 0 24 24"><path d="M4 10h12v10H4z"/><path d="M10 4h10v10h-6"/></svg>`,
+            backward: `<svg style="${iconStyle}" viewBox="0 0 24 24"><path d="M10 4h10v10h-6"/><path d="M4 10h12v10H4z" fill="var(--svg-toolbar-bg, #ffffff)"/></svg>`,
             more: `<svg style="${iconStyle}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>`
         };
 
@@ -66,6 +77,71 @@ class SVGFloatingToolbar {
             transition: background 0.15s ease;
         `;
 
+        if (isOpenPath) {
+            return `
+                <button class="svg-float-btn" data-action="duplicate" style="${btnStyle}" title="複製">${icons.duplicate}</button>
+                <button class="svg-float-btn" data-action="delete" style="${btnStyle}" title="削除">${icons.trash}</button>
+                <div style="width: 1px; height: 14px; background: var(--svg-toolbar-border, #e0e0e0); margin: 0 4px;"></div>
+                <button class="svg-float-btn" data-action="startArrow" style="${btnStyle}" title="始点矢印">${icons.startArrow}</button>
+                <button class="svg-float-btn" data-action="endArrow" style="${btnStyle}" title="終点矢印">${icons.endArrow}</button>
+                <div style="width: 1px; height: 14px; background: var(--svg-toolbar-border, #e0e0e0); margin: 0 4px;"></div>
+                <button class="svg-float-btn" data-action="more" style="${btnStyle}" title="詳細メニュー">${icons.more}</button>
+            `;
+        } else {
+            return `
+                <button class="svg-float-btn" data-action="duplicate" style="${btnStyle}" title="複製">${icons.duplicate}</button>
+                <button class="svg-float-btn" data-action="delete" style="${btnStyle}" title="削除">${icons.trash}</button>
+                <div style="width: 1px; height: 14px; background: var(--svg-toolbar-border, #e0e0e0); margin: 0 4px;"></div>
+                <button class="svg-float-btn" data-action="forward" style="${btnStyle}" title="一つ前へ">${icons.forward}</button>
+                <button class="svg-float-btn" data-action="backward" style="${btnStyle}" title="一つ後ろへ">${icons.backward}</button>
+                <div style="width: 1px; height: 14px; background: var(--svg-toolbar-border, #e0e0e0); margin: 0 4px;"></div>
+                <button class="svg-float-btn" data-action="more" style="${btnStyle}" title="詳細メニュー">${icons.more}</button>
+            `;
+        }
+    }
+
+    _getAnnotationPanelHTML(isOpenPath, toolId) {
+        const iconStyle = 'width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;';
+        const icons = {
+            duplicate: `<svg style="${iconStyle}" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`,
+            trash: `<svg style="${iconStyle}" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
+            comment: `<svg style="${iconStyle}" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10z"></path></svg>`
+        };
+
+        const btnStyle = `
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--svg-toolbar-fg, #333);
+            transition: background 0.15s ease;
+        `;
+
+        let html = '';
+        
+        // 吹き出しの場合はコメントボタンを出す
+        if (toolId === 'bubble') {
+            html += `<button class="svg-float-btn" data-action="comment" style="${btnStyle}" title="コメントを編集">${icons.comment}</button>`;
+            html += `<div style="width: 1px; height: 14px; background: var(--svg-toolbar-border, #e0e0e0); margin: 0 4px;"></div>`;
+        }
+
+        html += `
+            <button class="svg-float-btn" data-action="duplicate" style="${btnStyle}" title="複製">${icons.duplicate}</button>
+            <button class="svg-float-btn" data-action="delete" style="${btnStyle}; color: #e74c3c;" title="削除">${icons.trash}</button>
+        `;
+
+        return html;
+    }
+
+    _getToolbarHTML() {
+        const iconStyle = 'width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;';
+        
         const panelStyle = `
             background: var(--svg-toolbar-bg, #ffffff);
             border: 1px solid var(--svg-toolbar-border, #e0e0e0);
@@ -106,12 +182,7 @@ class SVGFloatingToolbar {
                 </svg>
             </div>
             <div class="svg-floating-toolbar-main" style="${panelStyle}">
-                <button class="svg-float-btn" data-action="comment" style="${btnStyle}" title="コメント/プロパティ">${icons.comment}</button>
-                <button class="svg-float-btn" data-action="lock" style="${btnStyle}" title="ロック">${icons.lock}</button>
-                <button class="svg-float-btn" data-action="duplicate" style="${btnStyle}" title="複製">${icons.duplicate}</button>
-                <button class="svg-float-btn" data-action="delete" style="${btnStyle}" title="削除">${icons.trash}</button>
-                <div style="width: 1px; height: 14px; background: var(--svg-toolbar-border, #e0e0e0); margin: 0 4px;"></div>
-                <button class="svg-float-btn" data-action="more" style="${btnStyle}" title="詳細メニュー">${icons.more}</button>
+                ${this._getMainPanelHTML(false)}
             </div>
         `;
     }
@@ -192,8 +263,20 @@ class SVGFloatingToolbar {
 
     _handleAction(action, e) {
         switch (action) {
-            case 'comment':
-                if (this.selectedElements.size > 0 && typeof this.actions.showProperties === 'function') {
+            case 'comment': {
+                let isAnnotation = false;
+                if (this.selectedElements && this.selectedElements.size > 0) {
+                    const firstEl = this.selectedElements.values().next().value;
+                    if (firstEl && firstEl.attr('data-annotation') === 'true') {
+                        isAnnotation = true;
+                    }
+                }
+
+                if ((this.activeEditor && this.activeEditor._isAnnotationLayerMock) || isAnnotation) {
+                    if (window.AnnotationCommentPanel) {
+                        window.AnnotationCommentPanel.toggle();
+                    }
+                } else if (this.selectedElements && this.selectedElements.size > 0 && typeof this.actions.showProperties === 'function') {
                     const firstEl = this.selectedElements.values().next().value;
                     let targetNode = firstEl.node;
                     if (firstEl.hasClass('svg-canvas-proxy')) {
@@ -202,6 +285,7 @@ class SVGFloatingToolbar {
                     this.actions.showProperties(targetNode, this.svgIndex, this.container);
                 }
                 break;
+            }
             case 'lock':
                 if (this.selectedElements.size > 0) {
                     let allLocked = true;
@@ -243,6 +327,48 @@ class SVGFloatingToolbar {
                     this.actions.delete();
                 }
                 break;
+            case 'startArrow':
+                if (this.selectedElements.size === 1) {
+                    const el = this.selectedElements.values().next().value;
+                    const hasStart = el.node.getAttribute('data-arrow-start') === 'true';
+                    el.node.setAttribute('data-arrow-start', !hasStart);
+                    if (window.SVGToolbar && typeof window.SVGToolbar.updateArrowMarkers === 'function') {
+                        window.SVGToolbar.updateArrowMarkers(el);
+                    }
+                    if (window.cleanUpUnusedMarkers) window.cleanUpUnusedMarkers(this.activeEditor.draw);
+                    if (window.syncChanges) window.syncChanges(true);
+                    if (this.activeEditor.polylineHandler) {
+                        const selGrp = this.container.querySelector('.svg-select-group, .svg_select_group');
+                        this.activeEditor.polylineHandler.update(selGrp, el.node, el.node.getBBox());
+                    }
+                }
+                break;
+            case 'endArrow':
+                if (this.selectedElements.size === 1) {
+                    const el = this.selectedElements.values().next().value;
+                    const hasEnd = el.node.getAttribute('data-arrow-end') === 'true';
+                    el.node.setAttribute('data-arrow-end', !hasEnd);
+                    if (window.SVGToolbar && typeof window.SVGToolbar.updateArrowMarkers === 'function') {
+                        window.SVGToolbar.updateArrowMarkers(el);
+                    }
+                    if (window.cleanUpUnusedMarkers) window.cleanUpUnusedMarkers(this.activeEditor.draw);
+                    if (window.syncChanges) window.syncChanges(true);
+                    if (this.activeEditor.polylineHandler) {
+                        const selGrp = this.container.querySelector('.svg-select-group, .svg_select_group');
+                        this.activeEditor.polylineHandler.update(selGrp, el.node, el.node.getBBox());
+                    }
+                }
+                break;
+            case 'forward':
+                if (typeof this.actions.bringForward === 'function') {
+                    this.actions.bringForward();
+                }
+                break;
+            case 'backward':
+                if (typeof this.actions.sendBackward === 'function') {
+                    this.actions.sendBackward();
+                }
+                break;
             case 'more':
                 if (typeof window.showSVGContextMenu === 'function') {
                     // SVG_context_menu.js の呼び出し
@@ -267,14 +393,41 @@ class SVGFloatingToolbar {
         this.container = container;
         this.svgIndex = svgIndex;
 
-        // 初期表示時にロックアイコンの状態を反映
-        let allLocked = true;
-        this.selectedElements.forEach(el => {
-            if (el.node.getAttribute('data-locked') !== 'true') {
-                allLocked = false;
+        let toolId = null;
+        let isOpenPath = false;
+        let isAnnotation = false;
+
+        if (this.selectedElements.size > 0) {
+            const firstEl = this.selectedElements.values().next().value;
+            if (firstEl && firstEl.attr('data-annotation') === 'true') {
+                isAnnotation = true;
             }
-        });
-        this._updateLockIcon(allLocked);
+        }
+
+        if (this.selectedElements.size === 1) {
+            const el = this.selectedElements.values().next().value;
+            isOpenPath = this._isOpenPath(el);
+            toolId = el.attr('data-tool-id');
+            
+            // テキスト追加によってグループ化（shape-text-group）された場合、子要素にbubbleがあるかチェック
+            if (toolId !== 'bubble' && el.node && typeof el.node.querySelector === 'function') {
+                if (el.node.querySelector('[data-tool-id="bubble"]')) {
+                    toolId = 'bubble';
+                }
+            }
+        }
+
+        const mainPanel = this.el.querySelector('.svg-floating-toolbar-main');
+        if (mainPanel) {
+            if ((this.activeEditor && this.activeEditor._isAnnotationLayerMock) || isAnnotation) {
+                mainPanel.innerHTML = this._getAnnotationPanelHTML(isOpenPath, toolId);
+            } else {
+                mainPanel.innerHTML = this._getMainPanelHTML(isOpenPath);
+            }
+        }
+
+        // ロックアイコンは削除したため更新処理をコメントアウトまたは削除します
+        // this._updateLockIcon(allLocked);
 
         this.isVisible = true;
         this.el.style.display = 'flex';
@@ -350,7 +503,7 @@ class SVGFloatingToolbar {
         let left = minX + (maxX - minX) / 2 - menuRect.width / 2;
         let top = minY - menuRect.height - padding;
 
-        console.log('[FloatingToolbar] Positioning at', { left, top, minX, minY, maxX, maxY });
+        // console.log('[FloatingToolbar] Positioning at', { left, top, minX, minY, maxX, maxY });
 
         // 画面上部にはみ出す場合は下に出す
         if (top < 10) {
