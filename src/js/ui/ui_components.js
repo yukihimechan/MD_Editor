@@ -7,7 +7,15 @@ function showToast(msg, type = 'success') {
     if (!DOM.toast) return;
     DOM.toast.textContent = msg;
     DOM.toast.className = 'show';
-    setTimeout(() => DOM.toast.className = '', 3000);
+    if (typeof DOM.toast.showPopover === 'function') {
+        try { DOM.toast.showPopover(); } catch(e) {}
+    }
+    setTimeout(() => {
+        DOM.toast.className = '';
+        if (typeof DOM.toast.hidePopover === 'function') {
+            try { DOM.toast.hidePopover(); } catch(e) {}
+        }
+    }, 3000);
 }
 
 // --- Outline Panel ---
@@ -749,7 +757,7 @@ function initContextMenu() {
                     label: t('contextMenuEditor.list') || 'リスト',
                     children: [
                         { label: t('contextMenuEditor.numberList') || '番号付き', action: 'insert', value: '1. ', type: 'list' },
-                        { label: t('contextMenuEditor.bulletList') || '箇条書き', action: 'insert', value: '- ', type: 'list' }
+                        { label: t('contextMenuEditor.bulletList') || '箇条書き', action: 'insert', value: '* ', type: 'list' }
                     ]
                 },
                 {

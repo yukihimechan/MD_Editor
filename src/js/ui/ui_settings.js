@@ -156,6 +156,57 @@ function openConfig() {
     // Syntax Theme
     document.getElementById('cfg-syntax-theme').value = AppState.config.syntaxTheme || 'prism';
 
+    // [NEW] App Theme
+    const appThemeSelect = document.getElementById('cfg-app-theme');
+    if (appThemeSelect) {
+        appThemeSelect.innerHTML = '';
+        if (AppState.bundledThemes) {
+            Object.keys(AppState.bundledThemes).forEach(themeName => {
+                const opt = document.createElement('option');
+                opt.value = themeName;
+                opt.textContent = themeName + ' (Built-in)';
+                appThemeSelect.appendChild(opt);
+            });
+        }
+        if (AppState.customThemes) {
+            Object.keys(AppState.customThemes).forEach(themeName => {
+                const opt = document.createElement('option');
+                opt.value = themeName;
+                opt.textContent = themeName + ' (Custom)';
+                appThemeSelect.appendChild(opt);
+            });
+        }
+        appThemeSelect.value = AppState.config.appTheme || 'light';
+        if (!appThemeSelect.value) appThemeSelect.value = Object.keys(AppState.bundledThemes || {})[0] || 'light';
+    }
+
+    // [NEW] Load custom theme handler
+    const loadCustomThemeInput = document.getElementById('cfg-load-custom-theme');
+    if (loadCustomThemeInput) {
+        loadCustomThemeInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const cssContent = ev.target.result;
+                const themeName = file.name.replace(/\.css$/i, '');
+                if (!AppState.customThemes) AppState.customThemes = {};
+                AppState.customThemes[themeName] = cssContent;
+                localStorage.setItem('mdEditor_customThemes', JSON.stringify(AppState.customThemes));
+                
+                const opt = document.createElement('option');
+                opt.value = themeName;
+                opt.textContent = themeName + ' (Custom)';
+                appThemeSelect.appendChild(opt);
+                appThemeSelect.value = themeName;
+                
+                alert(`カスタムテーマ "${themeName}" を読み込みました。`);
+            };
+            reader.readAsText(file);
+            loadCustomThemeInput.value = '';
+        };
+    }
+
     // 言語選択
     const langSelect = document.getElementById('cfg-language');
     if (langSelect && typeof I18n !== 'undefined') {
@@ -224,7 +275,7 @@ function openConfig() {
     const toolbarOpacitySlider = document.getElementById('cfg-svg-toolbar-opacity');
     const toolbarOpacityLabel = document.getElementById('cfg-svg-toolbar-opacity-value');
     if (toolbarOpacitySlider && toolbarOpacityLabel) {
-        const opacityVal = AppState.config.svgToolbarOpacity !== undefined ? AppState.config.svgToolbarOpacity : 0.4;
+        const opacityVal = AppState.config.svgToolbarOpacity !== undefined ? AppState.config.svgToolbarOpacity : 0.2;
         toolbarOpacitySlider.value = Math.round(opacityVal * 100);
         toolbarOpacityLabel.textContent = toolbarOpacitySlider.value;
         toolbarOpacitySlider.oninput = (e) => {
@@ -329,6 +380,12 @@ async function saveConfig() {
     // Syntax Theme
     AppState.config.syntaxTheme = document.getElementById('cfg-syntax-theme').value;
 
+    // [NEW] App Theme
+    const appThemeSelectSave = document.getElementById('cfg-app-theme');
+    if (appThemeSelectSave) {
+        AppState.config.appTheme = appThemeSelectSave.value;
+    }
+
     // 言語設定
     const langSelectSave = document.getElementById('cfg-language');
     if (langSelectSave && typeof I18n !== 'undefined') {
@@ -426,6 +483,7 @@ async function saveConfig() {
     applySplitRatio(); // Apply split ratio
     applySvgToolbarOpacity(); // [NEW] Apply SVG toolbar opacity
     applyFocusMode();         // [NEW] Apply Focus Mode
+    applyAppTheme();          // [NEW] Apply App Theme
     await applySyntaxTheme(); // Apply Syntax Theme (wait for CSS to load)
 
     // [NEW] Update all SVG blocks to match new preview width
@@ -605,13 +663,6 @@ function cancelConfig() {
 
 async function applySyntaxTheme() {
     const theme = AppState.config.syntaxTheme || 'prism';
-
-    // Apply dark theme to body
-    if (theme === 'prism-okaidia') {
-        document.body.classList.add('dark-theme');
-    } else {
-        document.body.classList.remove('dark-theme');
-    }
 
     const oldLink = document.getElementById('prism-theme');
     if (!oldLink) return;
@@ -855,6 +906,12 @@ function loadSettings() {
     applySidebarWidths(); // [NEW] Apply sidebar widths
     applySvgToolbarOpacity(); // [NEW] Apply SVG toolbar opacity
     applyFocusMode();         // [NEW] Apply Focus Mode
+    
+    // [NEW] Load and apply App Theme
+    loadThemes().then(() => {
+        applyAppTheme();
+    });
+
     // Apply theme (no need to await on initial load)
     applySyntaxTheme();
     applyViewMode();
@@ -983,4 +1040,81 @@ function applyViewMode() {
             window.currentEditingSVG.applyZoomPan();
         }
     }, 100);
+}
+
+/**
+ * [NEW] Apply App Theme
+ */
+function applyAppTheme() {
+    const themeName = AppState.config.appTheme || 'light';
+    const dynamicStyle = document.getElementById('dynamic-theme');
+    if (!dynamicStyle) return;
+
+    let css = '';
+    if (AppState.customThemes && AppState.customThemes[themeName]) {
+        css = AppState.customThemes[themeName];
+    } else if (AppState.bundledThemes && typeof AppState.bundledThemes[themeName] === 'string' && AppState.bundledThemes[themeName] !== '') {
+        css = AppState.bundledThemes[themeName];
+    }
+
+    if (css) {
+        dynamicStyle.textContent = css;
+        // Clean up dev link if exists
+        const devLink = document.getElementById('dev-theme-link');
+        if (devLink) devLink.remove();
+    } else {
+        // Fallback for dev mode (e.g. file:// protocol) where CSS couldn't be fetched or injected
+        dynamicStyle.textContent = '';
+        let devLink = document.getElementById('dev-theme-link');
+        if (!devLink) {
+            devLink = document.createElement('link');
+            devLink.id = 'dev-theme-link';
+            devLink.rel = 'stylesheet';
+            document.head.appendChild(devLink);
+        }
+        devLink.href = `css/themes/${themeName}.css`;
+    }
+}
+
+/**
+ * [NEW] Load Themes
+ */
+async function loadThemes() {
+    // Load bundled themes
+    try {
+        const bundledEl = document.getElementById('bundled-themes');
+        // Handle {"light":"", "dark":""} fallback during dev when running unbundled HTML directly
+        if (bundledEl && bundledEl.textContent.trim() && !bundledEl.textContent.includes('""')) {
+            AppState.bundledThemes = JSON.parse(bundledEl.textContent);
+        } else {
+            // Dev mode fallback
+            try {
+                const lightRes = await fetch('css/themes/light.css');
+                const darkRes = await fetch('css/themes/dark.css');
+                AppState.bundledThemes = {};
+                if(lightRes.ok) AppState.bundledThemes.light = await lightRes.text();
+                if(darkRes.ok) AppState.bundledThemes.dark = await darkRes.text();
+            } catch(e) {
+                if (window.location.protocol !== 'file:') {
+                    console.warn('Dev mode theme fetch failed (likely file:// protocol). Falling back to <link> tags.', e);
+                }
+                AppState.bundledThemes = { light: '', dark: '' };
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load bundled themes', e);
+        AppState.bundledThemes = {};
+    }
+    
+    // Load custom themes
+    try {
+        const custom = localStorage.getItem('mdEditor_customThemes');
+        if (custom) {
+            AppState.customThemes = JSON.parse(custom);
+        } else {
+            AppState.customThemes = {};
+        }
+    } catch(e) {
+        AppState.customThemes = {};
+    }
 }

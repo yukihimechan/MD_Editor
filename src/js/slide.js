@@ -592,6 +592,47 @@ const SlideManager = {
                 e.preventDefault();
                 e.stopImmediatePropagation();
 
+                // [NEW] Sequence step mode handling
+                if ((e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'Enter' || e.code === 'ArrowDown') && this.slides && this.currentIndex >= 0 && this.currentIndex < this.slides.length) {
+                    const currentSlide = this.slides[this.currentIndex];
+                    let stepHandled = false;
+                    const svgs = currentSlide.querySelectorAll('svg');
+                    svgs.forEach(svg => {
+                        if (svg.getAttribute('data-anim-sequence-mode') === 'step') {
+                            const seqAttr = svg.getAttribute('data-anim-sequence');
+                            if (!seqAttr) return;
+                            try {
+                                const seq = JSON.parse(seqAttr);
+                                let currentIndex = parseInt(svg.getAttribute('data-current-step-index') || '0', 10);
+                                if (currentIndex < seq.length) {
+                                    const targetId = seq[currentIndex];
+                                    const targetNode = svg.querySelector(`[id="${targetId}"]`);
+                                    if (targetNode) {
+                                        let curr = targetNode;
+                                        while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
+                                            const classes = curr.getAttribute('class') || '';
+                                            if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion')) {
+                                                curr.classList.remove('anim-step-active');
+                                                void curr.getBoundingClientRect(); // reflow
+                                                curr.classList.add('anim-step-active');
+                                            }
+                                            curr = curr.parentNode;
+                                        }
+                                    }
+                                    svg.setAttribute('data-current-step-index', (currentIndex + 1).toString());
+                                    stepHandled = true;
+                                }
+                            } catch(err) {
+                                console.error('Failed to parse sequence', err);
+                            }
+                        }
+                    });
+
+                    if (stepHandled) {
+                        return; // Prevent slide navigation if we just advanced an animation step
+                    }
+                }
+
                 switch (e.code) {
                     case 'Escape':
                         this.closeSlideshow();
@@ -873,6 +914,7 @@ const SlideManager = {
                     
                     // 退避
                     dummyImg.setAttribute('data-real-png-src', pngDataUrl);
+                    dummyImg.setAttribute('data-original-svg-html', encodeURIComponent(svg.outerHTML));
 
                     const excludeAttrs = ['width', 'height', 'viewBox', 'xmlns', 'xmlns:xlink', 'version', 'style', 'src'];
                     for (const attr of svg.attributes) {
@@ -916,13 +958,25 @@ const SlideManager = {
             console.log(`[SlideManager] Starting PageSplitter.splitToPages... PageHeight: ${pageHeightPx.toFixed(2)}px`);
             this.slides = await PageSplitter.splitToPages(clonedPreview, pageHeightPx, elementWidthPx);
             
-            // 分割完了後、ダミー画像を本物のPNG画像に戻す
+            // 分割完了後、ダミー画像を元のSVGに復元する（アニメーションを動作させるため）
+            // ※以前はPNG画像に戻していたが、アニメーション機能の追加によりSVGのまま表示する必要がある
             this.slides.forEach(slide => {
-                slide.querySelectorAll('img[data-real-png-src]').forEach(img => {
-                    const realSrc = img.getAttribute('data-real-png-src');
-                    if (realSrc) {
-                        img.src = realSrc;
-                        img.removeAttribute('data-real-png-src');
+                slide.querySelectorAll('img[data-original-svg-html]').forEach(img => {
+                    try {
+                        const html = decodeURIComponent(img.getAttribute('data-original-svg-html'));
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = html;
+                        const restoredSvg = tempDiv.firstElementChild;
+                        if (restoredSvg) {
+                            img.parentNode.replaceChild(restoredSvg, img);
+                        }
+                    } catch (e) {
+                        console.warn('[SlideManager] SVGの復元に失敗しました。フォールバックとしてPNGを表示します。', e);
+                        const realSrc = img.getAttribute('data-real-png-src');
+                        if (realSrc) {
+                            img.src = realSrc;
+                            img.removeAttribute('data-real-png-src');
+                        }
                     }
                 });
             });
@@ -1029,11 +1083,37 @@ const SlideManager = {
     renderCurrentSlide() {
         if (!this.isActive || this.slides.length === 0) return;
 
+        console.log(`[SlideManager] renderCurrentSlide: currentIndex=${this.currentIndex}`);
+        
         // ページDOMの差し替え
         this.content.innerHTML = ''; // クリア
         const slideDOM = this.slides[this.currentIndex];
         if (slideDOM) {
             this.content.appendChild(slideDOM);
+            
+            // [NEW] スライド表示時に、Stepモードのアニメーションを初期化する
+            const svgs = slideDOM.querySelectorAll('svg');
+            svgs.forEach(svg => {
+                if (svg.getAttribute('data-anim-sequence-mode') === 'step') {
+                    svg.setAttribute('data-current-step-index', '0');
+                    svg.querySelectorAll('.anim-step-active').forEach(el => {
+                        el.classList.remove('anim-step-active');
+                    });
+                    
+                    // WebKit対策：リセットを確実に反映させるための強制リフロー
+                    svg.querySelectorAll('[data-anim-trigger="auto"], [class*="anim-trigger-auto"]').forEach(wrapper => {
+                        const anim = wrapper.style.animation;
+                        if (anim && anim !== 'none') {
+                            wrapper.style.animation = 'none';
+                            void wrapper.getBoundingClientRect(); // reflow
+                            wrapper.style.animation = anim;
+                        }
+                    });
+                }
+            });
+
+            const anims = slideDOM.querySelectorAll('[class*="anim-wrapper-"]');
+            console.log(`[SlideManager] Appended slideDOM to #slideshow-content. Found ${anims.length} animated elements.`);
         }
 
         // レイアウト更新（スケールと表示位置再計算、ここでslideDOMにもスタイルが当たる）

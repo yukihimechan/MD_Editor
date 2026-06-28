@@ -9,7 +9,8 @@ class MermaidSequenceToolbar extends window.SVGToolbarBase {
         this.config = {
             position: 'top-right',
             borderColor: '#3b82f6', // Mermaidの基調色に合わせる
-            isGlobal: true          // ダイアグラム全体に対するツールバー
+            isGlobal: true,          // ダイアグラム全体に対するツールバー
+            isPinned: true
         };
 
         // シーケンス図用ツールボタン定義

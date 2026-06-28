@@ -8,56 +8,7 @@ function exportHTMLFile() {
     // 現在のプレビューのHTMLを取得
     const previewClone = DOM.preview.cloneNode(true);
 
-    // [Bug Fix] エディタ上に「完了」「拡大画面」ボタンが表示されていれば、出力HTMLにも含める
-    const doneBtn = document.getElementById('svg-editor-done-btn');
-    const expandBtn = document.getElementById('svg-editor-expand-btn');
-    if (doneBtn && doneBtn.style.display !== 'none') {
-        const svgWrapper = previewClone.querySelector('.svg-view-wrapper.svg-editing') || previewClone.querySelector('.svg-view-wrapper');
-        if (svgWrapper) {
-            // エクスポート版ではラッパーに対する絶対位置で右上に固定する
-            const clonedDoneBtn = doneBtn.cloneNode(true);
-            clonedDoneBtn.style.position = 'absolute';
-            clonedDoneBtn.style.right = '10px';
-            clonedDoneBtn.style.top = '10px';
-            clonedDoneBtn.style.left = 'auto';
-            svgWrapper.appendChild(clonedDoneBtn);
-
-            if (expandBtn && expandBtn.style.display !== 'none') {
-                const clonedExpandBtn = expandBtn.cloneNode(true);
-                clonedExpandBtn.style.position = 'absolute';
-                clonedExpandBtn.style.right = '10px';
-                // 完了ボタンの下に配置
-                clonedExpandBtn.style.top = '45px';
-                clonedExpandBtn.style.left = 'auto';
-                svgWrapper.appendChild(clonedExpandBtn);
-            }
-        }
-    }
-
-    // [Bug Fix] 表エディタ上に「完了」ボタンが表示されていれば出力HTMLにも含める
-    const tableDoneBtn = document.getElementById('table-editor-done-btn');
-    if (tableDoneBtn && tableDoneBtn.style.display !== 'none') {
-        const tableWrapper = previewClone.querySelector('.table-editing');
-        if (tableWrapper) {
-            // 表自身を囲む専用のラッパーを生成して確実に右上に配置できるようにする
-            const wrapper = document.createElement('div');
-            wrapper.style.position = 'relative';
-            wrapper.style.display = 'inline-block';
-            wrapper.style.width = '100%';
-
-            // DOMツリー上で表と入れ替えてラップする
-            tableWrapper.parentNode.insertBefore(wrapper, tableWrapper);
-            wrapper.appendChild(tableWrapper);
-
-            const clonedTableDoneBtn = tableDoneBtn.cloneNode(true);
-            clonedTableDoneBtn.style.position = 'absolute';
-            clonedTableDoneBtn.style.right = '10px';
-            clonedTableDoneBtn.style.top = '10px';
-            clonedTableDoneBtn.style.left = 'auto';
-            clonedTableDoneBtn.style.zIndex = '100';
-            wrapper.appendChild(clonedTableDoneBtn);
-        }
-    }
+    // 編集用UIボタンをHTMLに強制追加するロジックを削除
 
     // [Bug Fix] input, select, textarea の入力値をクローン側(HTML属性)に反映させる
     const originalInputs = DOM.preview.querySelectorAll('input, select, textarea');
@@ -86,31 +37,70 @@ function exportHTMLFile() {
         }
     });
 
-    // SVGエディタが起動中の場合、表示されているハンドルやスタイルもそのまま残すため、
-    // 特にDOM削除などは行わない。現在のDOM構造をそのまま出力する。
-    // クラス名などもそのまま残るため、SVG要素を囲む緑の点線枠(.svg-editing)も出力される。
-
-    // [Bug Fix] 内部用の一時属性やカスタムタグを削除して出力をクリーンにする
-    const internalAttributes = [
-        'data-code-text', 'data-paper-width', 'data-paper-height', 'data-paper-x', 'data-paper-y',
-        'data-paper-zoom', 'data-paper-offx', 'data-paper-offy',
-        'data-poly-points', 'data-bez-points', 'data-connections',
-        'data-tool-id', 'data-radius', 'data-spikes', 'data-sides',
-        'data-arrow-start', 'data-arrow-end', 'data-arrow-size',
-        'data-is-canvas', 'data-is-proxy', 'data-no-connector',
-        'data-original-id', 'data-internal'
-    ];
-
-    previewClone.querySelectorAll('*').forEach(el => {
-        internalAttributes.forEach(attr => {
-            if (el.hasAttribute(attr)) el.removeAttribute(attr);
-        });
+    // 余分なUI要素や編集用の枠を完全に削除
+    previewClone.querySelectorAll('.code-controls, .svg_select_handle, .svg_select_shape, .svg-canvas-proxy, .svg-editor-action-btn, #svg-editor-done-btn, #svg-editor-expand-btn, #table-editor-done-btn, .btn-unwrap-svg, .btn-save-svg, .btn-wrap-svg, .btn-save-mermaid, .btn-expand-mermaid, .copy-btn, .code-edit-btn, .language-label').forEach(el => el.remove());
+    
+    // 編集中のクラス名（緑の点線枠など）を削除
+    previewClone.querySelectorAll('.svg-editing, .table-editing').forEach(el => {
+        el.classList.remove('svg-editing', 'table-editing');
     });
 
     // 内部用のカスタム要素を削除
     previewClone.querySelectorAll('connector-data').forEach(el => el.remove());
 
     const contentHtml = previewClone.innerHTML;
+
+    // アニメーション制御用のCSSを取得
+    let svgGlobalOverridesCss = '';
+    const overridesTag = document.getElementById('svg-global-overrides');
+    if (overridesTag) {
+        svgGlobalOverridesCss = overridesTag.textContent;
+    }
+
+    // ステップ再生用スクリプト
+    const stepAnimationScript = '<script>\n' + `
+document.addEventListener('keydown', function(e) {
+    if (e.code === 'Space') {
+        const svgs = document.querySelectorAll('svg[data-anim-sequence-mode="step"]');
+        let played = false;
+        for (const svg of svgs) {
+            const seqStr = svg.getAttribute('data-anim-sequence');
+            if (!seqStr) continue;
+            let seq = [];
+            try { seq = JSON.parse(seqStr); } catch (err) { continue; }
+            
+            let currentIndex = parseInt(svg.getAttribute('data-anim-current-index') || '0', 10);
+            
+            if (currentIndex < seq.length) {
+                e.preventDefault();
+                const targetId = seq[currentIndex];
+                const targetNode = svg.querySelector('[id="' + targetId + '"]');
+                if (targetNode) {
+                    let curr = targetNode;
+                    while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
+                        const classes = curr.getAttribute('class') || '';
+                        if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion')) {
+                            curr.classList.remove('anim-step-active');
+                            void curr.getBoundingClientRect(); // reflow
+                            curr.classList.add('anim-step-active');
+                        }
+                        curr = curr.parentNode;
+                    }
+                }
+                svg.setAttribute('data-anim-current-index', (currentIndex + 1).toString());
+                played = true;
+                
+                // 要素が見える位置にスクロール
+                const rect = svg.getBoundingClientRect();
+                if (rect.top < 0 || rect.bottom > window.innerHeight) {
+                    svg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+                break;
+            }
+        }
+    }
+});
+` + '</' + 'script>\n';
 
     // 完全なHTMLファイルとしてのガワを作成
     const htmlTemplate = `<!DOCTYPE html>
@@ -121,6 +111,7 @@ function exportHTMLFile() {
     <title>Exported Document</title>
     <!-- エディタ標準のスタイルシート -->
     <style>
+        ${svgGlobalOverridesCss}
         body {
             margin: 0;
             padding: 20px;
@@ -301,9 +292,10 @@ function exportHTMLFile() {
     </style>
 </head>
 <body>
-    <div class="md-preview">
+    <div id="preview" class="md-preview">
         ${contentHtml}
     </div>
+    ${stepAnimationScript}
 </body>
 </html>`;
 

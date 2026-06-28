@@ -9,6 +9,7 @@ class AnnotationToolbar extends SVGToolbarBase {
             container:   null,
             borderColor: '#e74c3c', // 注釈のデフォルトカラーっぽい赤
             position:    { top: '10px', left: '10px' },
+            isPinned:    true, // デフォルトで常時100%不透明表示（ピン留め状態）にする
         });
 
         this._toolDefs = [
@@ -16,16 +17,15 @@ class AnnotationToolbar extends SVGToolbarBase {
             { id: 'freehand', label: '自由描画', icon: '<svg viewBox="0 0 24 24"><path d="M3 21c3-3 6-3 9 0s6 3 9 0" fill="none" stroke="currentColor" stroke-width="2"/></svg>' },
             { id: 'rect',     label: '矩形',     icon: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/></svg>' },
             { id: 'circle',   label: '真円',     icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>' },
-            { id: 'line',     label: '直線',     icon: '<svg viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="3" stroke="currentColor" stroke-width="2"/></svg>' },
             { id: 'bubble',   label: '吹出し',   icon: '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10z" fill="none" stroke="currentColor" stroke-width="2"/></svg>' },
             { id: 'marker',   label: 'マーカー', icon: '<svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 14H7v-2h10v2zm0-4H7v-2h10v2zm0-4H7V7h10v2z" fill="none" stroke="currentColor" stroke-width="2"/></svg>' },
             { isSeparator: true },
             { isCustom: true, type: 'color' },
             { isCustom: true, type: 'stroke' },
             { isSeparator: true },
-            { id: 'clear',    label: '全消去',       icon: '🗑', isText: true, isAction: true, color: '#e74c3c' },
-            { id: 'comments', label: 'コメント一覧', icon: '💬', isText: true, isAction: true },
-            { id: 'close',    label: '終了',         icon: '✕', isText: true, isAction: true }
+            { id: 'clear',    label: '全消去',       icon: '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/></svg>', isText: false, isAction: true, color: '#e74c3c' },
+            { id: 'comments', label: 'コメント一覧', icon: '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M15 4v7H5.17L4 12.17V4h11m1-2H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1V3c0-.55-.45-1-1-1zm5 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1z" fill="currentColor"/></svg>', isText: false, isAction: true },
+            { id: 'close',    label: '終了',         icon: '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/></svg>', isText: false, isAction: true }
         ];
 
         this._buildToolbar();
@@ -111,13 +111,13 @@ class AnnotationToolbar extends SVGToolbarBase {
                     strokeInput.id = 'annotation-stroke-width';
                     strokeInput.min = '1';
                     strokeInput.max = '20';
-                    strokeInput.value = '3';
+                    strokeInput.value = '2';
                     strokeInput.title = '太さ';
                     strokeInput.style.cssText = 'width: 60px; cursor: pointer;';
                     
                     const strokeLabel = document.createElement('span');
                     strokeLabel.id = 'annotation-stroke-width-label';
-                    strokeLabel.textContent = '3';
+                    strokeLabel.textContent = '2';
                     strokeLabel.style.cssText = 'font-size: 12px; min-width: 16px; text-align: center;';
 
                     strokeInput.addEventListener('input', () => {
@@ -258,6 +258,8 @@ class AnnotationToolbar extends SVGToolbarBase {
             }
             this.toolbarElement.style.left = leftPos;
             this.toolbarElement.style.top = topPos;
+            this.toolbarElement.style.right = 'auto';
+            this.toolbarElement.style.width = 'auto';
             
             console.log(`[AnnotationToolbar] ツールバーを表示しました。座標: left=${leftPos}, top=${topPos}`);
             console.log(`[AnnotationToolbar Debug] parentElement:`, this.toolbarElement.parentElement ? this.toolbarElement.parentElement.tagName : 'null');

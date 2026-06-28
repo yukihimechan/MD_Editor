@@ -14,10 +14,21 @@ function updateUndoRedoButtons() {
 function execUndo() {
     if (!window.editorInstance) return;
     
-    // 一時的にエディタにフォーカスを戻す
-    window.editorInstance.focus();
+    const activeEl = document.activeElement;
+    const isPreviewFocus = activeEl && activeEl.closest('#preview-pane');
+
+    // プレビュー操作中でなければ、一時的にエディタにフォーカスを戻す
+    if (!isPreviewFocus) {
+        window.editorInstance.focus();
+    }
     
     let undoFunc = window.CM6.undo;
+
+    // [FIX] Collab mode (Yjs) の Undo を優先/フォールバックする
+    if (window.YjsBundle && window.YjsBundle.yUndoManagerKeymap && AppState.collab && AppState.collab.isActive) {
+        const yItem = window.YjsBundle.yUndoManagerKeymap.find(k => k.key === "Mod-z");
+        if (yItem) undoFunc = yItem.run;
+    }
 
     // Fallback: search in historyKeymap
     if (!undoFunc && window.CM6.historyKeymap) {
@@ -29,6 +40,18 @@ function execUndo() {
         const result = undoFunc(window.editorInstance);
         console.log(`[editor_commands] execUndo executed. Result: ${result}`);
         updateUndoRedoButtons();
+        
+        // CodeMirrorのコマンド内部で奪われたフォーカスを戻す
+        if (isPreviewFocus && activeEl) {
+            setTimeout(() => {
+                if (document.body.contains(activeEl)) {
+                    activeEl.focus();
+                } else {
+                    const previewPane = document.getElementById('preview-pane');
+                    if (previewPane) previewPane.focus();
+                }
+            }, 10);
+        }
     } else {
         console.warn("Undo function not found in window.CM6 or historyKeymap");
     }
@@ -38,10 +61,21 @@ window.execUndo = execUndo;
 function execRedo() {
     if (!window.editorInstance) return;
     
-    // 一時的にエディタにフォーカスを戻す
-    window.editorInstance.focus();
+    const activeEl = document.activeElement;
+    const isPreviewFocus = activeEl && activeEl.closest('#preview-pane');
+
+    // プレビュー操作中でなければ、一時的にエディタにフォーカスを戻す
+    if (!isPreviewFocus) {
+        window.editorInstance.focus();
+    }
     
     let redoFunc = window.CM6.redo;
+
+    // [FIX] Collab mode (Yjs) の Redo を優先/フォールバックする
+    if (window.YjsBundle && window.YjsBundle.yUndoManagerKeymap && AppState.collab && AppState.collab.isActive) {
+        const yItem = window.YjsBundle.yUndoManagerKeymap.find(k => k.key === "Mod-y" || k.key === "Mod-Shift-z");
+        if (yItem) redoFunc = yItem.run;
+    }
 
     // Fallback: search in historyKeymap
     if (!redoFunc && window.CM6.historyKeymap) {
@@ -54,6 +88,18 @@ function execRedo() {
         const result = redoFunc(window.editorInstance);
         console.log(`[editor_commands] execRedo executed. Result: ${result}`);
         updateUndoRedoButtons();
+        
+        // CodeMirrorのコマンド内部で奪われたフォーカスを戻す
+        if (isPreviewFocus && activeEl) {
+            setTimeout(() => {
+                if (document.body.contains(activeEl)) {
+                    activeEl.focus();
+                } else {
+                    const previewPane = document.getElementById('preview-pane');
+                    if (previewPane) previewPane.focus();
+                }
+            }, 10);
+        }
     } else {
         console.warn("Redo function not found in window.CM6 or historyKeymap");
     }

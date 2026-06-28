@@ -198,6 +198,14 @@ function initEditor() {
             // [FIX No.4] SVGブロックが存在する場合、巨大な全文書ではなく「SVGブロック内部のテキストだけ」を走査する。
             // 従来は isInSvgBlock で判定しつつも「全文書」に対して正規表現を実行していたため、非常に高コストだった。
             for (const range of svgBlockRanges) {
+                const blockSize = range.end - range.start;
+                // パフォーマンス保護：SVGブロックが大きすぎる場合（例: 10万文字以上）は、
+                // 全ての数値に対するスライダー(Widget)の生成をスキップしてUIフリーズを防ぐ
+                if (blockSize > 100000) {
+                    console.warn(`[Number Slider] SVG block too large (${blockSize} chars). Skipping slider decorations to prevent UI freeze.`);
+                    continue;
+                }
+                
                 const blockText = text.substring(range.start, range.end);
                 
                 let m;
@@ -771,7 +779,9 @@ function initEditor() {
             if (!update.docChanged) return;
 
             // [NEW] 注釈（アノテーション）のアンカー行番号を CodeMirror 6 の Transaction から正確にシフト
-            if (window.AnnotationLayer && typeof window.AnnotationLayer.shiftAnchors === 'function') {
+            // ただし、注釈システム自体がファイルの末尾を更新した時（annotation-sync）はシフトしない
+            const isAnnotationSync = update.transactions.some(tr => tr.annotation(window.CM6.Transaction.userEvent) === 'annotation-sync');
+            if (!isAnnotationSync && window.AnnotationLayer && typeof window.AnnotationLayer.shiftAnchors === 'function') {
                 const changes = [];
                 update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
                     const startLine = update.startState.doc.lineAt(fromA).number;
@@ -801,6 +811,11 @@ function initEditor() {
 
             // [NEW] Undo/Redoによるイベントかを判定
             const isUndoRedo = update.transactions.some(tr => tr.isUserEvent('undo') || tr.isUserEvent('redo'));
+            if (isUndoRedo) {
+                window._lastUndoRequestTime = performance.now();
+                console.log(`[Perf] ----------------------------------------------------`);
+                console.log(`[Perf] ⌨ UNDO/REDO Event Triggered (CodeMirror update)`);
+            }
 
             const newText = update.state.doc.toString();
             AppState.isModified = true;
@@ -808,6 +823,13 @@ function initEditor() {
 
             if (typeof window.autoSaveManager !== 'undefined') {
                 window.autoSaveManager.scheduleSave();
+            }
+
+            // [FIX] annotation-sync の場合はレンダリングを完全にスキップする。
+            // 注釈データの保存だけで本文は変わっていないため、重い render() を走らせると
+            // DOM再構築による一時的なレイアウト崩れで注釈がワープする原因になる。
+            if (isAnnotationSync) {
+                return;
             }
 
             // もしSVGエディタからの直接同期であれば、エディタへのプレビュー反映やSVGからの逆同期（updateSVGFromEditor）は一切行わない
@@ -830,13 +852,14 @@ function initEditor() {
                     window.schedulePageBreakDisplay();
                 }
 
-                // ★ 120ms から 300ms に変更（連打が止まってからレンダリングが走るようになります）
+                // [FIX] UNDO/REDOの時は遅延ゼロで即座に実行する
+                const delayMs = isUndoRedo ? 0 : 120;
                 debounceTimer = setTimeout(async () => {
                     // [NEW] Skip render during SVG editing to prevent flickering
                     // SVG editing session manages its own state and preserves preview DOM.
                     // A full render would destroy/recreate the SVG session, causing a flicker.
                     // [SYNC] ただしエディタ側の変更をSVGキャンバスへ反映する（エディタ→SVG方向の同期）
-                    if (typeof window.isSVGEditing === 'function' && window.isSVGEditing()) {
+                    if (typeof window.isSVGEditing === 'function' && window.isSVGEditing() && (!window.currentEditingSVG || !window.currentEditingSVG._isAnnotationLayerMock)) {
                         // SVGキャンバスからの同期（syncSVGToEditor）による更新の場合はスキップ
                         // [FIX] ここのreturnは不要かつ有害。isFromSvgSync && !isUndoRedo で既に弾いており、
                         // ここで再度弾くと、直前のSVG同期のロック(400ms)が残っている間に発生した
@@ -847,9 +870,14 @@ function initEditor() {
 
                         if (typeof updateSVGFromEditor === 'function') {
                             clearTimeout(window._svgSyncFromEditorTimer);
-                            window._svgSyncFromEditorTimer = setTimeout(() => {
+                            if (isUndoRedo) {
+                                // UNDO/REDO時は300msの遅延をなくして即座に反映する
                                 updateSVGFromEditor();
-                            }, 300);
+                            } else {
+                                window._svgSyncFromEditorTimer = setTimeout(() => {
+                                    updateSVGFromEditor();
+                                }, 300);
+                            }
                         }
                         // [FIX] SVG編集中にUNDO/REDOが実行された場合は、プレビュー全体の再構築(render)を行うと
                         // UIが破壊されて閉じてしまうため、updateSVGFromEditorのみを実行して終了する。
@@ -885,7 +913,7 @@ function initEditor() {
                     */
 
                     await render();
-                }, 120);
+                }, delayMs);
 
                 // [NEW] Update search results if active
                 if (AppState.searchState && AppState.searchState.query && typeof performSearch === 'function') {
@@ -1245,6 +1273,13 @@ function initEditor() {
 
             const blockText = text.substring(blockStartPos, blockEndPos);
             const decorations = [];
+
+            // パフォーマンス保護：SVGブロックが大きすぎる場合はハイライト計算をスキップ
+            if (blockText.length > 200000) {
+                console.warn(`[SVG Highlight] Block too large (${blockText.length} chars). Skipping highlights.`);
+                editorView.dispatch({ effects: setSVGSourceHighlights.of(Decoration.none) });
+                return;
+            }
 
             highlights.forEach(h => {
                 if (!h.id) return;
@@ -1841,47 +1876,69 @@ function createBase64FoldPlugin() {
 
     const base64FoldPlugin = ViewPlugin.fromClass(class {
         constructor(view) {
-            this.foldBase64(view);
+            this.timer = null;
+            this.scheduleFold(view);
         }
         
         update(update) {
             if (update.docChanged) {
-                this.foldBase64(update.view);
+                this.scheduleFold(update.view);
             }
         }
 
+        scheduleFold(view) {
+            if (this.timer) clearTimeout(this.timer);
+            // 巨大ドキュメントでの正規表現スキャンによるフリーズを避けるため、
+            // debounce をかけて非同期で実行する
+            this.timer = setTimeout(() => {
+                this.foldBase64(view);
+            }, 500);
+        }
+
         foldBase64(view) {
+            if (!view || view.isDestroyed) return;
+            
+            // パフォーマンス保護：巨大すぎるドキュメント（例：5MB以上）の場合はスキップ
+            if (view.state.doc.length > 5000000) {
+                console.warn('[Base64 Fold Plugin] Document too large, skipping fold operation.');
+                return;
+            }
+
             // エディタ内の長大な文字列を検索し、まだ折りたまれていない場合は foldEffect を発行
             const docText = view.state.doc.toString();
-            // `<img src="data:..."` や `](data:...)` の data 部分をマッチさせる
-            const pattern = /(data:image\/[^;]+;base64,)([A-Za-z0-9+/=]+)/g;
+            // バックトラックを減らし、パフォーマンスを向上させるため、非貪欲マッチや文字クラスを最適化
+            const pattern = /(data:image\/[^;]+;base64,)([A-Za-z0-9+/=]{100,})/g;
             let match;
             let effects = [];
             
             const folded = typeof foldedRanges === 'function' ? foldedRanges(view.state) : null;
             
+            // 処理が重くなりすぎないよう、1回のスキャンでの制限時間を設ける
+            const startTime = performance.now();
+
             while ((match = pattern.exec(docText)) !== null) {
-                // 十分長い Base64 のみ対象
-                if (match[2].length > 100) {
-                    const from = match.index;
-                    const to = match.index + match[0].length;
-                    
-                    let isFolded = false;
-                    if (folded) {
-                        folded.between(from, to, (fFrom, fTo) => {
-                            if (fFrom === from && fTo === to) isFolded = true;
-                        });
-                    }
-                    
-                    if (!isFolded) {
-                        effects.push(foldEffect.of({ from, to }));
-                    }
+                // 100ms以上かかったら強制中断
+                if (performance.now() - startTime > 100) {
+                    console.warn('[Base64 Fold Plugin] Regex scan timed out, breaking early.');
+                    break;
+                }
+
+                const from = match.index;
+                const to = match.index + match[0].length;
+                
+                let isFolded = false;
+                if (folded) {
+                    folded.between(from, to, (fFrom, fTo) => {
+                        if (fFrom === from && fTo === to) isFolded = true;
+                    });
+                }
+                
+                if (!isFolded) {
+                    effects.push(foldEffect.of({ from, to }));
                 }
             }
 
             if (effects.length > 0) {
-                // エディタの update(DOM描画) サイクル中に dispatch を呼ぶとエラーになるため、
-                // 次のフレームで非同期に fold を適用する
                 requestAnimationFrame(() => {
                     if (view && !view.isDestroyed) {
                         view.dispatch({ effects: effects });

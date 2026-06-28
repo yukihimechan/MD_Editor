@@ -33,7 +33,7 @@ function getSlashCommandItems(locale) {
         { label: t('contextMenuEditor.heading5') || '見出し5', action: 'insert', value: '##### ', type: 'heading', keywords: ['h5', 'heading5', '見出し5', 'みだし5'] },
         { label: t('contextMenuEditor.heading6') || '見出し6', action: 'insert', value: '###### ', type: 'heading', keywords: ['h6', 'heading6', '見出し6', 'みだし6'] },
         
-        { label: t('contextMenuEditor.bulletList') || '箇条書き', action: 'insert', value: '- ', type: 'list', keywords: ['list', 'ul', 'bullet', '箇条書き', 'かじょうがき', 'リスト'] },
+        { label: t('contextMenuEditor.bulletList') || '箇条書き', action: 'insert', value: '* ', type: 'list', keywords: ['list', 'ul', 'bullet', '箇条書き', 'かじょうがき', 'リスト'] },
         { label: t('contextMenuEditor.numberList') || '番号付きリスト', action: 'insert', value: '1. ', type: 'list', keywords: ['list', 'ol', 'number', '番号付き', 'ばんごうつき', 'リスト'] },
         { label: t('contextMenuEditor.taskUnchecked') || 'タスク (未完了)', action: 'insert', value: '- [ ] ', type: 'list', keywords: ['task', 'todo', 'タスク', 'チェックボックス'] },
         { label: t('contextMenuEditor.taskChecked') || 'タスク (完了)', action: 'insert', value: '- [x] ', type: 'list', keywords: ['task', 'done', 'タスク', 'チェックボックス'] },

@@ -179,7 +179,8 @@ I18n.register('en', 'English', {
         "splitRatio": "Editor/Preview Ratio: ",
         "splitRatioDesc": "Adjust split screen ratio",
         "language": "言語 / Language:",
-        "syntaxTheme": "Syntax Theme:",
+        "appTheme": "App Theme (UI):",
+        "syntaxTheme": "Code Area Theme:",
         "themeLight": "Light Theme",
         "themeDark": "Dark Theme (Okaidia)",
         "pdfExportLegend": "PDF Export Settings",
@@ -258,6 +259,10 @@ I18n.register('en', 'English', {
         "title": "Help",
         "tabCheatSheet": "Markdown Syntax",
         "tabLicense": "License",
+        "tabInitialize": "Initialize",
+        "initDesc": "Restore application to initial state.",
+        "initBtn": "Execute",
+        "initConfirm": "Initialize application settings. Are you sure?",
         "h1": "Heading 1",
         "h2": "Heading 2",
         "bold": "Bold text",
@@ -456,6 +461,7 @@ I18n.register('en', 'English', {
         "addEndArrow": "Add End Arrow",
         "addVertex": "Add Vertex",
         "saveToFile": "Save to File",
+        "addToAnimList": "Add to Sequence",
         "cssClassPrompt": "Please enter a class name to add to CSS",
         "cssClassPatternDesc": "Allowed: Alphanumeric, hyphens, underscores (must start with a letter)"
     },
@@ -754,6 +760,19 @@ I18n.register('en', 'English', {
             "delayTitle": "Delay before animation starts (negative values offset phase)",
             "selectElementAlert": "Please select an element to set origin first."
         },
+        "animList": {
+            "modeBtnTitle": "Toggle mode (Auto Sequence / Step)",
+            "modeAuto": "▶ Auto",
+            "modeStep": "⏭ Step",
+            "playBtnTitle": "Start/Stop sequential playback",
+            "play": "▶ Play",
+            "stop": "⏹ Stop",
+            "clearBtnTitle": "Clear all items from list",
+            "clearConfirm": "Clear all items from the animation sequence?",
+            "empty": "(Right-click shapes to add)",
+            "removeFromList": "Remove from List",
+            "noAnimWarning": "This shape has no animation set.\nPlease set an animation first before adding."
+        },
         "animTransform": {
             "label": "Transform Anim:",
             "none": "None",
@@ -764,7 +783,31 @@ I18n.register('en', 'English', {
             "amount": "Amt:",
             "amountTitle": "Amount (angle, height, scale)",
             "seconds": "sec:",
-            "multiple": "Mult"
+            "multiple": "Mult",
+            "ease": {
+                "linear": "Linear",
+                "ease": "Smooth",
+                "easeIn": "Ease In",
+                "easeOut": "Ease Out",
+                "easeInOut": "Ease In-Out"
+            },
+            "repeat1": "1 Time",
+            "repeat2": "2 Times",
+            "repeat3": "3 Times",
+            "repeatInfinite": "Infinite",
+            "repeatLabel": "Repeat:",
+            "triggerAuto": "Auto Start",
+            "triggerClick": "On Click",
+            "triggerLabel": "Trigger:"
+        },
+        "animStyle": {
+            "label": "Style Anim:",
+            "fadeIn": "Fade In",
+            "fadeOut": "Fade Out",
+            "flash": "Flash",
+            "colorFill": "Fill Color Change",
+            "colorLine": "Line Color Change",
+            "dashDraw": "Dash Draw (Stroke)"
         },
         "arrow": {
             "straight_label": "Straight Arrow",

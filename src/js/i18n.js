@@ -26,7 +26,7 @@ const I18n = (() => {
     function register(langCode, langName, data) {
         _locales[langCode] = data;
         _languageNames[langCode] = langName;
-        console.log(`[i18n] Language registered: ${langCode} (${langName})`);
+        console.debug(`[i18n] Language registered: ${langCode} (${langName})`);
     }
 
     /**
@@ -59,7 +59,7 @@ const I18n = (() => {
             _currentLang = savedLang;
         }
 
-        console.log(`[i18n] 現在の言語: ${_currentLang}`);
+        console.debug(`[i18n] 現在の言語: ${_currentLang}`);
     }
 
     function setLang(lang) {

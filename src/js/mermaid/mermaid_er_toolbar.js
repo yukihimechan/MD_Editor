@@ -10,7 +10,8 @@ class MermaidErToolbar extends window.SVGToolbarBase {
         this.config = {
             position: 'top-right',
             borderColor: '#f59e0b', // オレンジ系（ER図を他と区別）
-            isGlobal: true
+            isGlobal: true,
+            isPinned: true
         };
 
         this._selectedRelationLine = '--'; // デフォルトは実線

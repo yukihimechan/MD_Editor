@@ -11,29 +11,29 @@ const MD_TEMPLATES = {
 # 議事録
 
 ## 開催概要
-- **日時**: 2026年06月15日 13:00 - 15:00
-- **場所**: 
-- **出席者**: 
+* **日時**: 2026年06月15日 13:00 - 15:00
+* **場所**: 
+* **出席者**: 
 
 ## 議題
 
 ### 1. 〇〇について
- - 
- - 
+ * 
+ * 
 ### 2. ××について
- - 
- - 
+ * 
+ * 
 ## 決定事項
-- 
-- 
-- 次回予定：2026/06/15 〇〇会議室にて実施
+* 
+* 
+* 次回予定：2026/06/15 〇〇会議室にて実施
 
 ## TODO
-- [ ] 担当者:〇〇 内容 (期限: 6月15日)
-- [ ] 担当者:×× 内容 (期限: 6月15日)
+* [ ] 担当者:〇〇 内容 (期限: 6月15日)
+* [ ] 担当者:×× 内容 (期限: 6月15日)
 
 ## 備考
-- 特になし。
+* 特になし。
 \n`
         },
         {
@@ -87,29 +87,29 @@ const MD_TEMPLATES = {
 # Meeting Minutes
 
 ## Logistical Context
-- **Date/Time**: Jun 15, 2026 13:00 - 15:00
-- **Location**: 
-- **Attendees**: 
+* **Date/Time**: Jun 15, 2026 13:00 - 15:00
+* **Location**: 
+* **Attendees**: 
 
 ## Agenda
 
 ### 1. Regarding 〇〇
- - 
- - 
+ * 
+ * 
 ### 2. Regarding ××
- - 
- - 
+ * 
+ * 
 ## Decisions Made
-- 
-- 
-- Next Meeting: Jun 15, 2026 at 〇〇 Meeting Room
+* 
+* 
+* Next Meeting: Jun 15, 2026 at 〇〇 Meeting Room
 
 ## Action Items
-- [ ] Assignee:〇〇 Task (Due: Jun 15)
-- [ ] Assignee:×× Task (Due: Jun 15)
+* [ ] Assignee:〇〇 Task (Due: Jun 15)
+* [ ] Assignee:×× Task (Due: Jun 15)
 
 ## Notes
-- None.
+* None.
 \n`
         },
         {

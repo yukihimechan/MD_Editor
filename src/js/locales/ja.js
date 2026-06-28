@@ -71,7 +71,21 @@ I18n.register('ja', '日本語', {
         "btnShare": "現在のテキストを共有",
         "btnClose": "閉じる",
         "connectedUsersTitle": "接続中のユーザー",
-        "noUsersConnected": "まだ誰も接続していません"
+        "noUsersConnected": "まだ誰も接続していません",
+        "settingsSignalingLegend": "シグナリングサーバー",
+        "settingsSignalingWarning": "⚠️ <strong>注意:</strong> デフォルトのシグナリングサーバー（wss://signaling.yjs.dev）は開発・テスト用の公開サーバーです。高負荷時に切断・遅延が発生する場合があります。本番利用には自前のサーバーを設定してください。",
+        "settingsSignalingLabel": "サーバーURL:",
+        "settingsSignalingPlaceholder": "wss://...",
+        "settingsSignalingNote": "Yjsに対応したWebsocketシグナリングサーバーのURLを指定してください。",
+        "settingsTurnLegend": "TURNサーバー設定 (WebRTC接続用)",
+        "settingsTurnUrlLabel": "TURNサーバーURL:",
+        "settingsTurnUrlPlaceholder": "turn:...",
+        "settingsTurnUserLabel": "ユーザー名",
+        "settingsTurnUserPlaceholder": "TURN Username",
+        "settingsTurnPassLabel": "パスワード",
+        "settingsTurnPassPlaceholder": "TURN Password",
+        "settingsTurnNote": "企業内ファイアウォールなどの影響でP2P接続が確立できない場合に設定してください。<br>Metered.ca、Twilio、CoturnなどのTURNサービスを利用できます。",
+        "settingsReadmeNote": "⚠️ 設定の詳細は <code>docs/signaling-server.md</code> を参照してください。"
     },
     "image": {
         "toast": {
@@ -83,7 +97,7 @@ I18n.register('ja', '日本語', {
         "lineCol": "行: {{line}} 列: {{col}}",
         "edit": "編集",
         "done": "完了",
-        "expandView": "拡大画面",
+        "expandView": "拡大",
         "close": "閉じる",
         "saveSvg": "SVG保存",
         "saveSvgTitle": "SVG形式で保存",
@@ -243,7 +257,8 @@ I18n.register('ja', '日本語', {
         "splitRatio": "エディタ/プレビュー比率: ",
         "splitRatioDesc": "画面分割の比率を調整",
         "language": "言語 / Language:",
-        "syntaxTheme": "シンタックスハイライトテーマ:",
+        "appTheme": "アプリのテーマ (UI):",
+        "syntaxTheme": "コードエリアのテーマ:",
         "themeLight": "明るいテーマ",
         "themeDark": "ダークテーマ (Okaidia)",
         "pdfExportLegend": "PDFエクスポート設定",
@@ -324,6 +339,10 @@ I18n.register('ja', '日本語', {
         "title": "ヘルプ",
         "tabCheatSheet": "Markdown記法",
         "tabLicense": "ライセンス",
+        "tabInitialize": "初期化",
+        "initDesc": "使い初めの状態に戻す。",
+        "initBtn": "実行",
+        "initConfirm": "アプリケーションの設定を初期化します。よろしいですか？",
         "h1": "見出し 1",
         "h2": "見出し 2",
         "bold": "太字",
@@ -513,6 +532,7 @@ I18n.register('ja', '日本語', {
         "addEndArrow": "終了矢印をつける",
         "addVertex": "頂点を追加",
         "saveToFile": "ファイルに保存",
+        "addToAnimList": "連続再生に追加",
         "cssClassPrompt": "CSSに追加するクラス名を入力してください",
         "cssClassPatternDesc": "使用可能: 半角英数字・ハイフン・アンダースコア（先頭は英字）"
     },
@@ -645,75 +665,6 @@ I18n.register('ja', '日本語', {
         "fontParseFailed": "フォントの解析に失敗しました: ${file.name}\\n${pe.message}",
         "fileReadFailedExt": "ファイルの読み込みに失敗しました: ${file.name}"
     },
-    "collab": {
-        "defaultUserName": "ユーザー",
-        "self": "自分",
-        "guest": "ゲスト",
-        "status": {
-            "connectedRoom": "接続中: ルーム「{{roomName}}」",
-            "disconnected": "未接続",
-            "waitingRoom": "待機中: ルーム「{{roomName}}」 (他のユーザーを待っています)",
-            "offline": "未接続 / オフライン",
-            "connecting": "接続を確立中..."
-        },
-        "editorLock": {
-            "title": "{{senderName}} さんが大容量ファイルを同期中です...",
-            "progress": "同期中: {{progress}}%"
-        },
-        "scan": {
-            "searching": "設定されたサーバーに接続できません。ローカルネットワーク上のサーバーを探索しています...",
-            "found": "利用可能なシグナリングサーバーが見つかりました。接続先を選択してください：",
-            "defaultServerName": "シグナリングサーバー",
-            "connectingToServer": "「{{name}}」({{url}}) に接続を試みています...",
-            "notFound": "同一ネットワーク上に利用可能なシグナリングサーバーが見つかりませんでした。",
-            "error": "探索中にエラーが発生しました。再試行してください。",
-            "notSupported": "この環境ではサーバー探索機能を利用できません。",
-            "connectFailed": "接続に失敗しました。サーバーが停止しているか、ファイアウォール設定等のネットワーク設定を確認してください。"
-        },
-        "toast": {
-            "libraryLoadFailed": "共同編集ライブラリの読み込みに失敗しました",
-            "localSyncFailed": "ローカルデータの同期に失敗しました",
-            "initFailed": "共同編集の初期化に失敗しました",
-            "started": "共同編集を開始しました: ルーム「{{roomName}}」",
-            "ended": "共同編集セッションを終了しました",
-            "sharedText": "現在のテキストをルームに共有しました",
-            "roomNotEmpty": "すでにルームにテキストが存在します",
-            "inputRoomName": "ルーム名を入力してください",
-            "connectSuccess": "シグナリングサーバーに正常に接続しました"
-        },
-        "confirm": {
-            "syncText": "ルーム内のテキストと同期しますか？\n同期すると、現在のローカルテキストは上書きされます。",
-            "restoreData": "過去のルームデータを復元しますか？\n同期すると現在のテキストは上書きされます。"
-        },
-        "title": "共同編集",
-        "tabTitle": "👥 共同編集",
-        "statusDisconnected": "未接続",
-        "statusConnected": "接続中",
-        "statusConnecting": "接続試行中...",
-        "btnRetry": "再スキャン",
-        "roomLabel": "ルーム名 ",
-        "roomNote": "（同じ名前を入力した人と接続されます）",
-        "roomPlaceholder": "例: my-document-2026",
-        "nameLabel": "表示名",
-        "namePlaceholder": "例: 山田太郎",
-        "colorLabel": "カーソルの色",
-        "btnConnect": "接続",
-        "btnDisconnect": "接続解除",
-        "settingsSignalingLegend": "シグナリングサーバー",
-        "settingsSignalingWarning": "⚠️ <strong>注意:</strong> デフォルトのシグナリングサーバー（wss://signaling.yjs.dev）は開発・テスト用の公開サーバーです。高負荷時に切断・遅延が発生する場合があります。本番利用には自前のサーバーを設定してください。",
-        "settingsSignalingLabel": "サーバーURL:",
-        "settingsSignalingPlaceholder": "wss://...",
-        "settingsSignalingNote": "Yjsに対応したWebsocketシグナリングサーバーのURLを指定してください。",
-        "settingsTurnLegend": "TURNサーバー設定 (WebRTC接続用)",
-        "settingsTurnUrlLabel": "TURNサーバーURL:",
-        "settingsTurnUrlPlaceholder": "turn:...",
-        "settingsTurnUserLabel": "ユーザー名",
-        "settingsTurnUserPlaceholder": "TURN Username",
-        "settingsTurnPassLabel": "パスワード",
-        "settingsTurnPassPlaceholder": "TURN Password",
-        "settingsTurnNote": "企業内ファイアウォールなどの影響でP2P接続が確立できない場合に設定してください。<br>Metered.ca、Twilio、CoturnなどのTURNサービスを利用できます。",
-        "settingsReadmeNote": "⚠️ 設定の詳細は <code>docs/signaling-server.md</code> を参照してください。"
-    },
     "commentPanel": {
         "title": "💬 コメント一覧",
         "unread": "未読 {{count}}件",
@@ -802,6 +753,19 @@ I18n.register('ja', '日本語', {
             "delayTitle": "アニメーション開始の遅延（マイナス値で位相をずらせます）",
             "selectElementAlert": "基準点を設定する要素を選択してください。"
         },
+        "animList": {
+            "modeBtnTitle": "再生モード切替（自動連続/ステップ）",
+            "modeAuto": "▶ 連続",
+            "modeStep": "⏭ ステップ",
+            "playBtnTitle": "連続再生の開始/停止",
+            "play": "▶ 再生",
+            "stop": "⏹ 停止",
+            "clearBtnTitle": "リストを全てクリア",
+            "clearConfirm": "アニメーションリストを全てクリアしますか？",
+            "empty": "(図形を右クリックで追加)",
+            "removeFromList": "リストから削除",
+            "noAnimWarning": "この図形にはアニメーションが設定されていません。\n先にアニメーションを設定してから追加してください。"
+        },
         "animTransform": {
             "label": "変形アニメ:",
             "none": "なし",
@@ -812,7 +776,31 @@ I18n.register('ja', '日本語', {
             "amount": "量:",
             "amountTitle": "変化量（角度、高さ、スケール）",
             "seconds": "秒:",
-            "multiple": "複数"
+            "multiple": "複数",
+            "ease": {
+                "linear": "一定",
+                "ease": "滑らか",
+                "easeIn": "徐々に",
+                "easeOut": "最後急に",
+                "easeInOut": "滑らか(強)"
+            },
+            "repeat1": "1回",
+            "repeat2": "2回",
+            "repeat3": "3回",
+            "repeatInfinite": "無限",
+            "repeatLabel": "回数:",
+            "triggerAuto": "初めから",
+            "triggerClick": "クリックしたら",
+            "triggerLabel": "開始:"
+        },
+        "animStyle": {
+            "label": "スタイルアニメ:",
+            "fadeIn": "フェードイン(徐々に表示)",
+            "fadeOut": "フェードアウト(徐々に消える)",
+            "flash": "点滅",
+            "colorFill": "塗り色変更",
+            "colorLine": "線色変更",
+            "dashDraw": "一筆書き(線の描画)"
         },
         "arrow": {
             "straight_label": "直線矢印",

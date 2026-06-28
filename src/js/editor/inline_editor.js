@@ -268,7 +268,17 @@ const InlineCodeEditor = {
             EditorView.theme({
                 "&": { height: "auto", minHeight: "60px", maxHeight: "400px" },
                 ".cm-scroller": { overflow: "auto" }
-            })
+            }),
+            keymap.of([
+                {
+                    key: "Tab",
+                    preventDefault: true,
+                    run: (view) => {
+                        view.dispatch(view.state.replaceSelection("    "));
+                        return true;
+                    }
+                }
+            ])
         ];
 
         if (isDark && oneDark) extensions.push(oneDark);
@@ -537,6 +547,11 @@ const InlineCodeEditor = {
             editBtn.classList.remove('mermaid-done-mode');
             editBtn.onclick = editBtn._originalOnclick || null;
             delete editBtn._originalOnclick;
+        }
+
+        const expandBtn = this.activeMermaidWrapper.querySelector('.btn-expand-mermaid');
+        if (expandBtn && expandBtn.classList.contains('mermaid-expand-active')) {
+            expandBtn.classList.remove('mermaid-expand-active');
         }
 
         this.activeMermaidWrapper = null;

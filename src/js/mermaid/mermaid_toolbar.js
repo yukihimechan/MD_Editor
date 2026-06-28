@@ -14,6 +14,7 @@ class MermaidToolbar extends SVGToolbarBase {
             container:   null,   // 初期コンテナなし（show()時に設定）
             borderColor: '#7B5EA7',
             position:    { top: '4px', left: '4px' },
+            isPinned:    true,
         });
 
         this._diagramWrapper = null;

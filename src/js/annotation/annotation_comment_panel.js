@@ -114,7 +114,7 @@ window.AnnotationCommentPanel = (function () {
                     targetNode = targetNode.parentNode;
                 }
             }
-            const texts = targetNode.querySelectorAll ? targetNode.querySelectorAll('text, tspan') : [];
+            const texts = targetNode.querySelectorAll ? targetNode.querySelectorAll('text') : [];
             if (texts && texts.length > 0) {
                 let t = [];
                 texts.forEach(txt => {

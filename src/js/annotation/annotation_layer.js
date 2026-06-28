@@ -186,7 +186,7 @@ window.AnnotationLayer = (function () {
     // ===== 描画機能 =====
 
     let _currentColor       = '#e74c3c';
-    let _currentStrokeWidth = 3;
+    let _currentStrokeWidth = 2;
     let _isDrawing  = false;
     let _activeShape = null;
     let _lastLoadedSVGString = null; // 同じデータの連続ロード（先祖返り）を防ぐキャッシュ
@@ -215,16 +215,11 @@ window.AnnotationLayer = (function () {
                 
                 let shapeEl = null;
                 if (target.getAttribute('data-tool-id') === 'bubble') {
-                    // SVG.jsインスタンスを取り出すかラップする
-                    const id = target.getAttribute('id');
-                    if (id) shapeEl = _draw.findOne(`#${CSS.escape(id)}`);
-                    // console.log('[AnnotationLayer] Observer hit bubble directly:', id);
+                    shapeEl = (typeof window.SVG === 'function') ? window.SVG(target) : null;
                 } else if (target.tagName.toLowerCase() === 'g') {
                     const bubbleChild = target.querySelector('[data-tool-id="bubble"]');
                     if (bubbleChild) {
-                        const id = bubbleChild.getAttribute('id');
-                        if (id) shapeEl = _draw.findOne(`#${CSS.escape(id)}`);
-                        // console.log('[AnnotationLayer] Observer hit group for bubble:', id);
+                        shapeEl = (typeof window.SVG === 'function') ? window.SVG(bubbleChild) : null;
                     }
                 }
                 
@@ -376,7 +371,7 @@ window.AnnotationLayer = (function () {
                     return "M " + (parseFloat(p1) + x) + " " + (parseFloat(p2) + y);
                 });
                 _activeShape = _draw.path(shiftedPath)
-                    .fill('none').stroke({ color, width })
+                    .fill('rgba(255, 255, 255, 0.5)').stroke({ color, width })
                     .attr({
                         'data-tool-id': 'bubble',
                         'data-tail-side': 'bottom',
@@ -659,7 +654,12 @@ window.AnnotationLayer = (function () {
         if (!previewContent) return;
 
         const bbox         = shapeEl.bbox();
-        const shapeCenterY = bbox.y + bbox.height / 2;
+        // [FIX] transform(translateY) を考慮した「見た目上の画面座標」で最も近い段落を探す
+        const t = new window.SVG.Matrix(shapeEl.attr('transform'));
+        const currentTranslateY = t.f || 0;
+        const visualY = bbox.y + currentTranslateY;
+        const shapeCenterY = visualY + bbox.height / 2;
+
         const svgRect      = _svgEl.getBoundingClientRect();
         if (svgRect.width === 0 && svgRect.height === 0) return;
 
@@ -686,9 +686,18 @@ window.AnnotationLayer = (function () {
         const paraTopInCanvas = paraRect.top - svgRect.top;
 
         let shapeId = shapeEl.id();
-        if (!shapeId) {
-            shapeId = `anno-shape-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+        if (!shapeId || shapeId.startsWith('Svgjs')) {
+            const oldId = shapeId;
+            shapeId = `anno-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
             shapeEl.id(shapeId);
+            
+            // If this is a background shape in a text group, update the text's reference
+            if (oldId && shapeEl.parent() && shapeEl.parent().attr('data-tool-id') === 'shape-text-group') {
+                const textNode = shapeEl.parent().findOne('text');
+                if (textNode && textNode.attr('data-associated-shape-id') === oldId) {
+                    textNode.attr('data-associated-shape-id', shapeId);
+                }
+            }
         }
 
         let syncId = null;
@@ -705,16 +714,17 @@ window.AnnotationLayer = (function () {
 
         // 既存エントリのコメントを引き継ぐ（再アンカー時にコメントが消えないよう）
         const existingEntry = _anchorMap.get(shapeId);
+        const actualOffsetY = visualY - paraTopInCanvas;
         _anchorMap.set(shapeId, {
             sourceLine   : sourceLine,                              // Markdown行番号（主キー）
             syncId       : syncId,                                  // 一意の同期ID（SVGやMermaid用）
             paragraphText: (nearest.textContent || '').trim().slice(0, 30), // フォールバック用
-            offsetY      : bbox.y - paraTopInCanvas,
-            initialBboxY : bbox.y,
+            offsetY      : actualOffsetY,                           // [FIX] transformedYを基準にオフセットを算出
+            initialBboxY : bbox.y,                                  // [維持] これはtransform適用前の純粋なy座標
             comment      : existingEntry ? (existingEntry.comment || '') : '' // コメントを引き継ぐ
         });
 
-        console.log(`[AnnotationLayer] アンカー設定: shape=${shapeId.slice(-8)} | line=${sourceLine} | text="${(nearest.textContent||'').trim().slice(0,10)}" | offsetY=${(bbox.y - paraTopInCanvas).toFixed(1)}`);
+        console.log(`[AnnotationLayer] アンカー設定: shape=${shapeId.slice(-8)} | line=${sourceLine} | text="${(nearest.textContent||'').trim().slice(0,10)}" | offsetY=${actualOffsetY.toFixed(1)}`);
     }
 
     /**
@@ -743,9 +753,20 @@ window.AnnotationLayer = (function () {
      */
     function _updateAllAnchorsForModifiedShapes() {
         if (!_draw) return;
-        _draw.find('[data-annotation="true"]').forEach(shapeEl => {
-            _attachNearestAnchor(shapeEl);
-        });
+        
+        // [FIX] 全図形を無条件で再アンカーすると、関係ない図形の座標計算が狂ってワープする原因になるため、
+        // 選択中（操作された）図形だけを再アンカーする。選択がない場合は安全のためスキップ。
+        if (window.currentEditingSVG && window.currentEditingSVG.selectedElements && window.currentEditingSVG.selectedElements.size > 0) {
+            window.currentEditingSVG.selectedElements.forEach(shapeEl => {
+                if (shapeEl && shapeEl.attr('data-annotation') === 'true') {
+                    _attachNearestAnchor(shapeEl);
+                } else if (shapeEl && shapeEl.node && shapeEl.node.tagName.toLowerCase() === 'g') {
+                    // グループの場合は中の data-annotation 要素を探す
+                    const target = shapeEl.findOne('[data-annotation="true"]');
+                    if (target) _attachNearestAnchor(target);
+                }
+            });
+        }
     }
 
     /**
@@ -849,18 +870,41 @@ window.AnnotationLayer = (function () {
             const paraRect = paraEl.getBoundingClientRect();
             const newParaTopInCanvas = paraRect.top - svgRect.top;
             const targetY = newParaTopInCanvas + anchor.offsetY;
-            const newTy = targetY - anchor.initialBboxY;
 
-            const t = shapeEl.transform();
-            const currentTx = t.translateX || 0;
-            const currentTy = t.translateY || 0;
+            let targetShape = shapeEl;
+            if (shapeEl.node && shapeEl.node.parentNode && shapeEl.node.parentNode.tagName.toLowerCase() === 'g') {
+                const pToolId = shapeEl.node.parentNode.getAttribute('data-tool-id');
+                if (pToolId === 'shape-text-group') {
+                    targetShape = SVG(shapeEl.node.parentNode);
+                }
+            }
+
+            // `targetShape.bbox().y` returns the untransformed native Y.
+            // If the shape was dragged and baked, `bbox().y` will correctly reflect the new native Y,
+            // preventing the shape from doubling its translation.
+            const newTy = targetY - targetShape.bbox().y;
+
+            const t = targetShape.transform();
+            const currentTx = t.translateX || t.e || 0;
+            const currentTy = t.translateY || t.f || 0;
             
-            if (Math.abs(newTy - currentTy) < 0.5) return;
-            shapeEl.transform({ translateX: currentTx, translateY: newTy });
+            if (Math.abs(newTy - currentTy) >= 0.5) {
+                targetShape.transform({ translateX: currentTx, translateY: newTy });
+            }
 
             // 吹き出しの場合、ステータスアイコンも新座標に合わせて再描画
+            let bubblePathEl = null;
             if (shapeEl.attr('data-tool-id') === 'bubble') {
-                _renderStatusIcons(shapeEl);
+                bubblePathEl = shapeEl;
+            } else if (shapeEl.node && shapeEl.node.tagName.toLowerCase() === 'g') {
+                const child = shapeEl.node.querySelector('[data-tool-id="bubble"]');
+                if (child) {
+                    bubblePathEl = (typeof window.SVG === 'function') ? window.SVG(child) : null;
+                }
+            }
+
+            if (bubblePathEl) {
+                _renderStatusIcons(bubblePathEl);
             }
         });
     }
@@ -874,10 +918,26 @@ window.AnnotationLayer = (function () {
         const toolId = shapeEl.attr('data-tool-id');
         if (toolId !== 'bubble') return;
 
-        const shapeId = shapeEl.id();
+        let shapeId = shapeEl.id();
+        
+        // グループ化されてpath自体のidが失われている場合、親のgroupからidを取得する
+        if ((!shapeId || !shapeId.startsWith('anno-')) && shapeEl.node.parentNode && shapeEl.node.parentNode.tagName.toLowerCase() === 'g') {
+            const parentId = shapeEl.node.parentNode.getAttribute('id');
+            if (parentId && parentId.startsWith('anno-')) {
+                shapeId = parentId;
+            }
+        }
         if (!shapeId) return;
 
-        // 既存アイコングループをすべて削除（過去のバグで残ったゴミも一掃する）
+        // 過去のバグで残った孤立したアイコングループをすべて掃除する
+        _draw.find('[data-status-icon="true"]').forEach(el => {
+            const targetId = el.attr('data-for-shape');
+            if (targetId && !_draw.findOne(`#${CSS.escape(targetId)}`)) {
+                el.remove();
+            }
+        });
+
+        // 既存アイコングループをすべて削除
         _draw.find(`[data-status-icon="true"][data-for-shape="${CSS.escape(shapeId)}"]`).forEach(el => el.remove());
         _draw.find(`#status-icons-${CSS.escape(shapeId)}`).forEach(el => el.remove());
 
@@ -889,49 +949,24 @@ window.AnnotationLayer = (function () {
         const readColor   = readStatus   === 'read' ? '#888' : '#e74c3c';
         const actionColor = actionStatus === 'done' ? '#27ae60' : '#e67e22';
 
-        function getTranslate(transformStr) {
-            let tx = 0, ty = 0;
-            if (!transformStr) return { tx, ty };
-            const trMatch = transformStr.match(/translate\s*\(\s*([+-]?[\d.]+)(?:\s*,\s*([+-]?[\d.]+))?\s*\)/);
-            if (trMatch) {
-                tx = parseFloat(trMatch[1]) || 0;
-                ty = parseFloat(trMatch[2]) || 0;
-            } else {
-                const matMatch = transformStr.match(/matrix\s*\(\s*([+-]?[\d.]+)\s*,\s*([+-]?[\d.]+)\s*,\s*([+-]?[\d.]+)\s*,\s*([+-]?[\d.]+)\s*,\s*([+-]?[\d.]+)\s*,\s*([+-]?[\d.]+)\s*\)/);
-                if (matMatch) {
-                    tx = parseFloat(matMatch[5]) || 0;
-                    ty = parseFloat(matMatch[6]) || 0;
-                }
-            }
-            return { tx, ty };
-        }
-
-        // bboxはtransformを考慮しないローカル座標なので、transformを加算して画面座標を得る
-        let bbox;
-        try {
-            bbox = shapeEl.bbox();
-        } catch (e) {
-            console.warn('[AnnotationLayer] bbox取得失敗:', shapeId, e);
-            return;
-        }
-        if (!bbox || (bbox.width === 0 && bbox.height === 0)) return;
-
-        const currentTransform = shapeEl.node.getAttribute('transform') || '';
-        const { tx, ty } = getTranslate(currentTransform);
-
-        let ptx = 0, pty = 0;
-        if (shapeEl.node.parentNode && shapeEl.node.parentNode.tagName.toLowerCase() === 'g') {
-            const pTransform = shapeEl.node.parentNode.getAttribute('transform') || '';
-            const parentT = getTranslate(pTransform);
-            ptx = parentT.tx;
-            pty = parentT.ty;
-            // console.log('[AnnotationLayer] Parent transform:', ptx, pty, pTransform);
-        }
-
-        const iconX = bbox.x + tx + ptx + bbox.width - 2;
-        const iconY = bbox.y + ty + pty - 2;
+        // ブラウザのレイアウトエンジン(DOM)から絶対座標を直接取得する
+        // SVG.jsのバージョンやtransformの入れ子、行列計算のバグに影響されず常に正確
+        const pathRect = shapeEl.node.getBoundingClientRect();
+        const svgRect = _svgEl.getBoundingClientRect();
         
-        // console.log(`[AnnotationLayer] _renderStatusIcons: shapeId=${shapeId}, bbox=(${bbox.x}, ${bbox.y}), tx=${tx}, ty=${ty}, ptx=${ptx}, pty=${pty}, iconX=${iconX}, iconY=${iconY}`);
+        if (svgRect.width === 0 || svgRect.height === 0) return;
+
+        // viewBoxが設定されている場合のスケール比率を計算
+        let scaleX = 1;
+        let scaleY = 1;
+        if (_svgEl.viewBox && _svgEl.viewBox.baseVal && _svgEl.viewBox.baseVal.width > 0) {
+            scaleX = _svgEl.viewBox.baseVal.width / svgRect.width;
+            scaleY = _svgEl.viewBox.baseVal.height / svgRect.height;
+        }
+
+        // SVG内の相対座標に変換（right, topがそれぞれ図形の右上角に相当）
+        const iconX = (pathRect.right - svgRect.left) * scaleX - 2;
+        const iconY = (pathRect.top - svgRect.top) * scaleY - 2;
 
         const group = _draw.group()
             .id(`status-icons-${shapeId}`)
@@ -992,28 +1027,59 @@ window.AnnotationLayer = (function () {
             if (svgData) {
                 _lastLoadedSVGString = svgData; // 保存した最新データでキャッシュを更新
                 const newBlock = `\n<!-- ANNOTATION_DATA:${svgData}-->`;
-                if (match) {
-                    const isAtEnd = match.index + match[0].length === currentText.length;
-                    if (isAtEnd) {
-                        window.updateEditorRange(match.index, match.index + match[0].length, newBlock);
+                
+                if (window.editorInstance && window.editorInstance.dispatch && window.CM6 && window.CM6.Transaction) {
+                    // [FIX] 'input' ではなく 'annotation-sync' としてトランザクションを発行することで、
+                    // editor_core.js 側の docChanged イベントで不要な shiftAnchors（行番号シフト）が
+                    // 走るのを防ぐ（ファイルの末尾が変わっただけなので、注釈自体の位置はずらしてはいけない）
+                    const annotation = window.CM6.Transaction.userEvent.of('annotation-sync');
+                    if (match) {
+                        const isAtEnd = match.index + match[0].length === currentText.length;
+                        if (isAtEnd) {
+                            window.editorInstance.dispatch({
+                                changes: { from: match.index, to: match.index + match[0].length, insert: newBlock },
+                                annotations: annotation
+                            });
+                        } else {
+                            // 既存の途中にあるコメントを削除し、常に末尾に再配置する（単一トランザクションで実行し Undo を壊さない）
+                            window.editorInstance.dispatch({
+                                changes: [
+                                    { from: match.index, to: match.index + match[0].length, insert: '' },
+                                    { from: currentText.length, insert: newBlock }
+                                ],
+                                annotations: annotation
+                            });
+                        }
                     } else {
-                        // 既存の途中にあるコメントを削除し、常に末尾に再配置する
-                        window.updateEditorRange(match.index, match.index + match[0].length, '');
-                        // CodeMirrorが同期的に更新されるため、最新のdocLengthを取得して末尾に追加する
-                        const newLen = (window.editorInstance && window.editorInstance.state) 
-                                       ? window.editorInstance.state.doc.length 
-                                       : currentText.length - match[0].length;
-                        console.log('[AnnotationLayer] 削除後の正確なdocLength:', newLen);
-                        window.updateEditorRange(newLen, newLen, newBlock);
+                        window.editorInstance.dispatch({
+                            changes: { from: currentText.length, insert: newBlock },
+                            annotations: annotation
+                        });
                     }
                 } else {
-                    const docLen = (window.editorInstance && window.editorInstance.state) 
-                                   ? window.editorInstance.state.doc.length 
-                                   : currentText.length;
-                    window.updateEditorRange(docLen, docLen, newBlock);
+                    // Fallback
+                    if (match) {
+                        const isAtEnd = match.index + match[0].length === currentText.length;
+                        if (isAtEnd) {
+                            window.updateEditorRange(match.index, match.index + match[0].length, newBlock);
+                        } else {
+                            window.updateEditorRange(match.index, match.index + match[0].length, '');
+                            const newLen = currentText.length - match[0].length;
+                            window.updateEditorRange(newLen, newLen, newBlock);
+                        }
+                    } else {
+                        window.updateEditorRange(currentText.length, currentText.length, newBlock);
+                    }
                 }
             } else if (match) {
-                window.updateEditorRange(match.index, match.index + match[0].length, '');
+                if (window.editorInstance && window.editorInstance.dispatch && window.CM6 && window.CM6.Transaction) {
+                    window.editorInstance.dispatch({
+                        changes: { from: match.index, to: match.index + match[0].length, insert: '' },
+                        annotations: window.CM6.Transaction.userEvent.of('annotation-sync')
+                    });
+                } else {
+                    window.updateEditorRange(match.index, match.index + match[0].length, '');
+                }
             }
         } finally {
             _isApplyingAnnotationToEditor = false;
@@ -1110,6 +1176,8 @@ window.AnnotationLayer = (function () {
             _svgEl.style.pointerEvents = ''; // インラインスタイルをリセットしてCSSクラスに委ねる
         }
         if (window.activeAnnotationToolbar) window.activeAnnotationToolbar.hide();
+        if (window.svgFloatingToolbar) window.svgFloatingToolbar.hide();
+        
         _unbindDrawEvents();
 
         if (window.currentEditingSVG && window.currentEditingSVG._isAnnotationLayerMock) {
@@ -1170,11 +1238,17 @@ window.AnnotationLayer = (function () {
     /** 全アノテーションを削除する */
     function clearAll() {
         if (!_draw) return;
+
+        if (typeof window.deselectAll === 'function') {
+            window.deselectAll();
+        }
+
         _draw.find('[data-annotation="true"]').forEach(el => el.remove());
         // ステータスアイコングループも削除
         _draw.find('[data-status-icon="true"]').forEach(el => el.remove());
         _history = [];
         _anchorMap.clear();
+        _lastLoadedSVGString = null;
         _notifyChange();
     }
 
@@ -1185,12 +1259,18 @@ window.AnnotationLayer = (function () {
      */
     function clearSilent() {
         if (!_draw) return;
+
+        if (typeof window.deselectAll === 'function') {
+            window.deselectAll();
+        }
+
         _draw.find('[data-annotation="true"]').forEach(el => el.remove());
         // ステータスアイコングループも残らないよう削除
         _draw.find('[data-status-icon="true"]').forEach(el => el.remove());
         _history = [];
         _anchorMap.clear();
         _prevContent = null;
+        _lastLoadedSVGString = null;
     }
 
     /**
@@ -1205,26 +1285,25 @@ window.AnnotationLayer = (function () {
         const anchorJson = JSON.stringify(Object.fromEntries(_anchorMap));
         _svgEl.setAttribute('data-anchor-map', anchorJson);
 
-        // ステータスアイコングループは保存しないよう、一時的にDOMから完全に取り除く
-        // （アイコンは毎回再生成するため、マークアップへの保存は不要かつゴミになるため）
-        const iconGroups = Array.from(_svgEl.querySelectorAll('[data-status-icon="true"]'));
-        // 親要素と、元々自分の次だった要素（挿入位置）を記憶する
-        const restoreInfo = iconGroups.map(g => ({
-            parent: g.parentNode,
-            nextSibling: g.nextSibling
-        }));
+        // 画面のDOMを直接操作するとイベントが壊れたりチラつくため、クローンを作成する
+        const clone = _svgEl.cloneNode(true);
 
-        iconGroups.forEach(g => g.remove());
+        // 一時的なUI要素（ステータスバッジ、リサイズハンドル、当たり判定用透明要素など）をクローンから一掃する
+        // これらが保存されるとテキストデータが無駄に肥大化する
+        const garbage = clone.querySelectorAll([
+            '[data-status-icon="true"]',
+            '.svg_select_handle',
+            '.svg_select_points',
+            '.svg_select_boundingRect',
+            '.svg-interaction-hitarea',
+            '.svg-select-group',
+            '.svg_select_group'
+        ].join(', '));
         
-        const html = _svgEl.outerHTML;
-        
-        // 元の正確な位置に戻す
-        iconGroups.forEach((g, i) => {
-            const info = restoreInfo[i];
-            if (info.parent) {
-                info.parent.insertBefore(g, info.nextSibling);
-            }
-        });
+        garbage.forEach(el => el.remove());
+
+        // 必要なデータ（図形本体とアンカーマップ）だけが残ったHTMLを取得する
+        const html = clone.outerHTML;
 
         return html;
     }
@@ -1236,6 +1315,11 @@ window.AnnotationLayer = (function () {
     function loadSVGData(svgString) {
         if (!_draw || !svgString) return;
         if (_lastLoadedSVGString === svgString) return; // 内容が同じなら再構築（先祖返り）をスキップ
+
+        // [FIX] SVG図形を削除する前に選択状態を解除し、リサイズハンドル（青い枠）が空中に残るのを防ぐ
+        if (typeof window.deselectAll === 'function') {
+            window.deselectAll();
+        }
 
         // 既存アノテーションとアイコングループをクリア
         _draw.find('[data-annotation="true"]').forEach(el => el.remove());
@@ -1262,7 +1346,17 @@ window.AnnotationLayer = (function () {
 
         // アノテーション要素を _svgEl に追加
         Array.from(sourceSvg.children).forEach(child => {
-            if (child.getAttribute('data-annotation') === 'true') {
+            let isAnnotation = child.getAttribute('data-annotation') === 'true';
+            
+            // 古いデータ互換性: グループ自体に data-annotation が無くても、内部の要素が持っていればアノテーションとして扱う
+            if (!isAnnotation && child.tagName.toLowerCase() === 'g') {
+                if (child.querySelector('[data-annotation="true"]')) {
+                    isAnnotation = true;
+                    child.setAttribute('data-annotation', 'true'); // 修正して保存
+                }
+            }
+
+            if (isAnnotation) {
                 // 過去のバグでMarkdown内に保存されてしまったアイコンのゴミを除去する
                 const garbageIcons = child.querySelectorAll('[data-status-icon="true"]');
                 garbageIcons.forEach(g => g.remove());
@@ -1280,8 +1374,31 @@ window.AnnotationLayer = (function () {
                 _history.push(wrapped);
 
                 // 吹き出しのステータスアイコンを復元
+                let bubbleShape = null;
                 if (wrapped.attr('data-tool-id') === 'bubble') {
-                    _renderStatusIcons(wrapped);
+                    bubbleShape = wrapped;
+                } else if (wrapped.attr('data-tool-id') === 'shape-text-group') {
+                    const innerBubbleNode = wrapped.node.querySelector('[data-tool-id="bubble"]');
+                    if (innerBubbleNode) {
+                        bubbleShape = SVG(innerBubbleNode);
+                    }
+                }
+
+                if (bubbleShape) {
+                    // 古い吹き出し（背景透過）を白の半透明に自動アップグレード
+                    if (bubbleShape.attr('fill') === 'none') {
+                        bubbleShape.fill('rgba(255, 255, 255, 0.5)');
+                    }
+                    _renderStatusIcons(bubbleShape);
+
+                    // 古いデータの場合、親の shape-text-group に data-annotation が欠落していることがあるため補完する
+                    if (wrapped.attr('data-tool-id') === 'shape-text-group' && wrapped.attr('data-annotation') !== 'true') {
+                        wrapped.attr('data-annotation', 'true');
+                    }
+                }
+
+                if (_isActive && typeof window.makeInteractive === 'function') {
+                    window.makeInteractive(wrapped);
                 }
             }
         });
@@ -1335,8 +1452,9 @@ window.AnnotationLayer = (function () {
                 if (anchor.sourceLine >= endLine) {
                     anchor.sourceLine += delta;
                 } else if (anchor.sourceLine >= startLine) {
+                    // [FIX] 編集中にドキュメントが変化した場合、古い絶対座標で再アンカーすると
+                    // ズレた要素に張り付いてしまうため、_needsReanchor は立てずに行番号のみ維持・補正する
                     anchor.sourceLine = startLine;
-                    anchor._needsReanchor = true; // 次回 updateAllAnchors で再アンカーを実行
                 }
             });
         }

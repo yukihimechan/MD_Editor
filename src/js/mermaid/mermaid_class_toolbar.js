@@ -10,7 +10,8 @@ class MermaidClassToolbar extends window.SVGToolbarBase {
         this.config = {
             position: 'top-right',
             borderColor: '#7c3aed', // 紫系（クラス図をシーケンス図と区別）
-            isGlobal: true
+            isGlobal: true,
+            isPinned: true
         };
 
         // クラス図の関係タイプ定義

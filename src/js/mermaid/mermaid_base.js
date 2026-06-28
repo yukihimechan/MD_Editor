@@ -73,6 +73,11 @@ window.MermaidBase = {
                 if (typeof InlineCodeEditor !== 'undefined') InlineCodeEditor.exitMermaidEdit();
             };
         }
+
+        const expandBtn = cbw.querySelector('.btn-expand-mermaid');
+        if (expandBtn && !expandBtn.classList.contains('mermaid-expand-active')) {
+            expandBtn.classList.add('mermaid-expand-active');
+        }
     },
 
     /**

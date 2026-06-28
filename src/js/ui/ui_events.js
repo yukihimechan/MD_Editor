@@ -26,6 +26,14 @@ function bindToolbarEvents() {
     bindButton('btn-help', openHelp);
     bindButton('btn-close-help', () => DOM.dialogHelp.close());
 
+    bindButton('btn-initialize-app', () => {
+        const confirmMsg = typeof I18n !== 'undefined' ? I18n.translate('help.initConfirm') || 'アプリケーションの設定を初期化します。よろしいですか？' : 'アプリケーションの設定を初期化します。よろしいですか？';
+        if (confirm(confirmMsg)) {
+            localStorage.clear();
+            window.location.reload();
+        }
+    });
+
     // Undo/Redo Buttons
     bindButton('btn-undo', () => {
         // Use global UndoRedoManager if available, or direct calls

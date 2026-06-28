@@ -71,8 +71,8 @@ window.MermaidExpandedManager = {
 
             .mermaid-expanded-edit-btn { background: #10b981; }
             .mermaid-expanded-edit-btn:hover { background: #059669; }
-            .mermaid-expanded-edit-btn.is-editing { background: #f59e0b; }
-            .mermaid-expanded-edit-btn.is-editing:hover { background: #d97706; }
+            .mermaid-expanded-edit-btn.is-editing { background: var(--success, #28a745); }
+            .mermaid-expanded-edit-btn.is-editing:hover { background: #218838; }
 
             .mermaid-expanded-placeholder {
                 width: 100%; min-height: 200px;
