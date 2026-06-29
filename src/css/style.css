@@ -515,8 +515,9 @@ textarea#editor {
 
 /* Preview */
 #preview-pane {
-    background: var(--bg);
+    background: var(--header-bg);
     overflow-y: auto;
+    display: block;
 }
 
 #preview {
@@ -527,6 +528,9 @@ textarea#editor {
     color: var(--fg);
     position: relative;
     z-index: 0;
+    background: var(--bg);
+    min-height: 100%;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.05);
 }
 
 /* ===== スライド改ページ位置の表示ライン ===== */
