@@ -13,7 +13,7 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
             isSwapped: true
         });
         this.onValueChange = options.onValueChange || (() => { });
-        this.animations = [{ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: '1', trigger: 'auto' }];
+        this.animations = [{ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: '1', trigger: 'auto', step: 1 }];
         this.rowInputs = [];
         this.colorPickers = []; // Keep track of pickers to destroy them
 
@@ -67,6 +67,8 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
                 <option value="none">${t('svgEditor.animTransform.none') || 'なし'}</option>
                 <option value="fade-in">${t('svgEditor.animStyle.fadeIn') || 'フェードイン(徐々に表示)'}</option>
                 <option value="fade-out">${t('svgEditor.animStyle.fadeOut') || 'フェードアウト(徐々に消える)'}</option>
+                <option value="slide-in">${t('svgEditor.animStyle.slideIn') || 'スライドイン'}</option>
+                <option value="slide-out">${t('svgEditor.animStyle.slideOut') || 'スライドアウト'}</option>
                 <option value="flash">${t('svgEditor.animStyle.flash') || '点滅'}</option>
                 <option value="color-fill">${t('svgEditor.animStyle.colorFill') || '塗り色変更'}</option>
                 <option value="color-line">${t('svgEditor.animStyle.colorLine') || '線色変更'}</option>
@@ -92,13 +94,25 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
             
             amountWrap.appendChild(colorContainer);
 
+            const arrows = {
+                'top-left': '↖', 'top': '↑', 'top-right': '↗',
+                'left': '←', 'center': '・', 'right': '→',
+                'bottom-left': '↙', 'bottom': '↓', 'bottom-right': '↘'
+            };
+            const directionContainer = document.createElement('div');
+            directionContainer.style.cssText = `width: 20px; height: 20px; padding: 0; border: 1px solid var(--svg-toolbar-input-border); background: var(--svg-toolbar-input-bg); border-radius: 3px; cursor: pointer; display: none; align-items: center; justify-content: center; font-size: 14px; line-height: 1; color: var(--svg-toolbar-fg); box-sizing: border-box;`;
+            amountWrap.appendChild(directionContainer);
+
             // 値の同期用内部変数
             let currentColorAmount = anim.amount || '#ff0000';
+            let currentDirectionAmount = anim.amount || 'left';
+            if (!arrows[currentDirectionAmount]) currentDirectionAmount = 'left';
 
             const updateAmountUI = () => {
                 const val = typeSelect.value;
                 if (val === 'color-fill' || val === 'color-line') {
                     colorContainer.style.display = 'block';
+                    directionContainer.style.display = 'none';
                     colorBg.style.background = currentColorAmount;
                     if (val === 'color-line') {
                         colorBg.style.border = `2px solid ${currentColorAmount}`;
@@ -107,11 +121,56 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
                         colorBg.style.border = 'none';
                         colorBg.style.background = currentColorAmount;
                     }
+                } else if (val === 'slide-in' || val === 'slide-out') {
+                    colorContainer.style.display = 'none';
+                    directionContainer.style.display = 'flex';
+                    directionContainer.textContent = arrows[currentDirectionAmount] || '←';
                 } else {
                     colorContainer.style.display = 'none';
+                    directionContainer.style.display = 'none';
                 }
             };
             
+            directionContainer.onclick = (e) => {
+                e.stopPropagation();
+                if (document.querySelector('.direction-picker-popup')) {
+                    document.querySelector('.direction-picker-popup').remove();
+                }
+                const popup = document.createElement('div');
+                popup.className = 'direction-picker-popup';
+                popup.style.cssText = 'position:absolute; background:var(--svg-toolbar-bg, #fff); border:1px solid var(--svg-toolbar-border, #ccc); border-radius:4px; padding:4px; display:grid; grid-template-columns:repeat(3, 1fr); gap:2px; z-index:10000; box-shadow:0 2px 5px rgba(0,0,0,0.2);';
+                
+                Object.keys(arrows).forEach(key => {
+                    const btn = document.createElement('button');
+                    btn.textContent = arrows[key];
+                    btn.style.cssText = 'width:24px; height:24px; background:none; border:1px solid transparent; border-radius:3px; cursor:pointer; font-size:14px; display:flex; align-items:center; justify-content:center; padding:0; color:var(--svg-toolbar-fg, #000);';
+                    if (key === currentDirectionAmount) btn.style.background = 'var(--svg-toolbar-active-bg, rgba(0,0,0,0.1))';
+                    btn.onmouseover = () => btn.style.background = 'var(--svg-toolbar-hover-bg, rgba(0,0,0,0.05))';
+                    btn.onmouseout = () => { if (key !== currentDirectionAmount) btn.style.background = 'none'; else btn.style.background = 'var(--svg-toolbar-active-bg, rgba(0,0,0,0.1))'; };
+                    btn.onclick = (ev) => {
+                        ev.stopPropagation();
+                        currentDirectionAmount = key;
+                        updateAmountUI();
+                        this.handleUIChange();
+                        popup.remove();
+                    };
+                    popup.appendChild(btn);
+                });
+                
+                const rect = directionContainer.getBoundingClientRect();
+                popup.style.top = `${rect.bottom + window.scrollY + 2}px`;
+                popup.style.left = `${rect.left + window.scrollX}px`;
+                document.body.appendChild(popup);
+                
+                const closePopup = (ev) => {
+                    if (!popup.contains(ev.target)) {
+                        popup.remove();
+                        document.removeEventListener('mousedown', closePopup);
+                    }
+                };
+                setTimeout(() => document.addEventListener('mousedown', closePopup), 10);
+            };
+
             // Color Picker Initialization
             if (typeof ColorPickerUI !== 'undefined') {
                 let isInitializingPicker = true;
@@ -188,12 +247,27 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
             `;
             triggerSelect.value = anim.trigger || 'auto';
 
+            // アニメーションNo (Step)
+            const stepWrap = document.createElement('div');
+            stepWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
+            stepWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;" title="${t('svgEditor.animTransform.stepTitle') || '同じNoのアニメーションは同時に再生されます'}">No:</span>`;
+            const stepInput = document.createElement('input');
+            stepInput.type = 'number';
+            stepInput.style.width = '35px';
+            stepInput.style.textAlign = 'right';
+            stepInput.value = anim.step || 1;
+            stepInput.min = '1';
+            stepInput.step = '1';
+            stepWrap.appendChild(stepInput);
+
             // 初期化呼び出し
             updateAmountUI();
 
             const getAmountValue = () => {
                 if (typeSelect.value === 'color-fill' || typeSelect.value === 'color-line') {
                     return currentColorAmount;
+                } else if (typeSelect.value === 'slide-in' || typeSelect.value === 'slide-out') {
+                    return currentDirectionAmount;
                 }
                 return '';
             };
@@ -205,12 +279,13 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
                 easeSelect,
                 repeatSelect,
                 triggerSelect,
+                stepInput,
                 updateAmountUI
             };
             this.rowInputs.push(inputs);
 
             // イベントリスナー
-            [typeSelect, durInput, easeSelect, repeatSelect, triggerSelect].forEach(el => {
+            [typeSelect, durInput, easeSelect, repeatSelect, triggerSelect, stepInput].forEach(el => {
                 el.addEventListener('change', () => {
                     if (el === typeSelect) updateAmountUI();
                     this.handleUIChange();
@@ -218,7 +293,7 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
             });
 
             // Prevent drag propagation
-            [durInput, typeSelect, easeSelect, repeatSelect, triggerSelect].forEach(el => {
+            [durInput, typeSelect, easeSelect, repeatSelect, triggerSelect, stepInput].forEach(el => {
                 el.addEventListener('mousedown', e => e.stopPropagation());
             });
 
@@ -228,6 +303,7 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
             row.appendChild(easeSelect);
             row.appendChild(repeatSelect);
             row.appendChild(triggerSelect);
+            row.appendChild(stepWrap);
             
             // 削除ボタン
             if (this.animations.length > 1) {
@@ -250,7 +326,7 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
                 addBtn.title = t('svgEditor.animTransform.addTitle') || 'アニメーションを追加';
                 addBtn.style.cssText = 'background:transparent; border:none; color:#4CAF50; cursor:pointer; font-weight:bold; margin-left:4px; padding:0 4px;';
                 addBtn.onclick = () => {
-                    this.animations.push({ type: 'none', amount: '', dur: '1.0', easing: 'ease-in-out', repeat: '1', trigger: 'auto' });
+                    this.animations.push({ type: 'none', amount: '', dur: '1.0', easing: 'ease-in-out', repeat: '1', trigger: 'auto', step: 1 });
                     this.renderContents();
                 };
                 row.appendChild(addBtn);
@@ -271,9 +347,10 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
             const easing = inputs.easeSelect.value;
             const repeat = inputs.repeatSelect.value;
             const trigger = inputs.triggerSelect.value;
+            const step = parseInt(inputs.stepInput.value) || 1;
 
             if (type !== 'none' && !isNaN(dur) && dur > 0 && !seenTypes.has(type)) {
-                validAnimations.push({ type, amount, dur, easing, repeat, trigger });
+                validAnimations.push({ type, amount, dur, easing, repeat, trigger, step });
                 seenTypes.add(type);
             }
         });
@@ -284,7 +361,8 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
             dur: inputs.durInput.value,
             easing: inputs.easeSelect.value,
             repeat: inputs.repeatSelect.value,
-            trigger: inputs.triggerSelect.value
+            trigger: inputs.triggerSelect.value,
+            step: parseInt(inputs.stepInput.value) || 1
         }));
 
         if (window.currentEditingSVG && window.currentEditingSVG.selectedElements) {
@@ -292,7 +370,7 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
                 const animData = typeof SvgAnimationManager !== 'undefined' ? SvgAnimationManager.getAnimationData(el) : {};
 
                 // 古いスタイルアニメーションの削除
-                ['fade-in', 'fade-out', 'flash', 'color-fill', 'color-line', 'dash-draw'].forEach(t => {
+                ['fade-in', 'fade-out', 'slide-in', 'slide-out', 'flash', 'color-fill', 'color-line', 'dash-draw'].forEach(t => {
                     if (animData[t] && !seenTypes.has(t)) {
                         if (typeof SvgAnimationManager !== 'undefined') SvgAnimationManager.removeAnimation(el, t);
                     }
@@ -309,6 +387,7 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
                             easing: anim.easing,
                             repeat: anim.repeat,
                             trigger: anim.trigger,
+                            step: anim.step,
                             delay: currentTiming.delay || 0
                         });
                     }
@@ -334,7 +413,7 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
         const firstEl = selectedElements[0];
         const animData = typeof SvgAnimationManager !== 'undefined' ? SvgAnimationManager.getAnimationData(firstEl) : {};
 
-        const appliedTypes = ['fade-in', 'fade-out', 'flash', 'color-fill', 'color-line', 'dash-draw'].filter(t => animData[t]);
+        const appliedTypes = ['fade-in', 'fade-out', 'slide-in', 'slide-out', 'flash', 'color-fill', 'color-line', 'dash-draw'].filter(t => animData[t]);
         
         this.animations = [];
         if (appliedTypes.length > 0) {
@@ -346,11 +425,12 @@ class SVGAnimationStyleToolbar extends SVGToolbarBase {
                     dur: data.dur,
                     easing: data.easing,
                     repeat: data.repeat || '1',
-                    trigger: data.trigger || 'auto'
+                    trigger: data.trigger || 'auto',
+                    step: data.step || 1
                 });
             });
         } else {
-            this.animations = [{ type: 'none', amount: '', dur: '1.0', easing: 'ease-in-out', repeat: '1', trigger: 'auto' }];
+            this.animations = [{ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: '1', trigger: 'auto', step: 1 }];
         }
 
         this.renderContents();

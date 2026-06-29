@@ -97,6 +97,23 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
         contentArea.appendChild(durWrap);
         this.inputs['dur'] = durInput;
 
+        // アニメーションNo (Step)
+        const stepWrap = document.createElement('div');
+        stepWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
+        stepWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;" title="${t('svgEditor.animPath.stepTitle') || '同じNoのアニメーションは同時に再生されます'}">No:</span>`;
+        const stepInput = document.createElement('input');
+        stepInput.type = 'number';
+        stepInput.style.width = '35px';
+        stepInput.style.textAlign = 'right';
+        stepInput.value = '1';
+        stepInput.min = '1';
+        stepInput.step = '1';
+        stepInput.addEventListener('change', () => this.handleParamsChange());
+        stepInput.addEventListener('keydown', (e) => e.stopPropagation());
+        stepWrap.appendChild(stepInput);
+        contentArea.appendChild(stepWrap);
+        this.inputs['step'] = stepInput;
+
         // 解除ボタン
         const removeBtn = document.createElement('button');
         removeBtn.innerHTML = t('svgEditor.animPath.removeBtn') || '❌ 解除';
@@ -247,12 +264,14 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
 
         const dur = parseFloat(this.inputs['dur'].value) || 4.0;
         const autoRotate = this.inputs['autoRotate'].checked;
+        const step = parseInt(this.inputs['step'].value) || 1;
 
         // モーションパス適用
         SvgAnimationManager.applyMotionPathAnimation(this.activeElement, {
             pathId,
             dur,
-            autoRotate
+            autoRotate,
+            step
         });
     }
 
@@ -308,6 +327,7 @@ class SVGAnimationPathToolbar extends SVGToolbarBase {
                 foundPath = data.pathId;
                 foundDur = data.dur;
                 foundRotate = data.autoRotate;
+                if (data.step !== undefined) this.inputs['step'].value = data.step;
             }
         } else {
             this.activeElement = null;

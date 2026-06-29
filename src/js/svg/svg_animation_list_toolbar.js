@@ -82,6 +82,25 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
         contentArea.appendChild(playBtn);
         this._playBtn = playBtn;
 
+        // ===== 次へボタン (ステップ再生用) =====
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'svg-anim-list-next-btn';
+        nextBtn.title = t('svgEditor.animList.nextBtnTitle') || '次のアニメーションを実行 (Spaceキー)';
+        nextBtn.innerHTML = '⏭ 次へ';
+        nextBtn.style.cssText = 'padding: 2px 6px; font-size: 10px; cursor: pointer; border-radius: 4px; border: 1px solid var(--svg-toolbar-border); white-space: nowrap; display: none; margin-left: 2px;';
+        nextBtn.addEventListener('click', () => {
+            if (this.isPlaying && !this.isAutoMode) {
+                this.stepIndex++;
+                if (this.stepIndex >= this.sequenceList.length) {
+                    this.stopPlay();
+                } else {
+                    this._fireStepAnimation(this.stepIndex);
+                }
+            }
+        });
+        contentArea.appendChild(nextBtn);
+        this._nextBtn = nextBtn;
+
         // ===== 全クリアボタン =====
         const clearBtn = document.createElement('button');
         clearBtn.title = t('svgEditor.animList.clearBtnTitle') || 'リストを全てクリア';
@@ -145,7 +164,7 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
         // 右上の番号バッジ
         const badge = document.createElement('span');
         badge.className = 'svg-anim-list-badge';
-        badge.textContent = (index + 1).toString();
+        badge.textContent = (item.step !== undefined ? item.step : (index + 1)).toString();
         badge.style.cssText = `
             position: absolute; top: -5px; right: -5px;
             min-width: 14px; height: 14px; line-height: 14px;
@@ -159,7 +178,8 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
         // ツールチップ
         const tagName = item.node.tagName ? item.node.tagName.toLowerCase() : '?';
         const elemId = item.node.id || '';
-        wrapper.title = `#${index + 1}: ${tagName}${elemId ? ' (' + elemId + ')' : ''}`;
+        const stepText = item.step !== undefined ? `No ${item.step}` : `#${index + 1}`;
+        wrapper.title = `${stepText}: ${tagName}${elemId ? ' (' + elemId + ')' : ''}`;
 
         // クリックで対象図形をハイライト/選択
         wrapper.addEventListener('click', (e) => {
@@ -281,17 +301,66 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
         const previewEl = document.getElementById('preview');
         if (previewEl) previewEl.classList.add('playing-sequence');
 
+        console.log(`[StepPlay] startPlay: mode=${this.isAutoMode ? 'auto' : 'step'}, items=${this.sequenceList.length}`);
+
         if (this.isAutoMode) {
             this._playAutoSequence();
         } else {
+            this._pauseAllAnimationsForStepMode();
             this._playStepSequence();
         }
+    }
+
+    /**
+     * ラッパー要素のdata属性からアニメーションCSS文字列を再構築する
+     * ※ style.animation のショートハンド読み取りはブラウザ依存で壊れるため、
+     *   data属性から毎回組み立てる
+     */
+    _buildAnimationString(wrapper) {
+        const name = wrapper.getAttribute('data-anim-name');
+        const dur = wrapper.getAttribute('data-anim-dur') || '1';
+        const easing = wrapper.getAttribute('data-anim-easing') || 'ease-in-out';
+        const delay = wrapper.getAttribute('data-anim-delay') || '0';
+        const repeat = wrapper.getAttribute('data-anim-repeat') || '1';
+        // fill-mode は both 固定（SvgAnimationManager の実装に合わせる）
+        return `${name} ${dur}s ${easing} ${delay}s ${repeat} normal both`;
+    }
+
+    /**
+     * ステップ再生用にすべてのアニメーションを一時停止状態にする
+     */
+    _pauseAllAnimationsForStepMode() {
+        const processedWrappers = new Set();
+        this.sequenceList.forEach((item) => {
+            const node = item.node;
+            if (!node || !node.isConnected) return;
+            
+            let curr = node;
+            while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
+                const classes = curr.getAttribute('class') || '';
+                if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion') && !processedWrappers.has(curr)) {
+                    processedWrappers.add(curr);
+                    const animName = curr.getAttribute('data-anim-name');
+                    // anim-step-active を除去して、CSSルールによるpausedを有効にする
+                    curr.classList.remove('anim-step-active');
+                    // Step1: アニメーションを完全に除去
+                    curr.style.animation = 'none';
+                    void curr.getBoundingClientRect(); // 強制リフロー
+                    // Step2: data属性からアニメーション文字列を再構築し、paused状態で設定
+                    const animStr = this._buildAnimationString(curr);
+                    curr.style.animation = `${animStr} paused`;
+                    console.log(`[StepPlay] pause wrapper: name=${animName}, step=${curr.getAttribute('data-anim-step')}, anim="${curr.style.animation}"`);
+                }
+                curr = curr.parentNode;
+            }
+        });
     }
 
     /**
      * 再生を停止する
      */
     stopPlay() {
+        console.log('[StepPlay] stopPlay called');
         this.isPlaying = false;
         this.stepIndex = 0;
         this._updatePlayButton();
@@ -324,6 +393,10 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
             : (t('svgEditor.animList.play') || '▶ 再生');
         this._playBtn.style.background = this.isPlaying ? 'rgba(230, 81, 0, 0.15)' : '';
         this._playBtn.style.color = this.isPlaying ? '#E65100' : '';
+        
+        if (this._nextBtn) {
+            this._nextBtn.style.display = (this.isPlaying && !this.isAutoMode) ? 'inline-block' : 'none';
+        }
     }
 
     /**
@@ -336,32 +409,39 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
         let cumulativeDelay = 0;
         this.sequenceList.forEach((item) => {
             const node = item.node;
+            const targetStep = item.step || 1;
             if (!node || !node.isConnected) return;
+
+            // Stepに属するアニメーションの最大durを取得
             const animData = SvgAnimationManager.getAnimationData(node);
-            const types = Object.keys(animData);
-            if (types.length === 0) return;
-            const firstType = types[0];
-            const data = animData[firstType];
-            if (!data) return;
-            const dur = data.dur || 1;
+            let maxDur = 0;
+            Object.values(animData).forEach(data => {
+                if (data && (data.step || 1) === targetStep) {
+                    if (data.dur > maxDur) maxDur = data.dur;
+                }
+            });
+            if (maxDur === 0) maxDur = 1;
 
             let curr = node;
             while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
                 const classes = curr.getAttribute('class') || '';
                 if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion')) {
-                    curr.setAttribute('data-anim-delay', cumulativeDelay);
-                    curr.style.animationDelay = `${cumulativeDelay}s`;
-                    if (refreshStyles) {
-                        const currentAnimation = curr.style.animation;
-                        curr.style.animation = 'none';
-                        void curr.getBoundingClientRect();
-                        curr.style.animation = currentAnimation;
+                    const wrapperStep = parseInt(curr.getAttribute('data-anim-step')) || 1;
+                    if (wrapperStep === targetStep) {
+                        curr.setAttribute('data-anim-delay', cumulativeDelay);
                         curr.style.animationDelay = `${cumulativeDelay}s`;
+                        if (refreshStyles) {
+                            const currentAnimation = curr.style.animation;
+                            curr.style.animation = 'none';
+                            void curr.getBoundingClientRect();
+                            curr.style.animation = currentAnimation;
+                            curr.style.animationDelay = `${cumulativeDelay}s`;
+                        }
                     }
                 }
                 curr = curr.parentNode;
             }
-            cumulativeDelay += dur;
+            cumulativeDelay += maxDur;
         });
         return cumulativeDelay;
     }
@@ -377,12 +457,16 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
             const node = item.node;
             if (!node || !node.isConnected) return;
             let delay = 0;
+            const targetStep = item.step || 1;
             let curr = node;
             while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
                 const classes = curr.getAttribute('class') || '';
                 if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion')) {
-                    delay = parseFloat(curr.getAttribute('data-anim-delay') || '0');
-                    break;
+                    const wrapperStep = parseInt(curr.getAttribute('data-anim-step')) || 1;
+                    if (wrapperStep === targetStep) {
+                        delay = parseFloat(curr.getAttribute('data-anim-delay') || '0');
+                        break;
+                    }
                 }
                 curr = curr.parentNode;
             }
@@ -410,6 +494,7 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
      * 指定インデックスの図形のアニメーションを発火させる
      */
     _fireStepAnimation(index) {
+        console.log(`[StepPlay] _fireStepAnimation: index=${index}, total=${this.sequenceList.length}`);
         if (index < 0 || index >= this.sequenceList.length) {
             this.stopPlay();
             return;
@@ -417,33 +502,46 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
 
         const item = this.sequenceList[index];
         const node = item.node;
+        const targetStep = item.step || 1;
+        console.log(`[StepPlay] target: id=${item.id}, step=${targetStep}`);
+
         if (!node || !node.isConnected) {
             this.stepIndex++;
             this._fireStepAnimation(this.stepIndex);
             return;
         }
 
-        // アニメーションラッパーにフォーカスを当てて発火する（click trigger対応）
-        let wrapper = node.closest('[class*="anim-wrapper-"]');
-        if (wrapper) {
-            // CSS Trigger方式: フォーカスを当てる
-            if (wrapper.getAttribute('tabindex') !== null) {
-                wrapper.focus();
-            }
-            let curr = node;
-            while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
-                const classes = curr.getAttribute('class') || '';
-                if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion')) {
-                    // 通常再生方式: アニメーションをリスタート
-                    const currentAnimation = curr.style.animation;
+        // 対象Stepに一致するラッパーを探して発火する
+        let curr = node;
+        let fired = false;
+        while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
+            const classes = curr.getAttribute('class') || '';
+            if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion')) {
+                const wrapperStep = parseInt(curr.getAttribute('data-anim-step')) || 1;
+                const animName = curr.getAttribute('data-anim-name');
+                if (wrapperStep === targetStep) {
+                    // renderer.js のグローバルCSSルールが
+                    // `[data-anim-sequence-mode="step"] :not(.anim-step-active) { animation-play-state: paused !important }`
+                    // を持つため、anim-step-active クラスを付与しないとCSSに上書きされる
+                    curr.classList.add('anim-step-active');
+
+                    // Step1: アニメーションを完全に除去
                     curr.style.animation = 'none';
-                    // 強制リフロー (SVG要素にoffsetHeightは無いためgetBoundingClientRectを使用)
-                    void curr.getBoundingClientRect();
-                    curr.style.animation = currentAnimation;
-                    curr.style.animationDelay = '0s'; // ステップ再生時は即時開始
+                    void curr.getBoundingClientRect(); // 強制リフロー
+                    // Step2: data属性からアニメーション文字列を再構築し、running・delay=0で設定
+                    const animStr = this._buildAnimationString(curr);
+                    const parts = animStr.split(' ');
+                    parts[3] = '0s'; // delay を 0s に変更して即時再生
+                    curr.style.animation = parts.join(' ');
+                    console.log(`[StepPlay]   FIRED: name=${animName}, computedPlayState=${getComputedStyle(curr).animationPlayState}`);
+                    fired = true;
                 }
-                curr = curr.parentNode;
             }
+            curr = curr.parentNode;
+        }
+
+        if (!fired) {
+            console.warn(`[StepPlay] No matching wrapper found for index=${index}, id=${item.id}, step=${targetStep}`);
         }
 
         // ツールバー上のハイライト更新
@@ -520,6 +618,7 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
      * 全図形のアニメーションをリセット（元のDelay値に復元）
      */
     _resetAllAnimations() {
+        console.log('[StepPlay] _resetAllAnimations');
         this.sequenceList.forEach(item => {
             const node = item.node;
             if (!node || !node.isConnected) return;
@@ -528,8 +627,11 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
             while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
                 const classes = curr.getAttribute('class') || '';
                 if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion')) {
-                    const originalDelay = curr.getAttribute('data-anim-delay') || '0';
-                    curr.style.animationDelay = `${originalDelay}s`;
+                    // anim-step-active を除去してステップ状態をクリアする
+                    curr.classList.remove('anim-step-active');
+                    // data属性からアニメーション文字列を完全に再構築する
+                    const animStr = this._buildAnimationString(curr);
+                    curr.style.animation = animStr;
                 }
                 curr = curr.parentNode;
             }
@@ -561,14 +663,32 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
             node.setAttribute('id', randId);
         }
 
-        // 既に登録済みでないか確認
-        const exists = this.sequenceList.some(item => item.id === node.id);
-        if (exists) {
-            console.log('[AnimList] Element already in sequence:', node.id);
+        // アニメーションデータからユニークなStep（No）を抽出
+        const steps = new Set();
+        Object.values(animData).forEach(data => {
+            if (data && data.step !== undefined) {
+                steps.add(data.step);
+            }
+        });
+
+        // デフォルト値のフォールバック
+        if (steps.size === 0) steps.add(1);
+
+        let addedCount = 0;
+        steps.forEach(step => {
+            // 同じ図形・同じStepが既に登録済みでないか確認
+            const exists = this.sequenceList.some(item => item.id === node.id && item.step === step);
+            if (!exists) {
+                this.sequenceList.push({ id: node.id, node: node, step: step });
+                addedCount++;
+            }
+        });
+
+        if (addedCount === 0) {
+            console.log('[AnimList] All steps of Element already in sequence:', node.id);
             return;
         }
 
-        this.sequenceList.push({ id: node.id, node: node });
         this._renderListItems();
         this._saveToSvg();
         this._updateVisibility();
@@ -712,9 +832,9 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
         if (!window.currentEditingSVG || !window.currentEditingSVG.draw) return;
         const svgNode = window.currentEditingSVG.draw.node;
 
-        const ids = this.sequenceList.map(item => item.id);
-        if (ids.length > 0) {
-            svgNode.setAttribute('data-anim-sequence', JSON.stringify(ids));
+        const seqData = this.sequenceList.map(item => ({ id: item.id, step: item.step || 1 }));
+        if (seqData.length > 0) {
+            svgNode.setAttribute('data-anim-sequence', JSON.stringify(seqData));
         } else {
             svgNode.removeAttribute('data-anim-sequence');
         }
@@ -743,11 +863,24 @@ class SVGAnimationListToolbar extends SVGToolbarBase {
 
         if (seqAttr) {
             try {
-                const ids = JSON.parse(seqAttr);
-                ids.forEach(id => {
-                    const node = svgNode.querySelector('#' + CSS.escape(id));
-                    if (node) {
-                        this.sequenceList.push({ id, node });
+                const parsed = JSON.parse(seqAttr);
+                parsed.forEach(entry => {
+                    let id, step;
+                    if (typeof entry === 'string') {
+                        // 後方互換性：古い形式 ['id1', 'id2']
+                        id = entry;
+                        step = 1;
+                    } else if (entry && entry.id) {
+                        // 新しい形式 [{id: 'id1', step: 1}]
+                        id = entry.id;
+                        step = entry.step || 1;
+                    }
+                    
+                    if (id) {
+                        const node = svgNode.querySelector('#' + CSS.escape(id));
+                        if (node) {
+                            this.sequenceList.push({ id, node, step });
+                        }
                     }
                 });
             } catch (e) {

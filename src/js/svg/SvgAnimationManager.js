@@ -96,8 +96,13 @@ class SvgAnimationManager {
      * @returns {string} @keyframes文字列
      */
     static generateKeyframeCss(animName, type, amount) {
-        if (amount === undefined || amount === null || isNaN(amount)) {
+        if (amount === undefined || amount === null) {
             console.warn(`[SvgAnimationManager] Invalid amount: ${amount}`);
+            return '';
+        }
+        const isStringAmountType = ['color-fill', 'color-line', 'slide-in', 'slide-out', 'fade-in', 'fade-out', 'flash'].includes(type);
+        if (!isStringAmountType && isNaN(amount)) {
+            console.warn(`[SvgAnimationManager] Invalid numeric amount for ${type}: ${amount}`);
             return '';
         }
         switch (type) {
@@ -150,6 +155,33 @@ class SvgAnimationManager {
   75% { transform: scale(${squeeze}, ${amount}); }
 }`;
             // --- スタイルアニメーション ---
+            case 'slide-in':
+            case 'slide-out':
+                // amount には方向（'left', 'top-right' など）が入る
+                let dist = 50; // デフォルトの移動距離(px)
+                let tx = 0, ty = 0;
+                if (amount === 'left') tx = -dist;
+                else if (amount === 'right') tx = dist;
+                else if (amount === 'top') ty = -dist;
+                else if (amount === 'bottom') ty = dist;
+                else if (amount === 'top-left') { tx = -dist; ty = -dist; }
+                else if (amount === 'top-right') { tx = dist; ty = -dist; }
+                else if (amount === 'bottom-left') { tx = -dist; ty = dist; }
+                else if (amount === 'bottom-right') { tx = dist; ty = dist; }
+                else if (amount === 'center') { tx = 0; ty = 0; }
+                else { tx = -dist; } // デフォルトは左から
+                
+                if (type === 'slide-in') {
+                    return `@keyframes ${animName} {
+  0% { transform: translate(${-tx}px, ${-ty}px); opacity: 0; }
+  100% { transform: translate(0, 0); opacity: 1; }
+}`;
+                } else {
+                    return `@keyframes ${animName} {
+  0% { transform: translate(0, 0); opacity: 1; }
+  100% { transform: translate(${tx}px, ${ty}px); opacity: 0; }
+}`;
+                }
             case 'fade-in':
                 return `@keyframes ${animName} {
   0% { opacity: 0; }
@@ -201,7 +233,7 @@ class SvgAnimationManager {
         const svgNode = domNode.ownerSVGElement;
         if (!svgNode) return;
 
-        const { type, amount, dur, delay = 0, easing = 'ease-in-out', originX, originY, repeat = 'infinite', trigger = 'auto' } = params;
+        const { type, amount, dur, delay = 0, easing = 'ease-in-out', originX, originY, repeat = 'infinite', trigger = 'auto', step = 1 } = params;
 
         // すでに該当の種類でラップされているか確認
         let wrapper = domNode.closest(`.anim-wrapper-${type}`);
@@ -249,6 +281,7 @@ class SvgAnimationManager {
         wrapper.setAttribute('data-anim-easing', easing);
         wrapper.setAttribute('data-anim-repeat', repeat);
         wrapper.setAttribute('data-anim-trigger', trigger);
+        wrapper.setAttribute('data-anim-step', step);
 
         // 基準点（originX, originY）の解決
         let resolvedX = originX;
@@ -299,7 +332,7 @@ class SvgAnimationManager {
             wrapper.style.transformOrigin = '';
         }
 
-        const isStyleAnimation = ['fade-in', 'fade-out', 'flash', 'color-fill', 'color-line', 'dash-draw'].includes(type);
+        const isStyleAnimation = ['fade-in', 'fade-out', 'slide-in', 'slide-out', 'flash', 'color-fill', 'color-line', 'dash-draw'].includes(type);
         const fillMode = (isStyleAnimation && repeat !== 'infinite') ? ' both' : '';
 
         // Triggerの処理
@@ -387,7 +420,7 @@ class SvgAnimationManager {
         const svgNode = domNode.ownerSVGElement;
         if (!svgNode) return;
 
-        const { pathId, dur, autoRotate = true } = params;
+        const { pathId, dur, autoRotate = true, step = 1 } = params;
 
         let wrapper = domNode.closest('.anim-wrapper-motion');
         let shiftGroup = null;
@@ -462,6 +495,7 @@ class SvgAnimationManager {
         wrapper.setAttribute('data-anim-dur', dur);
         wrapper.setAttribute('data-motion-path', pathId);
         wrapper.setAttribute('data-motion-rotate', autoRotate ? 'auto' : 'none');
+        wrapper.setAttribute('data-anim-step', step);
 
         if (window.syncChanges) window.syncChanges();
         return wrapper;
@@ -524,24 +558,28 @@ class SvgAnimationManager {
             const match = classes.match(/anim-wrapper-([a-z-]+)/);
             if (match) {
                 const type = match[1];
+                const step = parseInt(curr.getAttribute('data-anim-step')) || 1;
                 if (type === 'motion') {
                     result['motion'] = {
                         pathId: curr.getAttribute('data-motion-path'),
                         dur: parseFloat(curr.getAttribute('data-anim-dur')),
-                        autoRotate: curr.getAttribute('data-motion-rotate') === 'auto'
+                        autoRotate: curr.getAttribute('data-motion-rotate') === 'auto',
+                        step: step
                     };
                 } else {
                     const rawAmount = curr.getAttribute('data-anim-amount');
+                    const isStringAmount = ['color-fill', 'color-line', 'slide-in', 'slide-out'].includes(type);
                     result[type] = {
                         type: type,
-                        amount: (type === 'color-fill' || type === 'color-line') ? rawAmount : parseFloat(rawAmount),
+                        amount: isStringAmount ? rawAmount : parseFloat(rawAmount),
                         dur: parseFloat(curr.getAttribute('data-anim-dur')),
                         delay: parseFloat(curr.getAttribute('data-anim-delay') || 0),
                         easing: curr.getAttribute('data-anim-easing') || 'ease-in-out',
                         originX: parseFloat(curr.getAttribute('data-origin-x')),
                         originY: parseFloat(curr.getAttribute('data-origin-y')),
                         repeat: curr.getAttribute('data-anim-repeat') || 'infinite',
-                        trigger: curr.getAttribute('data-anim-trigger') || 'auto'
+                        trigger: curr.getAttribute('data-anim-trigger') || 'auto',
+                        step: step
                     };
                 }
             }

@@ -13,7 +13,7 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
             isSwapped: true
         });
         this.onValueChange = options.onValueChange || (() => { });
-        this.animations = [{ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: 'infinite', trigger: 'auto' }];
+        this.animations = [{ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: 'infinite', trigger: 'auto', step: 1 }];
         this.rowInputs = [];
 
         this.createToolbar();
@@ -134,6 +134,19 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
             triggerSelect.value = anim.trigger || 'auto';
             triggerWrap.appendChild(triggerSelect);
 
+            // アニメーションNo (Step)
+            const stepWrap = document.createElement('div');
+            stepWrap.style.cssText = 'display:flex; align-items:center; gap:2px; margin:0 2px;';
+            stepWrap.innerHTML = `<span style="color:var(--svg-toolbar-fg); font-size:10px; opacity:0.7;" title="${t('svgEditor.animTransform.stepTitle') || '同じNoのアニメーションは同時に再生されます'}">No:</span>`;
+            const stepInput = document.createElement('input');
+            stepInput.type = 'number';
+            stepInput.style.width = '35px';
+            stepInput.style.textAlign = 'right';
+            stepInput.value = anim.step || 1;
+            stepInput.min = '1';
+            stepInput.step = '1';
+            stepWrap.appendChild(stepInput);
+
             typeSelect.addEventListener('change', () => {
                 if (typeSelect.value !== 'none' && !amountInput.value) {
                     amountInput.value = this.getDefaultAmountForType(typeSelect.value);
@@ -151,6 +164,8 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
             easeSelect.addEventListener('change', () => this.handleUIChange());
             repeatSelect.addEventListener('change', () => this.handleUIChange());
             triggerSelect.addEventListener('change', () => this.handleUIChange());
+            stepInput.addEventListener('change', () => this.handleUIChange());
+            stepInput.addEventListener('keydown', (e) => e.stopPropagation());
 
             row.appendChild(typeSelect);
             row.appendChild(this.createSeparator());
@@ -159,6 +174,7 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
             row.appendChild(easeSelect);
             row.appendChild(repeatWrap);
             row.appendChild(triggerWrap);
+            row.appendChild(stepWrap);
 
             // 削除ボタン
             if (this.animations.length > 1) {
@@ -181,7 +197,7 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
                 addBtn.title = t('svgEditor.animTransform.addTitle') || 'アニメーションを追加';
                 addBtn.style.cssText = 'background:transparent; border:none; color:#4CAF50; cursor:pointer; font-weight:bold; margin-left:4px; padding:0 4px;';
                 addBtn.onclick = () => {
-                    this.animations.push({ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: 'infinite', trigger: 'auto' });
+                    this.animations.push({ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: 'infinite', trigger: 'auto', step: 1 });
                     this.renderContents();
                 };
                 row.appendChild(addBtn);
@@ -195,7 +211,8 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
                 dur: durInput,
                 easing: easeSelect,
                 repeat: repeatSelect,
-                trigger: triggerSelect
+                trigger: triggerSelect,
+                step: stepInput
             });
         });
     }
@@ -221,9 +238,10 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
             const easing = inputs.easing.value;
             const repeat = inputs.repeat.value;
             const trigger = inputs.trigger.value;
+            const step = parseInt(inputs.step.value) || 1;
 
             if (type !== 'none' && !isNaN(amount) && !isNaN(dur) && dur > 0 && !seenTypes.has(type)) {
-                validAnimations.push({ type, amount, dur, easing, repeat, trigger });
+                validAnimations.push({ type, amount, dur, easing, repeat, trigger, step });
                 seenTypes.add(type);
             }
         });
@@ -235,7 +253,8 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
             dur: inputs.dur.value,
             easing: inputs.easing.value,
             repeat: inputs.repeat.value,
-            trigger: inputs.trigger.value
+            trigger: inputs.trigger.value,
+            step: parseInt(inputs.step.value) || 1
         }));
 
         if (window.currentEditingSVG && window.currentEditingSVG.selectedElements) {
@@ -259,6 +278,7 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
                         easing: anim.easing,
                         repeat: anim.repeat,
                         trigger: anim.trigger,
+                        step: anim.step,
                         delay: currentTiming.delay || 0,
                         originX: currentTiming.originX,
                         originY: currentTiming.originY
@@ -299,11 +319,12 @@ class SVGAnimationTransformToolbar extends SVGToolbarBase {
                     dur: data.dur,
                     easing: data.easing,
                     repeat: data.repeat || 'infinite',
-                    trigger: data.trigger || 'auto'
+                    trigger: data.trigger || 'auto',
+                    step: data.step || 1
                 });
             });
         } else {
-            this.animations = [{ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: 'infinite', trigger: 'auto' }];
+            this.animations = [{ type: 'none', amount: '', dur: '', easing: 'ease-in-out', repeat: 'infinite', trigger: 'auto', step: 1 }];
         }
 
         this.renderContents();
