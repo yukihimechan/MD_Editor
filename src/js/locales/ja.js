@@ -797,6 +797,8 @@ I18n.register('ja', '日本語', {
             "label": "スタイルアニメ:",
             "fadeIn": "フェードイン(徐々に表示)",
             "fadeOut": "フェードアウト(徐々に消える)",
+            "slideIn": "スライドイン",
+            "slideOut": "スライドアウト",
             "flash": "点滅",
             "colorFill": "塗り色変更",
             "colorLine": "線色変更",

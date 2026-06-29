@@ -2047,10 +2047,16 @@ function initTableCellCopy() {
             };
 
             copyTextToClipboard(text).then(() => {
-                const originalText = copyBtn.textContent;
+                const originalText = typeof I18n !== 'undefined' ? I18n.translate("code.copyButton") : "コピー";
                 copyBtn.textContent = typeof I18n !== 'undefined' ? I18n.translate("code.copiedButton") : "コピーしました!";
-                setTimeout(() => {
+                
+                if (copyBtn._copyTimeout) {
+                    clearTimeout(copyBtn._copyTimeout);
+                }
+                
+                copyBtn._copyTimeout = setTimeout(() => {
                     copyBtn.textContent = originalText;
+                    copyBtn._copyTimeout = null;
                 }, 2000);
             }).catch(err => {
                 console.error('Failed to copy cell text:', err);

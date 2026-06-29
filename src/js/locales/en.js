@@ -804,6 +804,8 @@ I18n.register('en', 'English', {
             "label": "Style Anim:",
             "fadeIn": "Fade In",
             "fadeOut": "Fade Out",
+            "slideIn": "Slide In",
+            "slideOut": "Slide Out",
             "flash": "Flash",
             "colorFill": "Fill Color Change",
             "colorLine": "Line Color Change",

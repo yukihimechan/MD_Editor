@@ -38,7 +38,7 @@ function exportHTMLFile() {
     });
 
     // 余分なUI要素や編集用の枠を完全に削除
-    previewClone.querySelectorAll('.code-controls, .svg_select_handle, .svg_select_shape, .svg-canvas-proxy, .svg-editor-action-btn, #svg-editor-done-btn, #svg-editor-expand-btn, #table-editor-done-btn, .btn-unwrap-svg, .btn-save-svg, .btn-wrap-svg, .btn-save-mermaid, .btn-expand-mermaid, .copy-btn, .code-edit-btn, .language-label').forEach(el => el.remove());
+    previewClone.querySelectorAll('.code-controls, .svg_select_handle, .svg_select_shape, .svg-canvas-proxy, .svg-editor-action-btn, #svg-editor-done-btn, #svg-editor-expand-btn, #table-editor-done-btn, .btn-unwrap-svg, .btn-save-svg, .btn-wrap-svg, .btn-save-mermaid, .btn-expand-mermaid, .copy-btn, .code-edit-btn, .language-label, .drag-handle, .dummy-height-block, .table-row-resizer, .table-col-resizer, .column-resize-handle, .row-resize-handle').forEach(el => el.remove());
     
     // 編集中のクラス名（緑の点線枠など）を削除
     previewClone.querySelectorAll('.svg-editing, .table-editing').forEach(el => {
@@ -47,6 +47,17 @@ function exportHTMLFile() {
 
     // 内部用のカスタム要素を削除
     previewClone.querySelectorAll('connector-data').forEach(el => el.remove());
+
+    // [FIX] アニメーションの再生状態をクリーンアップ（エディタでステップ再生した後の残留状態を除去）
+    previewClone.querySelectorAll('.anim-step-active').forEach(el => {
+        el.classList.remove('anim-step-active');
+    });
+    previewClone.querySelectorAll('[data-anim-current-index]').forEach(el => {
+        el.removeAttribute('data-anim-current-index');
+    });
+    previewClone.querySelectorAll('[data-current-step-index]').forEach(el => {
+        el.removeAttribute('data-current-step-index');
+    });
 
     const contentHtml = previewClone.innerHTML;
 
@@ -61,28 +72,41 @@ function exportHTMLFile() {
     const stepAnimationScript = '<script>\n' + `
 document.addEventListener('keydown', function(e) {
     if (e.code === 'Space') {
-        const svgs = document.querySelectorAll('svg[data-anim-sequence-mode="step"]');
-        let played = false;
-        for (const svg of svgs) {
-            const seqStr = svg.getAttribute('data-anim-sequence');
+        var svgs = document.querySelectorAll('svg[data-anim-sequence-mode="step"]');
+        var played = false;
+        for (var s = 0; s < svgs.length; s++) {
+            var svg = svgs[s];
+            var seqStr = svg.getAttribute('data-anim-sequence');
             if (!seqStr) continue;
-            let seq = [];
+            var seq = [];
             try { seq = JSON.parse(seqStr); } catch (err) { continue; }
             
-            let currentIndex = parseInt(svg.getAttribute('data-anim-current-index') || '0', 10);
+            var currentIndex = parseInt(svg.getAttribute('data-anim-current-index') || '0', 10);
             
             if (currentIndex < seq.length) {
                 e.preventDefault();
-                const targetId = seq[currentIndex];
-                const targetNode = svg.querySelector('[id="' + targetId + '"]');
+                var entry = seq[currentIndex];
+                // 新フォーマット({id, step})と旧フォーマット(文字列)の両方に対応
+                var targetId = typeof entry === 'object' ? entry.id : entry;
+                var targetStep = typeof entry === 'object' ? (entry.step || 1) : 1;
+                var targetNode = svg.querySelector('[id="' + targetId + '"]');
                 if (targetNode) {
-                    let curr = targetNode;
+                    var curr = targetNode;
                     while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
-                        const classes = curr.getAttribute('class') || '';
-                        if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion')) {
-                            curr.classList.remove('anim-step-active');
-                            void curr.getBoundingClientRect(); // reflow
-                            curr.classList.add('anim-step-active');
+                        var classes = curr.getAttribute('class') || '';
+                        if (classes.indexOf('anim-wrapper-') >= 0 && classes.indexOf('anim-wrapper-motion') < 0) {
+                            var wrapperStep = parseInt(curr.getAttribute('data-anim-step') || '1', 10);
+                            if (wrapperStep === targetStep) {
+                                curr.classList.remove('anim-step-active');
+                                var animName = curr.getAttribute('data-anim-name');
+                                var dur = curr.getAttribute('data-anim-dur') || '1';
+                                var easing = curr.getAttribute('data-anim-easing') || 'ease-in-out';
+                                var repeat = curr.getAttribute('data-anim-repeat') || '1';
+                                curr.style.animation = 'none';
+                                void curr.getBoundingClientRect();
+                                curr.style.animation = animName + ' ' + dur + 's ' + easing + ' 0s ' + repeat + ' normal both';
+                                curr.classList.add('anim-step-active');
+                            }
                         }
                         curr = curr.parentNode;
                     }
@@ -91,7 +115,7 @@ document.addEventListener('keydown', function(e) {
                 played = true;
                 
                 // 要素が見える位置にスクロール
-                const rect = svg.getBoundingClientRect();
+                var rect = svg.getBoundingClientRect();
                 if (rect.top < 0 || rect.bottom > window.innerHeight) {
                     svg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
@@ -292,7 +316,7 @@ document.addEventListener('keydown', function(e) {
     </style>
 </head>
 <body>
-    <div id="preview" class="md-preview">
+    <div id="preview" class="md-preview playing-sequence">
         ${contentHtml}
     </div>
     ${stepAnimationScript}

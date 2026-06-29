@@ -593,10 +593,11 @@ const SlideManager = {
                 e.stopImmediatePropagation();
 
                 // [NEW] Sequence step mode handling
-                if ((e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'Enter' || e.code === 'ArrowDown') && this.slides && this.currentIndex >= 0 && this.currentIndex < this.slides.length) {
-                    const currentSlide = this.slides[this.currentIndex];
+                if ((e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'Enter' || e.code === 'ArrowDown') && this.content) {
                     let stepHandled = false;
-                    const svgs = currentSlide.querySelectorAll('svg');
+                    // DOM上に表示中のスライドから検索する（this.content = #slideshow-content）
+                    const svgs = this.content.querySelectorAll('svg');
+                    console.log(`[SlideStep] key=${e.code}, svgs=${svgs.length}`);
                     svgs.forEach(svg => {
                         if (svg.getAttribute('data-anim-sequence-mode') === 'step') {
                             const seqAttr = svg.getAttribute('data-anim-sequence');
@@ -605,16 +606,29 @@ const SlideManager = {
                                 const seq = JSON.parse(seqAttr);
                                 let currentIndex = parseInt(svg.getAttribute('data-current-step-index') || '0', 10);
                                 if (currentIndex < seq.length) {
-                                    const targetId = seq[currentIndex];
+                                    const entry = seq[currentIndex];
+                                    // 新フォーマット({id, step})と旧フォーマット(文字列)の両方に対応
+                                    const targetId = typeof entry === 'object' ? entry.id : entry;
+                                    const targetStep = typeof entry === 'object' ? (entry.step || 1) : 1;
                                     const targetNode = svg.querySelector(`[id="${targetId}"]`);
                                     if (targetNode) {
                                         let curr = targetNode;
                                         while (curr && curr.tagName && curr.tagName.toLowerCase() !== 'svg') {
                                             const classes = curr.getAttribute('class') || '';
                                             if (classes.includes('anim-wrapper-') && !classes.includes('anim-wrapper-motion')) {
-                                                curr.classList.remove('anim-step-active');
-                                                void curr.getBoundingClientRect(); // reflow
-                                                curr.classList.add('anim-step-active');
+                                                const wrapperStep = parseInt(curr.getAttribute('data-anim-step')) || 1;
+                                                if (wrapperStep === targetStep) {
+                                                    curr.classList.remove('anim-step-active');
+                                                    // アニメーションを再起動するためにdata属性から再構築
+                                                    const animName = curr.getAttribute('data-anim-name');
+                                                    const dur = curr.getAttribute('data-anim-dur') || '1';
+                                                    const easing = curr.getAttribute('data-anim-easing') || 'ease-in-out';
+                                                    const repeat = curr.getAttribute('data-anim-repeat') || '1';
+                                                    curr.style.animation = 'none';
+                                                    void curr.getBoundingClientRect(); // reflow
+                                                    curr.style.animation = `${animName} ${dur}s ${easing} 0s ${repeat} normal both`;
+                                                    curr.classList.add('anim-step-active');
+                                                }
                                             }
                                             curr = curr.parentNode;
                                         }
